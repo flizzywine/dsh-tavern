@@ -3,25 +3,23 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from './fixtures/client-vm.mjs'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
-import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
+import { createCardOpeningRuntime } from '../tavern-plugin/lib/domain/card-opening-runtime.js'
 
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 
-test('留空时开局请求、开场预览和保存的玩家称呼使用同一个全局默认值', async () => {
+test('留空时开局请求、开场预览和保存的玩家称呼使用同一个全局默认值', async t => {
   const fixture = initializationFixture()
   fixture.state.settings.defaultPlaySettings = { playerName: '水野涟' }
   const initialization = fixture.make()
-  const plugin = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-  const preview = vm.runInNewContext(plugin.slice(plugin.indexOf('  async function getCardOpenings('), plugin.indexOf('  function presentUserPreferenceProfile(')) + '\ngetCardOpenings', {
+  const { getCardOpenings: preview, openingPreparation } = createCardOpeningRuntime({
     readCard: async () => fixture.card,
     readTavernSettings: async () => fixture.state.settings,
     readCardExtensions: async () => ({}),
     tavernRemoteAssets: { pinExtensions: async () => ({}) },
     requestPerformance: { stage: (_, run) => run() },
-    performance, performanceDiagnostics: { opening() {} }, console: { info() {} },
-    projectCardOpeningPreviews, projectTavernHelperScripts: () => ({ scripts: [] }),
-    str: value => String(value ?? ''),
+    performanceDiagnostics: { opening() {} },
   })
+  t.after(() => openingPreparation.dispose())
   const adapter = source.slice(source.indexOf('createChat: async function (request, sessionId)'), source.indexOf('rememberPending: setPendingOpen'))
   const { createChat } = vm.runInNewContext('({' + adapter + '})', {
     call: async (method, request) => {

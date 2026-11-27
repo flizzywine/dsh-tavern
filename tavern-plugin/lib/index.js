@@ -5,13 +5,12 @@ import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {selectSessionModel} from './domain/session-model-selection.js'
 import { promptSection } from './domain/prompt-section.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
-import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {mvuConditionHolds} from './domain/mvu-visibility.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import {createReplyStreamRewriters} from './domain/reply-stream-rewrite.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
-import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
+import { createModelSlotRuntime } from './domain/model-slot-runtime.js'
 import { isWorldBookTemplateEntry, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import { createSkillTextContext } from './domain/skill-text-context.js'
 import { resolveWorldbookSkillChat } from './domain/worldbook-skill-scope.js'
@@ -86,16 +85,13 @@ import { createStoryTranscriptReader, storyTranscriptMessageFields } from './dom
 import { createHelperHistoryAccess } from './domain/helper-history-access.js'
 import { isScopedMessages } from './domain/scoped-messages.js'
 import {registerVariableReadTool} from './domain/read-variables.js'
-import { createBackgroundSessionRetirement, installRetiredBackgroundFilter, installRetiredCatalogView } from './domain/background-session-retirement.js'
-import { createBackgroundCatalogBackfill } from './domain/background-catalog.js'
-import { createBranchOriginRepair } from './domain/branch-origin-repair.js'
-import { createDirectorDescriptorRepair } from './domain/director-descriptor-repair.js'
+import { installBackgroundSessionLifecycle } from './domain/background-session-lifecycle.js'
+import { startLegacySessionRepairs } from './domain/legacy-session-repairs.js'
 import { createGameTitles } from './domain/game-titles.js'
 import { createCardMemory, CARD_MEMORY_TOOLS } from '../packages/dsh-tavern-card-memory/index.js'
 import { installSkillCatalogSessionScope } from './domain/skill-catalog-session-scope.js'
 import { projectCardSummary } from './domain/card-preparation.js'
 import { createCardSummaryCache } from './domain/card-summary-cache.js'
-import { openingPreviewPayload } from './domain/opening-transport.js'
 import { createLiveCardUpdate } from './domain/live-card-update.js'
 import { createSessionViewReader, createSessionChatReader } from './domain/session-view-reader.js'
 import { createSettlementJobs } from './domain/settlement-jobs.js'
@@ -127,9 +123,7 @@ import { STYLE_REFERENCE_TOOL_NAME } from './domain/style-reference-protocol.cjs
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
 import { createGameplayApi } from './gameplay-api.js'
-import { cardOpeningChoices } from './domain/card-openings.js'
 import { projectCardPageOpening } from './domain/card-page-opening.js'
-import { marked } from 'marked'
 import { resolveAgentCompaction, compactNativePlayIfNeeded } from './agent-compaction.js'
 import { warnCompactionPressureOnce } from './domain/compaction-pressure-guard.js'
 import { compactForegroundIfNeeded } from './domain/foreground-compaction.js'
@@ -141,8 +135,7 @@ import { createBackgroundSuppressionReader } from './domain/background-surface.j
 import { ensureCardWorkspaceMessage } from './domain/card-workspace-message.js'
 import { createPromptTemplateGlobalVariables } from './domain/prompt-template-global-variables.js'
 import { createTavernApiDiagnostics } from './domain/tavern-api-diagnostics.js'
-import { generateHelper, generateHelperRaw, defaultOrderedRawConfig } from './domain/helper-generation.js'
-import { validateHelperGenerateConfig, resolveHelperGenerationPreset } from './domain/helper-generation-prompts.js'
+import { resolveHelperGenerationPreset } from './domain/helper-generation-prompts.js'
 import { createHelperGenerationTasks } from './domain/helper-generation-tasks.js'
 import { createBodyEditor } from './domain/body-editor.js'
 import { createMessageDeletion } from './domain/message-deletion.js'
@@ -151,9 +144,9 @@ import { userMessageForTurn, requestIdForTurn, requestIdForMessages } from './do
 import { createStoryReconciliation } from './domain/story-reconciliation.js'
 import { sessionOpeningDescriptor } from './domain/session-opening.js'
 import { scriptPromptScanText } from './domain/tavern-script-prompts.js'
-import { createOpeningPreparation } from './domain/opening-preparation.js'
+import { createCardOpeningRuntime } from './domain/card-opening-runtime.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
-import { chatHistoryScriptText } from './domain/chat-history-import.js'
+import { createScriptLibrary } from './domain/script-library.js'
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -183,7 +176,6 @@ import { createCardPreparation,rawData } from './domain/card-preparation.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
 import { withoutPlayerChoices } from './domain/card-export-settings.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
-import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
 import { createConversationForkRuntime } from './domain/conversation-fork-runtime.js'
 import { readBackgroundModelReasoning } from './domain/background-model-selection.js'
@@ -197,7 +189,7 @@ import { createSessionSignalTransport } from './domain/session-signal-transport.
 import { createCandidateTasks } from './domain/candidate-tasks.js'
 import { createAutoChoices } from './domain/auto-choices.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
-import { extractEpubText } from './domain/epub-text.js'
+import { prepareTextImport } from './domain/text-resource-import.js'
 import { createFileResourceStore, normalizeResourcePath } from './domain/file-resources.js'
 import { createMobileCardImport } from './domain/mobile-card-import.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
@@ -272,7 +264,7 @@ import { installLlmAdapterPatches, installToolProtocolFetchPatch } from './domai
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, HELPER_MESSAGE_COLD_WINDOW } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
-import { projectTavernHelperScripts, hasTavernScriptRuntime } from './domain/tavern-helper-scripts.js'
+import { hasTavernScriptRuntime } from './domain/tavern-helper-scripts.js'
 import { createCardScripts } from './card-scripts.js'
 import { projectCardStage } from './domain/card-stage.js'
 import { createTavernScriptDispatch } from './domain/tavern-script-dispatch.js'
@@ -340,13 +332,13 @@ import { createProfileDataStore, TAVERN_SETTINGS_PATH } from './profile-data-sto
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
-import { normalizeBackgroundTasks, applyTavernSettingsPatch, conversationUsesExpandedCandidates, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
+import { normalizeBackgroundTasks, conversationUsesExpandedCandidates } from './domain/tavern-settings.js'
+import { createTavernSettingsRuntime } from './domain/tavern-settings-runtime.js'
 import { registerModelSamplingHook } from './hooks/model-sampling.js'
 import { createSettingsTransfer } from './domain/settings-transfer.js'
 import { createSystemPromptDocuments } from './domain/system-prompt-documents.js'
 // Runtime reads go through runtimePrompt() so panel overrides apply; the raw
 // file catalog only supplies built-in defaults.
-import { prompt as promptFile, SYSTEM_PROMPT_NAMES } from './prompt-catalog.js'
 import { activeCardPersonaText } from './domain/card-personas.js'
 import { createMaintenanceHandlers } from './rpc/maintenance.js'
 import { createCardHandlers } from './rpc/cards.js'
@@ -575,28 +567,18 @@ export async function apply(ctx) {
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
-  let tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
+  const tavernSettings = await createTavernSettingsRuntime({ profileData, llm })
+  const { readTavernSettings, readRawTavernSettings, updateTavernSettings, runtimePrompt } = tavernSettings
   const tavernStaticResources = createTavernStaticResourceCache({
     rootDir: dataRoot + '/cache/static-assets',
     verifyHostname(url) {
-      const configured = tavernSettingsDocument?.allowCdnFakeIp
+      const configured = tavernSettings.snapshot()?.allowCdnFakeIp
       return verifyPublicHostname(url, undefined, typeof configured === 'boolean' ? configured : undefined)
     }
   })
   const promptTemplateGlobalVariables = createPromptTemplateGlobalVariables(profileData)
   const readPromptTemplateGlobalVariables = promptTemplateGlobalVariables.read
   const writePromptTemplateGlobalVariables = promptTemplateGlobalVariables.save
-  function promptDefaults() {
-    return Object.fromEntries(SYSTEM_PROMPT_NAMES.map(function (name) { return [name, promptFile(name)] }))
-  }
-  async function readTavernSettings() {
-    return presentTavernSettings(await readRawTavernSettings(), promptDefaults())
-  }
-  // Import dedupe needs the stored overrides; the presented settings drop them for inactive sets.
-  async function readRawTavernSettings() {
-    tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
-    return tavernSettingsDocument
-  }
   async function readExpandedCandidates(chat) {
     const legacy = typeof chat?.candidateTabs === 'boolean' ? undefined : (await readRawTavernSettings())?.candidateTabs
     return conversationUsesExpandedCandidates(chat, legacy)
@@ -604,22 +586,6 @@ export async function apply(ctx) {
   async function extractConfiguredForegroundChoices(text, context) {
     const expanded = text.toLowerCase().includes(FOREGROUND_CHOICES_OPEN_TAG) && await readExpandedCandidates(context.chat)
     return extractForegroundStoryChoices(text, { ...context, expanded })
-  }
-  async function updateTavernSettings(patch, { beforeWrite } = {}) {
-    if (patch && (Object.hasOwn(patch, 'backgroundModel') || Object.hasOwn(patch, 'backgroundTasks') || Object.hasOwn(patch, 'webSearchEnabled'))) throw new Error('后台配置已移至顶栏的本局设置')
-    for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel', 'defaultCompactionModel']) {
-      if (patch?.[name] != null) await llm.resolveCallConfig(patch[name])
-    }
-    tavernSettingsDocument = await profileData.updateJson(TAVERN_SETTINGS_PATH, async function (current) {
-      const next = applyTavernSettingsPatch(current, patch)
-      await beforeWrite?.(current)
-      return next
-    })
-    return presentTavernSettings(tavernSettingsDocument, promptDefaults())
-  }
-  function runtimePrompt(name) {
-    if (name === 'system-append' && tavernSettingsDocument?.systemAppendEnabled === false) return ''
-    return resolveSystemPrompt(tavernSettingsDocument, name, promptFile)
   }
   ctx.inject(['settings'], async sctx => { await clearRetiredSearchProvider(sctx.settings) })
   const promptDocuments = createSystemPromptDocuments()
@@ -797,8 +763,11 @@ export async function apply(ctx) {
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
   installPluginSettingsMigration(ctx)
   // 舞台的素材与判断（stage-module.js）。
-  const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
-  ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
+  const { modelSlots, registerCore, scoringCatalog, slotDeclarations, resolveSlot, checkSlotSelection } = createModelSlotRuntime({
+    readTavernSettings, backgroundConfigForSession, llm, modelSelection: (...args) => modelSelection(...args),
+    warn: error => console.warn('dsh-tavern: 模型槽读取失败', error?.message)
+  })
+  ctx.effect(registerCore)
   const clientAssets = createTavernClientAssets()
   ctx.provide('tavernClientAssets', clientAssets)
   // hostLibrary: the core helpers a mod may use (lib/mod-library.js holds their one list; a mod never imports core files).
@@ -817,27 +786,6 @@ export async function apply(ctx) {
   const { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel } = createModelCalls({
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
-  function scoringCatalog() {return [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model}))}
-  async function slotDeclarations(context) {
-    return modelSlots.rows(context)
-  }
-  async function resolveSlot(modId, slotId, sessionId, declaration) {
-    const slot = declaration || (await modelSlots.rows()).find(row => row.modId === modId && row.id === slotId)
-    if (!slot) throw new Error('模型槽未启用')
-    const settings = await readTavernSettings(), chat = sessionId ? await backgroundConfigForSession(sessionId) || {} : {}
-    return resolveModelSlotOffered({slot,modId,chat,settings,foreground:sessionId ? modelSelection(sessionId, false) : null,defaultModel:slot.kind === 'scoring' ? null : modelSelection(),scoringConfig:modelSlots.scoring()},
-      async selection => (await readBackgroundModelReasoning(llm, selection))?.efforts)
-  }
-  async function checkSlotSelection({modId,slotId,selection}, context) {
-    const slot = (await modelSlots.rows(context)).find(row=>row.modId===modId && row.id===slotId)
-    if (!slot) throw new Error('模型槽未启用')
-    if (selection === null) return
-    if (slot.kind === 'scoring') {
-      const config = modelSlots.scoring()
-      if (!config || selection.provider !== config.provider || selection.model !== config.model) throw new Error('请选择已配置的概率判断模型')
-    } else { const {reasoningEffort, ...route} = selection; await llm.resolveCallConfig(reasoningEffort === null ? route : selection) }
-  }
-
   // ---------- 角色卡 ----------
   const { readIndex, writeIndex, updateIndex, readLinks, updateLinks } = createConversationIndexStore({ dataRoot, store: profileData })
   const updateCard = createCardEditor({ readCardWorkspace, cardPreparation, fileResources, bumpCardProjectionRevision, syncCardName,
@@ -956,63 +904,7 @@ export async function apply(ctx) {
     return composeTavernRegexScripts(extensions, presetRegexScripts(header), header?.regexOverrides?.preset)
   }
   const readScript = createScriptReader({ resources: fileResources, version: path => profileData.version('resources/' + path) })
-  function prepareTextImport(payload, emptyMessage) {
-    const source = payload !== null && typeof payload === 'object' ? payload : {}
-    const name = str(source.name).trim()
-    const isEpub = /\.epub$/i.test(name) || str(source.type).toLowerCase() === 'application/epub+zip'
-    let text
-    let originalText
-    if (isEpub) {
-      const encoded = str(source.fileB64).replace(/\s+/g, '')
-      if (encoded === '') throw new Error('EPUB 文件内容为空')
-      if (!/^[a-z0-9+/]*={0,2}$/i.test(encoded) || encoded.length % 4 !== 0) throw new Error('EPUB 文件编码无效')
-      text = extractEpubText(Buffer.from(encoded, 'base64'))
-    } else {
-      originalText = str(source.text)
-      text = originalText
-    }
-    text = text.replace(/\r\n?/g, '\n').trim()
-    if (text === '') throw new Error(emptyMessage)
-    return Object.assign({}, source, { name, text, ...(originalText === undefined ? {} : { originalText }) })
-  }
-  function prepareScriptImport(payload) {
-    const prepared = prepareTextImport(payload, '剧本文件为空')
-    if (/\.jsonl$/i.test(prepared.name)) {
-      return { ...prepared, text: chatHistoryScriptText(prepared.originalText ?? prepared.text) }
-    }
-    return prepared
-  }
-  async function importScript(cardPath, payload) {
-    const prepared = prepareScriptImport(payload)
-    await fileResources.importBoundScript(cardPath, prepared)
-    const script = await readScript(cardPath)
-    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length, importedAt: Date.now() }
-  }
-  async function bindScript(cardPath, materialPath) {
-    await fileResources.bindMaterial(cardPath, materialPath)
-    const script = await readScript(cardPath)
-    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length }
-  }
-  async function deleteScript(cardPath) {
-    await fileResources.unbindMaterial(cardPath)
-    return { unbound: true }
-  }
-  // ---------- 剧本（可独立保存，也可与人物卡一对一绑定） ----------
-  async function readSource(sourcePath) {
-    return readScript(normalizeResourcePath(sourcePath, 'source'))
-  }
-  async function listSources() {
-    return await Promise.all((await fileResources.list('source')).map(async function (sourcePath) {
-      const source = await readSource(sourcePath)
-      return { path: sourcePath, title: source.title, sourceChars: source.sourceChars, chunkCount: source.chunks.length }
-    }))
-  }
-  async function importSource(payload) {
-    const prepared = prepareScriptImport(payload)
-    const sourcePath = await fileResources.importText('source', prepared)
-    const record = await readSource(sourcePath)
-    return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
-  }
+  const { importScript, bindScript, deleteScript, readSource, listSources, importSource } = createScriptLibrary({ fileResources, readScript })
   const presetLibrary = createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport })
   const { read: readPreset, readDocument: readPresetDocument, preview: previewPreset,
     import: importPreset, editor: presetEditor, runtime: runtimePresets } = presetLibrary
@@ -1220,7 +1112,8 @@ export async function apply(ctx) {
   } catch (error) { console.warn('dsh-tavern: 核对存档登记失败', error?.message || error) }
   // A play conversation takes this install's background and feature configuration once (reader adoption, save import).
   function adoptConversationConfiguration(chat) {
-    return adoptConversationFeatures(adoptConversationBackground(chat, tavernSettingsDocument), tavernSettingsDocument)
+    const settings = tavernSettings.snapshot()
+    return adoptConversationFeatures(adoptConversationBackground(chat, settings), settings)
   }
   const sessionChats = createSessionChatReader({
     registry: conversationRegistry,
@@ -1512,70 +1405,11 @@ export async function apply(ctx) {
       load: digest => presetLibrary.snapshotDocuments.load(digest), readPreset, readDocument: readPresetDocument
     })
   }
-  const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance,
-    // the card's extensions with its remote script assets pinned, as getCardOpenings reads them (openingSetup included)
-    readRuntimeExtensions: async cardPath => { const extensions = await readCardExtensions(cardPath); return { ...extensions, ...await tavernRemoteAssets.pinExtensions(extensions) } },
-    generateRaw: (config, context) => defaultOrderedRawConfig(config) ? openingGenerate(defaultOrderedRawConfig(config), context)
-      : generateHelperRaw(config, { ...context, callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) }),
-    generate: (config, context) => openingGenerate(config, context)
+  const { openingPreparation, getCardOpenings } = createCardOpeningRuntime({
+    readCard, worldBooks, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
+    helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics
   })
-  async function openingGenerate(config, context) {
-    validateHelperGenerateConfig(config)
-    const presetSnapshot = await helperGenerationPreset(config.preset_name, context.presetSnapshot)
-    const activeSnapshot = config.preset_name && config.preset_name !== 'in_use'
-      ? await helperGenerationPreset('in_use', context.presetSnapshot) : presetSnapshot
-    context.signal?.throwIfAborted()
-    return generateHelper(config, { ...context, presetSnapshot, presetRegexScripts: activeSnapshot?.regexScripts || [], callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) })
-  }
   ctx.effect(() => () => openingPreparation.dispose())
-  async function getCardOpenings(cardPath, userName, previewTransport) {
-    const startedAt = performance.now(), stages = {}
-    let success = false
-    async function timedStage(stage, operation) {
-      const started = performance.now()
-      try { return await requestPerformance.stage(stage, operation) } finally { stages[stage] = Math.round(performance.now() - started); performanceDiagnostics.opening({ stage, durationMs: stages[stage] }) }
-    }
-    try {
-    const card = await timedStage('readCard', () => readCard(cardPath))
-    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    const settings = await readTavernSettings()
-    const defaultPlayerName = settings.defaultPlaySettings.playerName
-    const playerName = str(userName).trim().slice(0, 80) || defaultPlayerName
-    const cardExtensions = await timedStage('readExtensions', () => readCardExtensions(cardPath))
-    const extensions = { ...cardExtensions, ...await timedStage('resources', () => tavernRemoteAssets.pinExtensions(cardExtensions)) }
-    const previews = await timedStage('preview', () => projectCardOpeningPreviews({
-      card,
-      extensions,
-      userName: playerName,
-      presetRegexScripts: []
-    }))
-    const hasOpeningScript = opening => /<script\b/i.test(opening.projection.text) || opening.projection.parts.some(part => /<script\b/i.test(part.content || ''))
-    const hasHelperScripts = projectTavernHelperScripts(extensions.helperScripts).scripts.length > 0
-    const interactive = hasHelperScripts || previews.openings.some(opening => opening.setup || hasOpeningScript(opening))
-    const preparation = interactive ? await timedStage('prepare', () => openingPreparation.create(cardPath, { card, extensions, runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName: playerName })) : null
-    if (preparation) {
-      const choices = cardOpeningChoices(card)
-      const swipes = choices.map(opening => opening.text)
-      const openingIds = choices.map(opening => opening.id)
-      for (const opening of previews.openings) if (hasHelperScripts || opening.setup || hasOpeningScript(opening)) {
-        opening.openingPreview = { swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id),
-          messageHtml: opening.projection.parts.map(part => part.kind === 'markdown' ? marked.parse(str(part.text), { gfm: true }) : str(part.content)).join('\n'),
-          preparationId: preparation.id, characterName: card.name, playerName, ...openingPreviewPayload(preparation, previewTransport) }
-      }
-    }
-    success = true
-    return {
-      preparationId: preparation?.id || '',
-      defaultPlayerName,
-      previewTransport: previewTransport === 'deferred-v1' ? previewTransport : undefined,
-      openings: previews.openings,
-      diagnostics: previews.diagnostics,
-      trustedCardMode: settings.trustedCardMode
-    }
-    } finally {
-      console.info('[dsh-tavern.opening]', JSON.stringify({ success, durationMs: Math.round(performance.now() - startedAt), stages }))
-    }
-  }
   function presentUserPreferenceProfile(value) {
     const confirmed = value && value.hasConfirmed && value.confirmed ? value.confirmed : null
     return {
@@ -2373,39 +2207,14 @@ export async function apply(ctx) {
     await updateChat(chat.id, current => { current.messages = [...(current.messages || []), ...appended.messages]; return current }, { source: 'test.append-rounds' })
     return { appended: rounds.length, lastTurn: appended.lastTurn }
   }
-  const backgroundRetirement = createBackgroundSessionRetirement(profileData, { readState: taskStateReader.forSession, isRunning: id => agentRegistry.get(id)?.status === 'running' })
-  ctx.effect(() => installRetiredBackgroundFilter(ctx.get('subagents'), backgroundRetirement, ctx.get('sessionQuery')))
-  void backgroundRetirement.load().catch(error => console.warn('dsh-tavern: 读取已退休后台会话失败', str(error?.message || error)))
-  ctx.effect(() => installRetiredCatalogView(ctx.get('sessionProjections'), backgroundRetirement, { isRunning: id => agentRegistry.get(id)?.status === 'running' }))
-  // Games whose background agents predate their catalog entry get them listed when opened.
-  const backgroundCatalog = createBackgroundCatalogBackfill({ agents: agentRegistry, sessionQuery: ctx.get('sessionQuery'),
-    onListed: parentId => sessionSignals.publish(parentId, { kind: 'subagents', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) }) })
-  // Branches an older Tavern forked as subagent children have no subagent descriptor, so
-  // DSH 0.2.1 refuses their whole history ("subagent descriptor is corrupt"). Repair the
-  // header once at startup, while nothing is loaded, and again before a page reads one.
-  const branchOrigin = createBranchOriginRepair({
-    dataRoot: resolveTavernDataRoot(),
-    loadCatalog: sessionPatch.loadSessionCatalog,
+  const { backgroundRetirement, backgroundCatalog } = installBackgroundSessionLifecycle(ctx, {
+    profileData, readState: taskStateReader.forSession, agentRegistry, sessionSignals
+  })
+  const branchOrigin = startLegacySessionRepairs(ctx, {
+    dataRoot, loadCatalog: sessionPatch.loadSessionCatalog,
     isLive: id => Boolean(sessionStore.get(id) || agentRegistry.get(id)),
-    // Ownership is the save's header; the page's windowed read must not load the whole save first.
-    ownsChat: async id => Boolean(await chatHeaderForSession(id, [])),
-    listSessions: () => ctx.get('sessionQuery')?.listSessions?.() ?? []
+    ownsChat: async id => Boolean(await chatHeaderForSession(id, []))
   })
-  void branchOrigin.sweep().catch(error => console.warn('dsh-tavern: 检查旧分支会话头部失败', error?.message || error))
-  // Stage-director children an earlier release wrote with a descriptor the host rejects.
-  const directorDescriptors = createDirectorDescriptorRepair({
-    dataRoot: resolveTavernDataRoot(),
-    loadCatalog: sessionPatch.loadSessionCatalog,
-    listSessions: async () => (await ctx.get('sessionQuery')?.listSessions?.()) ?? [],
-    hostIdentity: header => {
-      const values = ctx.get('sessionProjectionCache')?.cachedSnapshot(header, ['subagent'])?.values
-      return values && Object.hasOwn(values, 'subagent') ? values.subagent : undefined
-    },
-    // The cache would otherwise keep serving the empty identity folded from the old descriptor.
-    forgetProjections: id => ctx.get('sessionProjectionCache')?.table?.delete(id),
-    isLive: id => Boolean(sessionStore.get(id) || agentRegistry.get(id))
-  })
-  void directorDescriptors.sweep().catch(error => console.warn('dsh-tavern: 修复舞台导演会话描述失败', error?.message || error))
   const runtimePresetSnapshots = new Map()
   const backgroundPresetSeeds = new Map()
   // The stage director runs beside the game's background work: a game-wide stop or progress read leaves it alone.
@@ -4623,7 +4432,7 @@ export async function apply(ctx) {
         foregroundExtraTools.set(String(sessionId), extra)
         if (foregroundExtraTools.size > 300) foregroundExtraTools.delete(foregroundExtraTools.keys().next().value)
       },
-      cardPersonaText: function () { return activeCardPersonaText(tavernSettingsDocument) },
+      cardPersonaText: function () { return activeCardPersonaText(tavernSettings.snapshot()) },
       cardReferencePrompt: function () { return runtimePrompt('card-reference') },
       workspaceContext: function (cwd, projection) { return resourceWorkspaceContext(cwd, projection, runtimePrompt('card-workspace')) },
       ensureSessionPrefix: async function (input) {
