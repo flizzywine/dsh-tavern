@@ -46,8 +46,7 @@ export async function installAutomaticMusic(library, {cardPath, name, mood, keyw
 
   const media = digest(audio.bytes), id = 'ai-' + digest(prompt).slice(0, 24)
   const content = {media, ...(audio.loopStart === undefined ? {} : {loopStart:audio.loopStart, loopEnd:audio.loopEnd})}
-  const title = name.endsWith('（AI 生成）') ? name : `${name}（AI 生成）`
-  const asset = {kind:'music', id, name:title, enabled:true, recall:{mode:'keyword', keywords}, directorNote,
+  const asset = {kind:'music', id, name, enabled:true, recall:{mode:'keyword', keywords}, directorNote,
     variants:{default:'main', entries:[{id:'main', name, content}]},
     extensions:{[provenance]:{generated:true, model:'lyria-3.5', mood, prompt}}}
   await library.patchPack({packId, expectedRevision:pack.revision,
