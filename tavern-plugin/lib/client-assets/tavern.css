@@ -5558,16 +5558,6 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 .dsh-tavern-transfer-bar .dsh-tavern-btn.primary { width: 100%; margin-left: 0; }
 }
 
-.dsh-wb-inspector { padding: 16px; overflow: auto; height: 100%; }
-.dsh-wb-inspector header, .dsh-wb-inspector nav { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
-.dsh-wb-inspector input { width:100%; box-sizing:border-box; margin:4px 0 12px; padding:8px; }
-.dsh-wb-inspector details { border:1px solid var(--border-color, #8884); border-radius:8px; padding:10px; margin:8px 0; }
-.dsh-wb-inspector summary { cursor:pointer; font-weight:600; }
-.dsh-wb-inspector pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.7 monospace; max-height:65vh; overflow:auto; }
-.dsh-wb-inspector code { font-size:11px; overflow-wrap:anywhere; }
-.dsh-wb-muted, .dsh-wb-entry small { opacity:.65; font-size:12px; line-height:1.6; }
-.dsh-wb-entry { display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin:10px 0; }
-.dsh-wb-stats { padding:12px; background:#8881; border-radius:8px; line-height:1.8; margin-bottom:12px; }
 .dsh-tavern-background-runs { margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-background-runs-link button { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: baseline; gap: 8px; cursor: pointer; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-background-runs-link button > span:last-child { margin-left: auto; color: var(--dsh-tavern-accent); }
