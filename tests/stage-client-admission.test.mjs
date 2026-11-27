@@ -28,3 +28,19 @@ test('admission disposal stops polling and resolves waiters even before React re
   latePoll()
   assert.equal(updates.length,before)
 })
+test('a broken image in the box or stand-ins does not hold the entry', () => {
+  const effects = [], updates = []
+  const admission = createStageAdmission({
+    React:{useState:value => [value,next => updates.push(next)],useRef:current => ({current}),
+      useEffect:fn => effects.push(fn),useCallback:fn => fn},
+    window:{},document:{fonts:{status:'loaded'},querySelector:() => ({})},performance:{now:() => 0},
+    setTimeout:() => 1,clearTimeout:() => {},
+  })
+  const root = {querySelector:selector => selector === '.fork-gal-box' ? {} : null,
+    querySelectorAll:() => [{complete:true,naturalWidth:0}]}
+  const store = {getSnapshot:() => ({accepted:{presentationRevision:0},source:null,empty:true})}
+  admission.useEntry(store,{current:root})
+  effects[0]()
+  assert.equal(updates.at(-1)?.phase,'ready')
+  admission.dispose()
+})
