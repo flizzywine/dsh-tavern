@@ -34296,6 +34296,9 @@ function bindTavernFontZoom(node, win) {
                 return chatData.save();
             }
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
+			window.EjsTemplate = Object.freeze({
+				getFeatures: () => ({ enabled: true, generate_enabled: true, render_enabled: true, ...copy(extensionSettings.EjsTemplate || {}) })
+			});
 			// Tavern applies enabled card regexes without ST's per-avatar opt-in.
 			// Project that host-owned permission without persisting a fabricated setting.
 			const settingsView = (official = false) => new Proxy(extensionSettings, {
@@ -35800,7 +35803,7 @@ function bindTavernFontZoom(node, win) {
 			const ownsSortControl = sortControl && typeof sortControl.tavernCompatibilityOwners === 'number';
 			if (ownsSortControl) sortControl.tavernCompatibilityOwners++;
 			const frameElement = frameWindow.frameElement, frameDocument = frameWindow.document;
-			const bindings = (names || ["SillyTavern", "TavernHelper", "Mvu", "_", "toastr"]).map(function (name) {
+			const bindings = (names || ["SillyTavern", "TavernHelper", "Mvu", "EjsTemplate", "_", "toastr"]).map(function (name) {
 				const previous = Object.getOwnPropertyDescriptor(host, name);
 				if (previous && !previous.configurable) throw new Error("宿主接口不可替换：" + name);
 				const binding = { name: name, previous: previous, active: true, priority: Number(priority) || 0, frameWindow: frameWindow, frameElement: frameElement, frameDocument: frameDocument, toastr: name === "toastr" ? frameWindow.toastr : undefined, get: function () {

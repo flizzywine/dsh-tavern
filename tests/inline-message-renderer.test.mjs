@@ -497,15 +497,18 @@ test('trusted script UI uses host body and its installed draggable; isolation re
 
 test('trusted parent facade exposes real EJS readiness and restores the previous host on disposal', () => {
   const previous = { native: true }, host = { SillyTavern: previous }
-  const frame = { SillyTavern: { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: true } } }) }, TavernHelper: {} }
+  const frame = { SillyTavern: { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: true } } }) }, TavernHelper: {},
+    EjsTemplate: { getFeatures: () => ({ enabled: true }) } }
   const dispose = client.installTavernTrustedHostFacade(host, frame)
   assert.equal(host.SillyTavern.getContext().extensionSettings.EjsTemplate.enabled, true)
   frame.SillyTavern = { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: false } } }) }
   assert.equal(host.SillyTavern.getContext().extensionSettings.EjsTemplate.enabled, false)
   assert.equal(host.TavernHelper, frame.TavernHelper)
+  assert.equal(host.EjsTemplate, frame.EjsTemplate)
   dispose()
   assert.equal(host.SillyTavern, previous)
   assert.equal(Object.hasOwn(host, 'TavernHelper'), false)
+  assert.equal(Object.hasOwn(host, 'EjsTemplate'), false)
 })
 
 test('trusted #chat compatibility mount measures as the conversation pane', () => {

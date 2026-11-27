@@ -65,6 +65,8 @@
 
 世界书之外的提示词字段需要传入已渲染的 EJS 文本。图片、工具调用或结构化 schema 请求会报错。
 
+人物卡 iframe 可通过 `window.EjsTemplate.getFeatures()` 读取模板开关。
+
 ### 正则、显示和只读宏
 
 | API | 状态 | 实際作用 |
