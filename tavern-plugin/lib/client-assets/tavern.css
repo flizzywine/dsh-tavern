@@ -323,6 +323,15 @@ body.dsh-tavern-shell-active [data-slot="settings.launcher"] button[data-signed-
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: relative; }
 /* 在标志行上检查后续的工作区，避免从宿主的所有 :has() 变化重算其子元素。 */
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: absolute; z-index: 2; top: 18px; right: 12px; height: 64px; margin: 0; padding: 0; }
+/* 把宿主滚动区的工作区行撑到剩余高度，滚动交给酒馆自己的历史列表。 */
+body.dsh-tavern-shell-active [data-sidebar-scrollport]:has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
+  grid-template-rows: 8px max-content 2px minmax(0, 1fr);
+}
+body.dsh-tavern-shell-active [data-slot="sidebar.workspaces"]:has(> .dsh-tavern-sidebar:not(.collapsed)) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
 /* Official Desktop adds its own brand identity. Tavern already renders one.
    On macOS the toggle lives in the native title strip, so remove the empty
    logo row altogether while retaining the window controls and drag area. */
@@ -337,7 +346,7 @@ body.dsh-tavern-shell-active [class*="_topStrip"] + [class*="_logoRow"] { displa
     margin-block-start: 0;
   }
   :root[data-windows-titlebar] body.dsh-tavern-shell-active [data-sidebar-scrollport]:has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
-    grid-template-rows: 0 max-content 0 max-content;
+    grid-template-rows: 0 max-content 0 minmax(0, 1fr);
   }
   :root[data-windows-titlebar] body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
     padding-block-start: 4px !important;
