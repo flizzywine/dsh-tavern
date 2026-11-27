@@ -19,6 +19,8 @@ on:
       - 'android/**'
       - 'tests/dsh-contract-check.test.mjs'
       - 'tests/host-sessions.test.mjs'
+      - '.github/scripts/check-runtime-imports.mjs'
+      - '.github/scripts/write-runtime-manifest.mjs'
       - '.github/workflows/dsh-compatibility-checks.yml'
   workflow_dispatch:
     inputs:
@@ -44,6 +46,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24.12.0
+      - name: Check packaged runtime imports before merge
+        if: github.event_name == 'pull_request'
+        run: |
+          node .github/scripts/write-runtime-manifest.mjs "$(git rev-parse HEAD)" "$GITHUB_RUN_NUMBER"
+          node --experimental-vm-modules .github/scripts/check-runtime-imports.mjs
       - run: node bin/check-dsh-upgrade.mjs --check-dependencies
       - run: node --test tests/dsh-contract-check.test.mjs tests/host-sessions.test.mjs
 

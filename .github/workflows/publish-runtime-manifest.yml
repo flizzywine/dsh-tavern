@@ -31,16 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: refs/heads/${{ github.ref_name }}
       - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: Build immutable runtime manifest
         shell: bash
         run: |
-          git fetch origin "$GITHUB_REF_NAME"
-          git checkout "$GITHUB_REF_NAME"
-          git pull --ff-only origin "$GITHUB_REF_NAME"
           node .github/scripts/write-runtime-manifest.mjs "$(git rev-parse HEAD)" "${{ github.run_number }}"
           if [[ "$GITHUB_REF_NAME" == main ]]; then
             node --experimental-vm-modules .github/scripts/check-runtime-imports.mjs

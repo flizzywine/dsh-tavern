@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { parse } from 'yaml'
 import { CDN_ENTRYPOINTS, stageCdnEntrypoints } from '../.github/scripts/stage-cdn-entrypoints.mjs'
@@ -47,17 +47,24 @@ test('CDN 发布流程生成小分支，清单固定引用上一提交的 ZIP，
   const revision = git('rev-parse', 'HEAD')
   const initial = JSON.parse(await readFile(path.join(source, 'dsh-tavern-runtime.json')))
   initial.revision = revision
-  await writeFile(path.join(source, 'dsh-tavern-runtime.json'), JSON.stringify(initial))
   git('init', '--bare', '-q', remote)
   git('remote', 'add', 'origin', remote)
-  const step = workflow.jobs.publish.steps.find(step => step.name === 'Publish runtime archive')
-  execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-    cwd: source, encoding: 'utf8', timeout: 15000,
-    env: { ...process.env, RUNNER_TEMP: temporary, GITHUB_REF_NAME: 'main', GITHUB_WORKSPACE: source },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  git('push', '-q', 'origin', 'main')
+  const checkout = path.join(directory, 'checkout')
+  git('clone', '-q', '--branch', 'main', '--depth', '1', pathToFileURL(remote).href, checkout)
+  assert.equal(git('-C', checkout, 'rev-parse', '--is-shallow-repository'), 'true')
+  await writeFile(path.join(checkout, 'dsh-tavern-runtime.json'), JSON.stringify(initial))
+  for (const name of ['Publish runtime archive', 'Commit manifest']) {
+    const step = workflow.jobs.publish.steps.find(step => step.name === name)
+    execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      cwd: checkout, encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, RUNNER_TEMP: temporary, GITHUB_REF_NAME: 'main', GITHUB_WORKSPACE: checkout },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  }
   const distribution = git('--git-dir', remote, 'rev-parse', 'runtime-archive-main')
   const manifest = JSON.parse(git('--git-dir', remote, 'show', distribution + ':dsh-tavern-runtime.json'))
+  assert.deepEqual(JSON.parse(git('--git-dir', remote, 'show', 'main:dsh-tavern-runtime.json')), manifest)
   assert.equal(manifest.revision, revision)
   assert.equal(git('--git-dir', remote, 'rev-parse', distribution + '^'), manifest.archive.commit)
   assert.deepEqual(git('--git-dir', remote, 'ls-tree', '-r', '--name-only', distribution).split('\n').sort(), [...CDN_ENTRYPOINTS, 'runtime.zip'].sort())

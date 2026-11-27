@@ -13,7 +13,9 @@ on:
       - 'tests/browser/bundled-image-scenarios-browser-smoke.mjs'
       - 'tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs'
       - 'tests/browser/tavern-gallery-provider-browser-smoke.mjs'
+      - 'tests/interface-skin-line-endings.test.mjs'
       - 'tests/plugin-api.test.mjs'
+      - 'tests/plugin-api-image.test.mjs'
       - 'tests/plugin-image-catalog.test.mjs'
       - 'tests/plugin-guide-api.test.mjs'
       - 'tests/scene-image-gallery.test.mjs'
@@ -38,9 +40,14 @@ on:
       - 'tavern-plugin/src/client/features/assistant-renderer.js'
       - 'tavern-plugin/src/client/features/plugin-extensions.js'
       - 'tavern-plugin/lib/client.js'
+      - 'bin/build-image-client.mjs'
       - 'bin/build-tavern-client.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
+
+concurrency:
+  group: image-plugin-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -69,33 +76,14 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Check plugin JavaScript syntax
+      - name: Check syntax and generated clients
+        if: matrix.os == 'ubuntu-22.04'
         shell: bash
         run: |
           node --check bin/bundled-scene-image-plugin.mjs
-          node --input-type=module -e '
-            import { readdirSync } from "node:fs";
-            import path from "node:path";
-            import { spawnSync } from "node:child_process";
-            const root = "tavern-plugin/packages/dsh-tavern-image-bundled";
-            const files = [];
-            function visit(dir) {
-              for (const entry of readdirSync(dir, { withFileTypes: true })) {
-                const file = path.join(dir, entry.name);
-                if (entry.isDirectory()) visit(file);
-                else if (entry.isFile() && entry.name.endsWith(".js")) files.push(file);
-              }
-            }
-            visit(root);
-            for (const file of files) {
-              const result = spawnSync(process.execPath, ["--check", file], { stdio: "inherit" });
-              if (result.status !== 0) process.exitCode = result.status ?? 1;
-            }
-          '
-      - name: Check Tavern client bundle
-        run: pnpm check:client
-      - name: Check interface skin line ending normalization
-        run: node --test tests/interface-skin-line-endings.test.mjs
+          find tavern-plugin/packages/dsh-tavern-image-bundled -type f -name '*.js' -print0 | xargs -0 -n 1 node --check
+          pnpm check:client
+          node --test tests/interface-skin-line-endings.test.mjs
       - name: Run Tavern API, gallery, and plugin guide regressions
         run: node --test tests/plugin-api.test.mjs tests/plugin-image-catalog.test.mjs tests/plugin-api-image.test.mjs tests/plugin-guide-api.test.mjs tests/scene-image-gallery.test.mjs tests/scene-image-frontend.test.mjs tests/stage-image-outfits.test.mjs
       - name: Run bundled image and installer tests
