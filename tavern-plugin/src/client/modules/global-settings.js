@@ -193,6 +193,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             group("高级", "",
                 card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
                     sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
+                    sw("disableEnterSend", "关闭回车键发送消息", "开启后，在输入框按回车键只换行不发送，需要点击发送按钮（或按 Ctrl/Cmd + 回车）发送消息。默认关闭。", false),
                     sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
                     h(PromptTemplateSettingsEntry),
                     h(ContextCompactionSettings)))

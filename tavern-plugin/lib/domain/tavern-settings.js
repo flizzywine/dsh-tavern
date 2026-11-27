@@ -404,6 +404,11 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.longPressSendRegenerate !== 'boolean') throw new Error('长按发送键重新生成设置必须是布尔值')
     next.longPressSendRegenerate = input.longPressSendRegenerate
   }
+  // 设置 › 高级 › 关闭回车键发送消息：默认关闭（按回车发送）；打开后按回车只换行，点击发送键或 Ctrl/Cmd+Enter 发送。
+  if (Object.hasOwn(input, 'disableEnterSend')) {
+    if (typeof input.disableEnterSend !== 'boolean') throw new Error('关闭回车键发送消息设置必须是布尔值')
+    next.disableEnterSend = input.disableEnterSend
+  }
   if (Object.hasOwn(input, 'autoOpenStatusPanel')) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
@@ -543,6 +548,8 @@ export function presentTavernSettings(document, defaults) {
     allowCdnFakeIp: object(document).allowCdnFakeIp !== false,
     // 长按 1 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
+    // 设置 › 高级 › 关闭回车键发送消息：默认关闭。
+    disableEnterSend: object(document).disableEnterSend === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     showCharacterDesignPanel: document?.showCharacterDesignPanel === true,
