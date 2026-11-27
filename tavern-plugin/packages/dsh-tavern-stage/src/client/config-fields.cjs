@@ -1,3 +1,18 @@
+// A picker's list (the font and skin lists) is portaled outside the stage: it carries the stage's tokens (--gal-*, and the
+// CONFIG surface's list art --cs-art-list / -option / -lmark: controls.select.list), the skin's font declaration and the list
+// parts the surface draws (data-fk-cs-list; theme.css «picker lists»). trigger = the picker's button.
+const STAGE_POPOVER_ART = Object.freeze(["list", "option", "lmark"]);
+function stagePopoverScope(trigger, computed) {
+    const style = {}, attrs = {};
+    if (!trigger || typeof computed !== "function") return { style, attrs };
+    const css = computed(trigger);
+    for (const key of css) if (key.startsWith("--gal-") || STAGE_POPOVER_ART.some(part => key.startsWith("--cs-art-" + part))) style[key] = css.getPropertyValue(key);
+    const fonts = trigger.closest && trigger.closest("[data-fk-fonts]"), stage = trigger.closest && trigger.closest("[data-fk-cs-art]");
+    if (fonts) attrs["data-fk-fonts"] = fonts.getAttribute("data-fk-fonts");
+    const parts = stage ? stage.getAttribute("data-fk-cs-art").split(" ").filter(part => STAGE_POPOVER_ART.includes(part)) : [];
+    if (parts.length) attrs["data-fk-cs-list"] = parts.join(" ");
+    return { style, attrs };
+}
 function createStageConfigFields({React:react, HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify}) {
 let disposed=false;
 const React={...react,createElement(type,props,...children){
@@ -38,7 +53,8 @@ function galConfigSegmented(props) {
     return React.createElement(GalConfigChoice, props);
 }
 // The drawn looks of the CONFIG surface the screen reads from its stage's marks (config-screen.cjs; skin-adapter.cjs
-// stageSkinConfigSurface writes them): { segmented, toggle } - cycler draws one value at a time.
+// stageSkinConfigSurface writes them): { segmented, toggle, toggleArt, toggleOrder } - cycler draws one value at a time, radio
+// round marks beside the words (is-radio on the group; theme.css «segmented radio»).
 const GalConfigLooks = react.createContext(null);
 function useGalConfigLook(type) { const looks = react.useContext(GalConfigLooks); return looks && looks[type] || ""; }
 // cycler (skin-config-surface.md §三, §18 N32): one value in the control's box; ← → ↑ ↓ step (wrapping), Home / End jump, a
@@ -52,19 +68,22 @@ function GalConfigCycler(props) {
         if (to === undefined) return;
         event.preventDefault(); go(to);
     };
-    const click = event => { const box = event.currentTarget.getBoundingClientRect(); go(event.clientX < box.left + box.width / 3 ? at - 1 : at + 1); };
+    // a drawn step button (controls.segmented.steps) steps its own way; elsewhere the box's first third steps back.
+    const click = event => { const step = event.target.closest?.("[data-to]"), box = event.currentTarget.getBoundingClientRect();
+        go(step ? step.getAttribute("data-to") === "prev" ? at - 1 : at + 1 : event.clientX < box.left + box.width / 3 ? at - 1 : at + 1); };
     return h("div", { className: "fork-gal-config-cycler", role: "spinbutton", tabIndex: props.disabled ? -1 : 0, "aria-label": props.label, "aria-valuemin": 1, "aria-valuemax": n,
         "aria-valuenow": at + 1, "aria-valuetext": words, "aria-disabled": props.disabled || undefined, onKeyDown: keys, onClick: click },
         h("i", { className: "fork-gal-config-cycler-step", "data-to": "prev", "aria-hidden": true }), h("b", null, words), h("i", { className: "fork-gal-config-cycler-step", "data-to": "next", "aria-hidden": true }));
 }
 // A multi-way choice: the shared Segmented (≤ 6 choices), a menu (more), or the cycler when the surface draws one.
+// look (optional): the look the caller draws it in (a toggle's own radio), else the surface's segmented look.
 function GalConfigChoice(props) {
-    const cycler = useGalConfigLook("segmented") === "cycler";
-    if (cycler) return React.createElement(GalConfigCycler, props);
+    const surface = useGalConfigLook("segmented"), look = props.look || surface;
+    if (look === "cycler") return React.createElement(GalConfigCycler, props);
     if (props.menu) return React.createElement(InlineField, { kind: "menu", label: props.label, hideLabel: true, value: props.value, disabled: props.disabled, options: props.options.map(([value, label]) => ({ value, label })), onCommit: props.onChange });
     const keys = event => { if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) forkUiSfx.play("move"); };
-    const { menu, ...rest } = props;
-    return React.createElement(Segmented, { ...rest, base: "fork-gal-config-seg", onKeyDown: keys });
+    const { menu, look: own, ...rest } = props;
+    return React.createElement(Segmented, { ...rest, base: "fork-gal-config-seg", className: look === "radio" ? "is-radio" : undefined, onKeyDown: keys });
 }
 // reset (optional): { label, onClick } or null - the shared ↺ after the value (ui-design §三.20), its room kept while hidden
 // so the value does not move.
@@ -86,10 +105,18 @@ function galConfigSlider(ends, slider, reset, numerals) {
                 if (thumb) thumb.focus();
             } }) : null));
 }
+// A toggle reads as the same tiled choice as 画质 / 帧率上限 (关 | 开: the small switch looked out of place),
+// in whatever look the skin gives its segmented choices. A skin that draws its toggles (a toggle look of its own: lamp, word,
+// cycler; a toggle plate or the art CONFIG's toggle images) keeps the switch it drew; toggle look radio draws the two words as
+// round marks of its own whatever the segmented look is. controls.toggle.order on-off puts 开 first (Girls Band Party's ON / OFF).
+const GAL_CONFIG_TOGGLE_WORDS = [[false, "关"], [true, "开"]];
 function GalConfigSwitch(props) {
     const h = React.createElement;
     const on = Boolean(props.checked);
-    if (useGalConfigLook("toggle") === "cycler") return h(GalConfigCycler, { label: props.label, value: on, disabled: props.disabled, options: [[true, "开"], [false, "关"]], onChange: props.onChange });
+    const look = useGalConfigLook("toggle"), drawn = useGalConfigLook("toggleArt");
+    const words = useGalConfigLook("toggleOrder") === "on-off" ? GAL_CONFIG_TOGGLE_WORDS.slice().reverse() : GAL_CONFIG_TOGGLE_WORDS;
+    if (look === "cycler") return h(GalConfigCycler, { label: props.label, value: on, disabled: props.disabled, options: [[true, "开"], [false, "关"]], onChange: props.onChange });
+    if (look === "radio" || !look && !drawn) return h(GalConfigChoice, { label: props.label, value: on, disabled: props.disabled, options: words, onChange: props.onChange, look: look || undefined });
     return h("button", { type: "button", role: "switch", className: "fork-gal-config-switch", "aria-label": props.label, "aria-checked": on, "aria-busy": props.busy || undefined,
         disabled: Boolean(props.disabled), onClick: () => props.onChange(!on) },
         // the state word: a drawn toggle (a plate, the skin's images) has none of its own, so the track carries it (theme.css shows it there)
@@ -147,7 +174,7 @@ function galConfigFieldSections(manifest, values, set, title) {
     return schema.sections.flatMap(section => section.groups ? section.groups.map(group => ({ id: section.id + "." + group.id, title: group.title, help: group.help, items: items(group.fields) }))
         : [{ id: section.id, title: section.title, help: section.help, items: items(section.fields) }]);
 }
-return {Looks:GalConfigLooks,group:galConfigGroup,row:galConfigRow,segmented:galConfigSegmented,slider:galConfigSlider,Switch:GalConfigSwitch,Items:GalConfigItems,sections:galConfigFieldSections,itemKind:galConfigItemKind,dispose(){disposed=true;}};
+return {Looks:GalConfigLooks,group:galConfigGroup,row:galConfigRow,segmented:galConfigSegmented,slider:galConfigSlider,Switch:GalConfigSwitch,Items:GalConfigItems,sections:galConfigFieldSections,itemKind:galConfigItemKind,popoverScope:stagePopoverScope,dispose(){disposed=true;}};
 }
 // The stage CONFIG font picker (文字 → 舞台字体 / 字幕字体): the stage's own list, so the dream skin's shared picker
 // (dsh-dream-skin, its own package; it still draws the 外观 page's 正文字体) stays untouched. It keeps that picker's
@@ -261,17 +288,10 @@ function StageFontPicker(props) {
         fontGroups(fonts).map(group => h("div", { key: group.id, className: "fork-font-group", role: "group", "aria-label": group.label },
             h("div", { className: "fork-font-group-label", "aria-hidden": true }, group.label),
             group.fonts.map(font => option(font, font.id, font.id, fontName(font))))));
-    // The list is portaled outside the stage: it carries the stage's tokens and its skin font declaration.
-    const stageTokens = {};
-    let skinFonts;
-    if (open && trigger.current && typeof getComputedStyle === "function") {
-        const style = getComputedStyle(trigger.current);
-        for (const key of style) if (key.startsWith("--gal-")) stageTokens[key] = style.getPropertyValue(key);
-        const stage = trigger.current.closest && trigger.current.closest("[data-fk-fonts]");
-        skinFonts = stage ? stage.getAttribute("data-fk-fonts") : undefined;
-    }
-    const popover = !open ? null : h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-font-pop is-stage is-rows fork-gal-theme-scope", style: stageTokens, "data-theme": props.theme || "",
-        "data-fk-fonts": skinFonts, gap: 8, onMouseDown: keepFocus }, list);
+    // The list is portaled outside the stage: it carries the stage's tokens, list art and skin font declaration.
+    const scope = open ? stagePopoverScope(trigger.current, typeof getComputedStyle === "function" ? getComputedStyle : null) : null;
+    const popover = !open ? null : h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-font-pop is-stage is-rows fork-gal-theme-scope", style: scope.style, "data-theme": props.theme || "",
+        ...scope.attrs, gap: 8, onMouseDown: keepFocus }, list);
     return h("div", { ref: wrap, className: "fork-font-pick is-stage" + (open ? " is-open" : ""), "data-role": role },
         h("button", { ref: trigger, type: "button", className: "fork-font-trigger", "aria-haspopup": "listbox", "aria-expanded": open,
             "aria-label": props.label + "：" + currentName + (chosen === null ? "，" + props.follow : ""),
@@ -283,4 +303,4 @@ function StageFontPicker(props) {
 }
 return StageFontPicker;
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageConfigFields,createStageFontPicker};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageConfigFields,createStageFontPicker,stagePopoverScope};
