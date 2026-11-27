@@ -277,8 +277,10 @@ import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {createAssetEngineSettings} from './asset-engine-settings-owner.js'
-import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {activeStageSkin} from './domain/card-stage-settings.js'
+import {cardAssetExtensionPointer, cardAssetExtensionView, readCardAssetExtension} from './domain/card-asset-bindings.js'
+import {activeStageSkin, cardBubbleChoice} from './domain/card-stage-settings.js'
+import {createCardStage} from '../packages/dsh-tavern-stage/lib/card-stage.js'
+import {createForegroundCapabilities} from './domain/foreground-capabilities.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { createTavernStaticResourceCache } from './domain/tavern-static-resource-cache.js'
@@ -767,11 +769,16 @@ export async function apply(ctx) {
   const hostLibrary = modLibrary
   const workbenchAuthority = Object.freeze({})
   const assetEngineSettings = createAssetEngineSettings(ctx)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace:readSharedCardWorkspace, coordinationEvents, sessionSignals,
+  // 对话气泡 (its settings, format and worldbook entry) and the card's skin: the core's own, whether or not the stage
+  // runs; the stage is one place bubbles show and adds its own part on top.
+  const cardStage = createCardStage({cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), getTts:() => ctx.get('tts'),
+    getEngine:() => assetEngineSettings.read().values, getAssetLibrary:() => ctx.get('assetLibrary'),
+    getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
+  const dialogueBubbles = cardStage.bubbles
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, cardStage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace:readSharedCardWorkspace, coordinationEvents, sessionSignals,
     assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
-  const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
   const helperGenerationTasks = createHelperGenerationTasks()
@@ -1831,10 +1838,12 @@ export async function apply(ctx) {
   let pluginApi = null
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console,
     guideSections: gameId => pluginApi?.guideSections(gameId) })
-  const foregroundCapabilities = stageRuntime.foreground({
+  const foregroundCapabilities = createForegroundCapabilities({
     session: id => sessionStore.get(id) || agentRegistry.get(id)?.session,
-    // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
-    cardGoverns,
+    // The stage mods' rules while the stage runs. A card that declares one of a mod's tools stands for that mod: the
+    // stage leaves out that mod's prompts.
+    modPrompts: (chat, options) => stageRuntime.foregroundMods(chat, {...options, cardGoverns}),
+    judge: () => assetEngineSettings.read().values.judge,
     readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
     // The tools the model may call in this game, one of the foreground capabilities a turn's update reports.
     tools: chat => turnOrchestrator.callableTools(chat.sessionId),
@@ -1849,6 +1858,7 @@ export async function apply(ctx) {
       draft.foregroundCapabilities=snapshot;return draft
     }, {source:'foreground.capabilities',touchUpdatedAt:false,assertCurrent:options?.assertCurrent})
   })
+  ctx.effect(() => () => foregroundCapabilities.dispose(), 'dsh-tavern: foreground capabilities')
   const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, readLatestCard, writeChat, updateChat, userPreferenceProfile })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
   async function ensureNativeSystemPrefix(session, chat) {
@@ -1923,6 +1933,11 @@ export async function apply(ctx) {
     getAgent: id => agentRegistry.get(id), flushSession: session => sessionStore.flush(session),
     getBackground: () => backgroundAgentRunner,
     projectCapabilities: (chat, book, options) => foregroundCapabilities.project(chat, book, options),
+    // This card's 对话气泡 for its worldbook's bubble entries (play-world-book.js).
+    cardBubbles: async cardPath => {
+      const raw = cardPath ? (await readSharedCardWorkspace(cardPath))?.raw : null
+      return cardBubbleChoice(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)
+    },
     templates: {
       runtime: promptTemplateRuntime, readOnlyRuntime: fullTemplateRuntime.forReadOnlyProjection,
       globalVariables: readPromptTemplateGlobalVariables, settings: async () => (await tavernExtensionSettings.read()).EjsTemplate
