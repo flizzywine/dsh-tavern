@@ -23,7 +23,7 @@
 		const WORLD_BOOK_BACKGROUND_HELP = "只交给后台变量更新任务，不发给正文模型";
 		const WORLD_BOOK_ENTRY_GROUPS = [
 			{ key: "constant", title: "常驻", help: "每轮都进入上下文，不用匹配触发词。" },
-			{ key: "keyword", title: "非常驻", help: "对话提到触发词时提示给 AI，AI 按需读取正文。" },
+			{ key: "keyword", title: "非常驻", help: "自动通道的静态条目命中触发词后可参加自动注入，也可由 Agent 按需检索。" },
 			{ key: "off", title: "禁用", help: "不参与游玩。" },
 			{ key: "background", title: "仅后台变量更新", help: WORLD_BOOK_BACKGROUND_HELP }];
 		const WORLD_BOOK_ENTRY_FILTERS = [["all", "全部"], ["constant", "常驻"], ["keyword", "非常驻"], ["off", "禁用"]];
@@ -96,9 +96,10 @@
 		}
 
 		const WORLD_BOOK_RECALL_STEPS = [
-			{ title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
-			{ title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
-			{ title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
+			{ title: "常驻条目直接加入上下文", body: "自动通道的静态常驻条目每轮写入稳定前缀，无需匹配触发词。" },
+			{ title: "匹配触发词", body: "默认扫描本轮输入和上一条剧情正文，跳过开场白。非常驻条目按主触发词和启用的二级条件匹配，扫描消息数可以单独设置。" },
+			{ title: "按相关性自动注入正文", body: "用 BM25 比较对话与命中条目的标题、触发词和正文，在 Token 预算内每轮最多注入 5 条。注入后冷却 10 个已完成的剧情回合，成功压缩上下文后重置冷却。" },
+			{ title: "Agent 按需检索正文", body: "未注入和冷却中的条目仍可按标题、别名或剧情线索搜索。系统最多提示 3 个未入选的命中标题，Agent 也可以自行查其他资料。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",

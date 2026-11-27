@@ -14,7 +14,7 @@
 		const WORLD_BOOK_CHANNEL_LABELS = { auto: "自动", prefix: "稳定前缀", tail: "每轮尾部" };
 		const WORLD_BOOK_CHANNEL_INHERIT = "";
 		const WORLD_BOOK_CHANNEL_HINTS = {
-			auto: "自动：常驻且内容不变的进稳定前缀；会变、带模板或随机、或非常驻的进每轮尾部。",
+			auto: "静态常驻条目进入稳定前缀。静态非常驻条目按触发词和相关性选择注入，动态条目按运行时规则处理。",
 			prefix: "稳定前缀：固定设定放这里最省 token，改一次才重建一次；含模板或随机的条目仍走每轮尾部。",
 			tail: "每轮尾部：每轮都贴着最新消息出现，注意力最高；不看触发词、不吃冷却，但同样计入 Token 预算。"
 		};
@@ -86,11 +86,11 @@
 								: set({ channel: value, channelInherited: false });
 						}
 					}) : null,
-					words ? h(InlineField, { key: "primaryKeys", kind: "chips", label: "触发词", value: entry.primaryKeys || [], help: help("触发词", "对话里出现这些词时提示这个条目。也可以写 /正则/。"), onCommit: function (value) { return set({ primaryKeys: value }); } }) : null,
+					words ? h(InlineField, { key: "primaryKeys", kind: "chips", label: "触发词", value: entry.primaryKeys || [], help: help("触发词", "在本轮输入和近期对话中匹配，默认忽略大小写。可以写 /正则/，也可在触发规则中开启整词匹配。"), onCommit: function (value) { return set({ primaryKeys: value }); } }) : null,
 					words ? h(InlineField, { key: "secondaryKeys", kind: "chips", label: "二级触发词", hideEmpty: true, value: entry.secondaryKeys || [], onCommit: function (value) { return set({ secondaryKeys: value }); } }) : null),
 				h(WorldBookEntryText, { value: entry.content || "", onCommit: function (value) { return set({ content: value }); } }),
 				h(packUi.StageSection, { level: 2, title: "触发规则", foldKey: "worldbook-detail:entry-rules", defaultFolded: true,
-					help: "扫描本轮输入和最近消息；非常驻条目共用一份软预算，排序大的先入选。" },
+					help: "默认扫描 2 条消息，通常是本轮输入和上一条剧情正文。自动注入的静态条目优先按 BM25 相关性挑选，同分时沿用原有激活顺序。" },
 					h(InlineGrid, { label: "触发规则", columns: 2, className: "dsh-wbd-fields" },
 						number("order", "排序", 100),
 						number("displayIndex", "展示顺序", props.index),

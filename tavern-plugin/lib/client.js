@@ -56131,7 +56131,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 		const WORLD_BOOK_BACKGROUND_HELP = "只交给后台变量更新任务，不发给正文模型";
 		const WORLD_BOOK_ENTRY_GROUPS = [
 			{ key: "constant", title: "常驻", help: "每轮都进入上下文，不用匹配触发词。" },
-			{ key: "keyword", title: "非常驻", help: "对话提到触发词时提示给 AI，AI 按需读取正文。" },
+			{ key: "keyword", title: "非常驻", help: "自动通道的静态条目命中触发词后可参加自动注入，也可由 Agent 按需检索。" },
 			{ key: "off", title: "禁用", help: "不参与游玩。" },
 			{ key: "background", title: "仅后台变量更新", help: WORLD_BOOK_BACKGROUND_HELP }];
 		const WORLD_BOOK_ENTRY_FILTERS = [["all", "全部"], ["constant", "常驻"], ["keyword", "非常驻"], ["off", "禁用"]];
@@ -56204,9 +56204,10 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 		}
 
 		const WORLD_BOOK_RECALL_STEPS = [
-			{ title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
-			{ title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
-			{ title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
+			{ title: "常驻条目直接加入上下文", body: "自动通道的静态常驻条目每轮写入稳定前缀，无需匹配触发词。" },
+			{ title: "匹配触发词", body: "默认扫描本轮输入和上一条剧情正文，跳过开场白。非常驻条目按主触发词和启用的二级条件匹配，扫描消息数可以单独设置。" },
+			{ title: "按相关性自动注入正文", body: "用 BM25 比较对话与命中条目的标题、触发词和正文，在 Token 预算内每轮最多注入 5 条。注入后冷却 10 个已完成的剧情回合，成功压缩上下文后重置冷却。" },
+			{ title: "Agent 按需检索正文", body: "未注入和冷却中的条目仍可按标题、别名或剧情线索搜索。系统最多提示 3 个未入选的命中标题，Agent 也可以自行查其他资料。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",
@@ -56275,7 +56276,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				const WORLD_BOOK_CHANNEL_LABELS = { auto: "自动", prefix: "稳定前缀", tail: "每轮尾部" };
 				const WORLD_BOOK_CHANNEL_INHERIT = "";
 				const WORLD_BOOK_CHANNEL_HINTS = {
-					auto: "自动：常驻且内容不变的进稳定前缀；会变、带模板或随机、或非常驻的进每轮尾部。",
+					auto: "静态常驻条目进入稳定前缀。静态非常驻条目按触发词和相关性选择注入，动态条目按运行时规则处理。",
 					prefix: "稳定前缀：固定设定放这里最省 token，改一次才重建一次；含模板或随机的条目仍走每轮尾部。",
 					tail: "每轮尾部：每轮都贴着最新消息出现，注意力最高；不看触发词、不吃冷却，但同样计入 Token 预算。"
 				};
@@ -56347,11 +56348,11 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 										: set({ channel: value, channelInherited: false });
 								}
 							}) : null,
-							words ? h(InlineField, { key: "primaryKeys", kind: "chips", label: "触发词", value: entry.primaryKeys || [], help: help("触发词", "对话里出现这些词时提示这个条目。也可以写 /正则/。"), onCommit: function (value) { return set({ primaryKeys: value }); } }) : null,
+							words ? h(InlineField, { key: "primaryKeys", kind: "chips", label: "触发词", value: entry.primaryKeys || [], help: help("触发词", "在本轮输入和近期对话中匹配，默认忽略大小写。可以写 /正则/，也可在触发规则中开启整词匹配。"), onCommit: function (value) { return set({ primaryKeys: value }); } }) : null,
 							words ? h(InlineField, { key: "secondaryKeys", kind: "chips", label: "二级触发词", hideEmpty: true, value: entry.secondaryKeys || [], onCommit: function (value) { return set({ secondaryKeys: value }); } }) : null),
 						h(WorldBookEntryText, { value: entry.content || "", onCommit: function (value) { return set({ content: value }); } }),
 						h(packUi.StageSection, { level: 2, title: "触发规则", foldKey: "worldbook-detail:entry-rules", defaultFolded: true,
-							help: "扫描本轮输入和最近消息；非常驻条目共用一份软预算，排序大的先入选。" },
+							help: "默认扫描 2 条消息，通常是本轮输入和上一条剧情正文。自动注入的静态条目优先按 BM25 相关性挑选，同分时沿用原有激活顺序。" },
 							h(InlineGrid, { label: "触发规则", columns: 2, className: "dsh-wbd-fields" },
 								number("order", "排序", 100),
 								number("displayIndex", "展示顺序", props.index),
