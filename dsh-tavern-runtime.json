@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a8c3dc3530f0dce47e94e2290456b4a41daea537",
-  "releaseSequence": 2220,
+  "revision": "d7fb5953c420920fdb850677e0c26e57e725b8c4",
+  "releaseSequence": 2221,
   "version": "3.4.0",
   "files": [
     {
@@ -1626,8 +1626,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-auto-reload.js",
-      "sha256": "219bbdf4e376c9a7e45c7c9216c453041c34e242b4ea42049f147387e9eb6286",
-      "size": 7940
+      "sha256": "aa14295b97af7b2fc5d25561a227deb03b2c928fca7f305a0277c3a1311b3d56",
+      "size": 8494
     },
     {
       "path": "tavern-plugin/lib/domain/card-cover-image.js",
@@ -10426,9 +10426,9 @@
     }
   ],
   "archive": {
-    "commit": "31dc9d5c7af160eddad9a909b8c8e9cccab2dee6",
+    "commit": "52265b3dc4adb53db12bb58c542c2eeefcbe5009",
     "path": "runtime.zip",
-    "sha256": "dc9ead018d1e85608a5062540f70b7ed8f7245a590d9a142cb3fc30d8b86474f",
-    "size": 18347858
+    "sha256": "15bff0b83aae1b086a3b528b4cb356618e80e719b73ce34d987952a79a668b7a",
+    "size": 18348022
   }
 }
