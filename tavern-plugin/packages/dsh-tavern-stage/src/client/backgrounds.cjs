@@ -52,7 +52,8 @@ function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAss
                     if (request!==sequence || state.bg.identity !== identity) return;
                     state.bg.pending = ""; state.bg.failed = true;
                     if (typeof recordAssetWarning === "function") recordAssetWarning({ code: "missing-asset", module: "backgrounds", url });
-                    // a failed candidate never removes the last-good background.
+                    // a failed candidate never removes the last-good background; with none yet, the empty one still releases the figures.
+                    if (!state.layers.length) startLayer("", generated.empty, kind, describe().grade || "", state.clock);
                 });
             }
         } else if (!state.bg.pending && ((desc.grade || "") !== state.grade.name || registryOf().version !== state.grade.version0)) {
