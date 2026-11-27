@@ -435,10 +435,10 @@ function galCreateScene(host, options, own) {
     // loaded picture. A new picture's videos take over from the old one's, which play on under the old picture's fade-out
     // and go with it. When the old picture's videos were showing, settled on it (not themselves entering), and name a
     // transition into the new picture (video.into[image]), the new picture enters through it: the old picture stays whole
-    // while the transition is awaited (the new still does not draw meanwhile), then fades out over it in SWITCH_MS; a
+    // while the transition is awaited (the new still does not draw meanwhile), then gives way to it within a frame or two (ENTER_SWITCH_MS: a longer fade shows the two poses at once, a ghost arm); a
     // transition that does not come leaves the usual crossfade. Speech meanwhile: the transition plays out with its own
     // closed mouth (the still's mouths stay shut under it), then the talking loop takes over if the voice is still heard.
-    const ENTER_SWITCH_MS = 150;
+    const ENTER_SWITCH_MS = 40;
     function tickFigureVideo(entry, figure, desc, dt) {
         // While the next picture loads, the shown one's videos play on with it.
         const video = entry.loadedIdentity === figure.identity ? figure.video : entry.videoSprite === entry.sprite ? entry.videoMotion : null;
@@ -449,7 +449,7 @@ function galCreateScene(host, options, own) {
             const leaving = old && entry.videoSprite !== entry.sprite ? entry.fading.find(item => item.sprite === entry.videoSprite) : null;
             const into = leaving && shown && video && before?.outfit === video.outfit && !old.entering() ? before.into?.[video.image] : null;
             if (leaving) leaving.video = old; else old?.destroy();
-            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: into} : video) : null;
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: {...into, clip: old.lend(video.image)}} : video) : null;
             if (into && entry.video) leaving.held = entry.video;
             entry.videoKey = key; entry.videoSprite = entry.sprite;
         }
