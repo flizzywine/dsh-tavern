@@ -88,6 +88,19 @@ test('runtime controllers keep their injected and restored output while display 
   assert.doesNotMatch(prefix, /PRIVATE DATA/)
 })
 
+test('a constant that only names {{char}} or {{user}} is restored after compaction and reaches background prefixes', async () => {
+  const f = fixture([entry('named', '{{user}} 是 {{char}} 的搭档。'), entry('data', '<%= state %>')], async text =>
+    ({ ok: true, text: text.replace('{{user}}', 'Alice').replace('{{char}}', 'hero').replace('<%= state %>', 'PRIVATE DATA'), scopes: {} }))
+  f.chat.macroState.userName = 'Alice'
+  const result = await f.run('one')
+  assert.deepEqual(new Set(result.changedVirtualRefs), new Set(['named', 'data']), 'the turn frame carries both once')
+  assert.equal(result.staticPrefix, '')
+  const restored = projectVirtualWorldbookPrefix(f.worldBook, f.chat, { restoreRefs: result.changedVirtualRefs })
+  assert.equal(restored.snapshots, 'Alice 是 hero 的搭档。')
+  assert.match(projectVirtualWorldbookPrefix(f.worldBook, f.chat).prefixContext, /Alice 是 hero 的搭档/)
+  assert.equal(projectVirtualWorldbookPrefix(f.worldBook, f.chat, { restore: false }).prefixContext, '', 'the fixed system prefix stays byte-stable')
+})
+
 test('worldbook resolves Helper message macros from the selected player floor and replaces old raw snapshots', async () => {
   const macro = '{{get_message_variable::stat_data.game._context}}'
   const f = fixture([entry('state', '当前状态：' + macro)])

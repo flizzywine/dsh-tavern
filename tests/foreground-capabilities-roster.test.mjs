@@ -10,6 +10,7 @@ import {projectWorldBookTemplates} from '../tavern-plugin/lib/domain/worldbook-r
 import {createForegroundWorldbook} from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 import {projectVirtualWorldbookPrefix} from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 import {inspectWorldBookDocument} from '../tavern-plugin/lib/domain/worldbook-resource.js'
+import {createOptionalStage} from '../tavern-plugin/lib/optional-stage.js'
 
 const figure = (alias, name, recall = {mode:'keyword'}) => ({alias, name, ref:{packId:'pack_demo', figureId:alias}, recall, emotions:[{id:'calm', label:'平静'}]})
 const book = () => ({view:{displayName:'Book', entries:[{ref:'normal', enabled:true, constant:true, content:'World', primaryKeys:[], secondaryKeys:[]}]}})
@@ -64,6 +65,16 @@ test('an imported constant bubble format survives without the source card settin
   assert.match(active,/<dialogue_format>/)
   assert.match(active,/<speaker_roster>[\s\S]*Aki/)
   assert.doesNotMatch(active,/Imported format/)
+})
+
+test('a card without bubbles keeps an imported constant format while the stage module is not loaded', async () => {
+  const imported = {content:'<dialogue_format>Imported format for {{user}}</dialogue_format>',constant:true,
+    extensions:{dsh_tavern_helper_extra:{forkDialogueBubbles:{version:1,cardKey:'source-card'}}}}
+  const worldBook = {view:inspectWorldBookDocument({entries:{0:{...imported,uid:0},1:{content:'World',constant:true,uid:1}}})}
+  const chat = {id:'plain',sessionId:'plain',cardPath:'cards/plain.json',macroState:{userName:'Alice'},messages:[]}
+  const stage = await createOptionalStage({}, {enabled:false})
+  const projected = await stage.foreground({render:project}).project(chat,worldBook)
+  assert.equal(projectVirtualWorldbookPrefix(projected,chat).prefixContext,'World\n\n<dialogue_format>Imported format for Alice</dialogue_format>')
 })
 
 test('the prefix keeps its bytes across rounds while each kind of change reaches that turn tail once', async () => {

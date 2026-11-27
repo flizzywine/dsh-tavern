@@ -68,10 +68,14 @@ export function eligibleVirtualSourceEntries(worldBook, chat) {
 }
 
 /** Request-prefix projection never evaluates templates. Constants are freshly
- * read from source; only version-valid runtime rule/controller snapshots are
- * restored. Dynamic data stays in searchable files, even after compaction.
+ * read from source; only version-valid snapshots of runtime rules/controllers and
+ * of constants that differ from their source only by {{char}}/{{user}} are restored.
+ * Other dynamic data stays in searchable files, even after compaction.
  * A prefix is outside the compressible message history and is rebuilt on retry.
  */
+// A constant whose only macros are {{char}}/{{user}} is fixed text for the whole game, not display data.
+const isIdentityConstant = type => type.kind === 'dynamic-constant' && !type.nativeFallback && type.dependencies.every(dependency => dependency.scope === 'identity')
+
 export function projectVirtualWorldbookPrefix(worldBook, chat, { restore = true, restoreRefs } = {}) {
   const visible = visibleVirtualSourceEntries(worldBook, chat)
   const entries = promptOrder((visible ?? []).filter(entry => !isMvuUpdateEntry(entry)))
@@ -79,9 +83,10 @@ export function projectVirtualWorldbookPrefix(worldBook, chat, { restore = true,
   const staticPrefix = entries.filter(entry => classifyWorldbookEntry(entry).kind === 'static-constant').map(entry => String(entry.content ?? '')).join('\n\n')
   const allowed = restoreRefs === undefined ? null : new Set(restoreRefs)
   const snapshots = restore ? entries.flatMap(entry => {
-    if (!classifyWorldbookEntry(entry).dynamic || (allowed && !allowed.has(entry.ref))) return []
+    const type = classifyWorldbookEntry(entry)
+    if (!type.dynamic || (allowed && !allowed.has(entry.ref))) return []
     const snapshot = state.entries[entry.ref], body = snapshot?.contextText ?? snapshot?.text
-    return body && (isWorldbookRuntimeEntry(entry) || snapshot.projection?.helperVariableMacros === true) ? [body] : []
+    return body && (isWorldbookRuntimeEntry(entry) || isIdentityConstant(type) || snapshot.projection?.helperVariableMacros === true) ? [body] : []
   }).join('\n\n') : ''
   return { staticPrefix, snapshots, prefixContext: [staticPrefix, snapshots].filter(Boolean).join('\n\n'),
     ...(visible === null ? { visibilityPending: true } : {}) }

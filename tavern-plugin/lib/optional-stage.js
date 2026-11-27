@@ -1,10 +1,9 @@
-import {normalizeBubbleConfig} from './domain/dialogue-bubbles.js'
+import {normalizeBubbleConfig,withBubbleFormat} from './domain/dialogue-bubbles.js'
 import {cardStageChoice,effectiveCardStage} from './domain/card-stage-settings.js'
 import {cardAssetExtensionView} from './domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from './card-asset-bindings.js'
 
 const unavailable=()=>{throw Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})}
-const ordinaryBook=book=>book ? {...book,view:{...book.view,entries:(book.view?.entries || []).filter(entry=>!entry.foregroundCapability && !entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles)}} : book
 
 // Migration boundary: stable consumers survive an absent or failed runtime.
 // The implementation is loaded only when enabled; this is not the final public plugin API.
@@ -92,7 +91,8 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
       phases.set('foreground',[bindings])
       if(runtime)try{foreground=runtime.foreground(bindings)}catch(error){failed(error)}
       return {
-        project:(chat,book,...args)=>foreground ? foreground.project(chat,book,...args) : Promise.resolve(ordinaryBook(book)),
+        // Without the stage nothing is generated, but a worldbook imported on its own keeps its constant format.
+        project:(chat,book,...args)=>foreground ? foreground.project(chat,book,...args) : book ? withBubbleFormat(chat,book,[],bindings.render) : Promise.resolve(book),
         preview:(...args)=>foreground ? foreground.preview(...args) : Promise.resolve([]),
         refresh:(...args)=>foreground ? foreground.refresh(...args) : Promise.reject(Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})),
         update:(...args)=>foreground ? foreground.update(...args) : Promise.resolve({text:''})
