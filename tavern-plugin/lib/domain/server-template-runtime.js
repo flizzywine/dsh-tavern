@@ -166,6 +166,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
   return {
     forSession: sessionId => ({
       historyContext: 'session',
+      projectionScopeChanges: true,
       connect: () => invoke(sessionId, 'connect', {}, true),
       renderInput: (text, context = {}) => invoke(sessionId, 'input', { text, context }),
       prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }),
@@ -181,6 +182,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     }),
     forReadOnlyProjection: sessionId => ({
       historyContext: 'session',
+      projectionScopeChanges: true,
       prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true, true),
       render: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true, true),
       renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true, true)

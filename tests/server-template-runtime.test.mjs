@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServerTemplateRuntime } from '../tavern-plugin/lib/domain/server-template-runtime.js'
+import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
 
 function fixture(t, options = {}) {
@@ -79,6 +80,39 @@ test('bounded process pool queues concurrent chats instead of failing the fifth 
   const {runtime}=fixture(t,{maxSessions:1})
   const results=await Promise.all(['a','b','c'].map(id=>runtime.forSession(id).render('<% await new Promise(r=>setTimeout(r,20)) %>'+id)))
   assert.deepEqual(results.map(r=>r.text),['a','b','c'])
+})
+
+test('foreground replays batched template changes for entries activated on a later pass', async t => {
+  const { engine, state } = fixture(t)
+  const settings = state('s').environment.extension_settings
+  settings.variables.global = { route: 'initial' }
+  const entries = [
+    { constant: true, position: 0, content: '<% setvar("route", "updated", { scope: "global" }); await activewi("book", 1, true); %>controller' },
+    { enabled: false, position: 4, depth: 0, content: 'Later <%= getvar("route", { scope: "global" }) %>' },
+    { constant: true, position: 1, content: 'First <%= getvar("route", { scope: "global" }) %>' },
+    { constant: true, position: 1, content: 'Static lore' }
+  ].map((entry, uid) => ({ enabled: true, order: 100, ...entry, sourceUid: uid, ref: `entry:${uid}`, title: `Lore ${uid}` }))
+  state('s').environment.worldbooks.book.entries = Object.fromEntries(entries.map(entry => [entry.sourceUid, {
+    uid: entry.sourceUid, disable: !entry.enabled, comment: entry.title, order: entry.order, key: [], keysecondary: [], content: entry.content
+  }]))
+  let batches = 0
+  const project = createForegroundWorldbook({
+    bound: async () => ({ view: { entries, displayName: 'book' } }),
+    runtime: async () => ({ ...engine, renderProjections: (...args) => { batches++; return engine.renderProjections(...args) } }),
+    globalVariables: async () => ({ route: 'initial' }), templateSettings: async () => settings.EjsTemplate
+  })
+  const request = { requestKey: 'batch', chat: { id: 's', sessionId: 's', messages: [] }, card: { name: 'Test' } }
+  const result = await project(request)
+  assert.equal(result.error, null)
+  assert.equal(batches, 1)
+  assert.deepEqual(result.renderedEntries.map(entry => entry.text).sort(), ['First updated', 'Later updated', 'controller'])
+  settings.EjsTemplate.generate_enabled = false
+  const disabled = await project({ ...request, chat: { ...request.chat, worldBookVirtualState: result.virtualState } })
+  assert.equal(disabled.error, null)
+  assert.equal(disabled.staticPrefix, 'Static lore')
+  assert.deepEqual(disabled.renderedEntries, [])
+  assert.deepEqual(disabled.virtualState.entries, {})
+  assert.equal(batches, 1)
 })
 
 test('display worker failures preserve bounded redacted stderr without replay or false OOM claims', async t => {

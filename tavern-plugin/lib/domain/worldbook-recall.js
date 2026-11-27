@@ -7,6 +7,7 @@ import { hasTavernHelperVariableMacro, renderTavernHelperVariableMacros } from '
 import { tavernPromptMessageVariables } from './tavern-helper-context.js'
 import { activateWorldBook, promptOrder, worldBookSettings } from './worldbook-activation.js'
 import { isMvuUpdateEntry } from './worldbook-mvu-entry.js'
+import { applyTemplateStateChanges } from './template-state-patch.js'
 
 const READ_COOLDOWN_TURNS = 10
 
@@ -65,8 +66,12 @@ function allEntries(worldBook) {
   return view !== null && typeof view === 'object' && Array.isArray(view.entries) ? view.entries.filter(Boolean) : []
 }
 
+export function hasEjsTemplateSyntax(value) {
+  return /<%[\s\S]*?%>/.test(str(value))
+}
+
 export function isWorldBookTemplateEntry(entry) {
-  return entry?.foregroundCapability !== true && /<%[=_-]?[\s\S]*?%>/i.test(str(entry && entry.content))
+  return entry?.foregroundCapability !== true && hasEjsTemplateSyntax(entry?.content)
 }
 
 function templateBody(value) {
@@ -156,9 +161,13 @@ export function constantWorldBookContext(input = {}) {
   }
 }
 
+export function worldbookTemplatesEnabled(settings) {
+  return settings?.enabled !== false && settings?.generate_enabled !== false
+}
+
 /** Let the upstream plugin preprocess/filter its decorators before native keyword selection. */
-export async function prepareTemplateWorldbook(worldBook, runtime, chat, globals = {}) {
-  if (!worldBook?.view || worldBook.templatePrepared || !runtime.prepareWorldbook) return worldBook
+export async function prepareTemplateWorldbook(worldBook, runtime, chat, globals = {}, settings) {
+  if (!worldbookTemplatesEnabled(settings) || !worldBook?.view || worldBook.templatePrepared || !runtime.prepareWorldbook) return worldBook
   const entries = allEntries(worldBook).filter(entry => entry.foregroundCapability !== true)
   // The engine reads decorators only from leading @@ lines, so `lora@@@2@@@` in prose is plain text.
   // Disabled entries still count: [GENERATE:] controllers are usually disabled in the source book.
@@ -172,6 +181,34 @@ export async function prepareTemplateWorldbook(worldBook, runtime, chat, globals
     return original ? [{ ...original, ...entry, ref: original.ref, content: entry.content, enabled: !entry.disable, primaryKeys: entry.key || [], secondaryKeys: entry.keysecondary || [], constant: original.constant }] : []
   })
   return { ...worldBook, templatePrepared: true, templateScopes: result.scopes, templateActivationRequests: (result.activationRequests || []).map(request => ({...request, sourceRef:"[GENERATE:BEFORE]"})), view: { ...worldBook.view, entries: [...transformed,...allEntries(worldBook).filter(entry=>entry.foregroundCapability === true)] } }
+}
+
+/** Resolve one request's activation passes with stable randomness and one cache
+ * for controller outputs. Callers choose which recalled entries need rendering. */
+export async function projectWorldBookRequest({ worldBook, recall, chat = recall.chat, runtime, globalVariables, randomSeed, signal,
+  preparedActivations = worldBook?.templateActivationRequests || [],
+  select = entries => ({ selectedEntries: entries, toRender: entries.filter(isWorldBookTemplateEntry) }),
+  includeConstants, renderCache = new Map(), cacheReaders }) {
+  const activationKey = requests => {
+    const keys = requests.map(({ sourceRef, ref, force }) => JSON.stringify([sourceRef, ref, Boolean(force)]))
+    return [...new Set(keys)].sort().join('\n')
+  }
+  const randomValues = []
+  const nextRandom = entryRandom(randomSeed, 'activation')
+  let activationRequests = preparedActivations
+  for (let pass = 0; pass < 16; pass++) {
+    signal?.throwIfAborted()
+    let draw = 0
+    const random = () => { const index = draw++; return randomValues[index] ?? (randomValues[index] = nextRandom()) }
+    const { entries = [] } = prepareWorldBookRecall({ ...recall, activationRequests, random })
+    const { selectedEntries, toRender } = select(entries)
+    const projection = await projectWorldBookTemplates({ worldBook, selectedEntries: toRender, runtime, chat, card: recall.card,
+      globalVariables, activationRequests, randomSeed, includeConstants, renderCache, cacheReaders })
+    const next = [...preparedActivations, ...projection.activationRequests]
+    if (activationKey(next) === activationKey(activationRequests)) return { selectedEntries, toRender, projection, activationRequests }
+    activationRequests = next
+  }
+  throw new Error('世界书脚本激活未在 16 次投影内收敛')
 }
 
 /** Resolve enabled constant EJS controllers for one request.
@@ -227,13 +264,12 @@ export async function projectWorldBookTemplates(input = {}) {
   const templates = controllers.filter(entry => isWorldBookTemplateEntry(entry) && !input.renderCache?.has(entry.ref))
   // Plain entries only affect the host macro state below, not template scopes.
   // Keep their output interleaved in the original order after the batch returns.
-  // Batched worker receipts omit per-entry scopes. A caller replaying cached
-  // scope changes during activation needs full receipts from the first pass.
-  const useBatch = templates.length > 0 && typeof runtime.renderProjections === 'function' && !input.renderCache?.size && !input.preserveCachedScopes
+  const useBatch = templates.length > 0 && runtime.projectionScopeChanges === true && typeof runtime.renderProjections === 'function' && !input.renderCache?.size
   const batch = useBatch
     ? await runtime.renderProjections(templates.map(entry => ({ template: templateBody(entry.content), randomRef: entry.ref })),
-      { ...templateContext, scopes, randomSeed: input.randomSeed }) : null
-  if (useBatch && (!Array.isArray(batch) || batch.length !== templates.length || batch.some(result => typeof result?.ok !== 'boolean'))) {
+      { ...templateContext, scopes, randomSeed: input.randomSeed, captureScopeChanges: true }) : null
+  if (useBatch && (!Array.isArray(batch) || batch.length !== templates.length || batch.some(result =>
+    typeof result?.ok !== 'boolean' || (result.ok && !Array.isArray(result.scopeChanges))))) {
     const error = new Error('世界书模板批量结果不完整，请刷新酒馆页面后重试')
     error.code = 'FULL_TEMPLATE_UNAVAILABLE'
     throw error
@@ -247,7 +283,9 @@ export async function projectWorldBookTemplates(input = {}) {
       input.renderCache.delete(entry.ref); cached = null
     }
     if (cached) {
-      scopes = replayProjectionDelta(scopes, cached.beforeScopes, cached.scopes)
+      // Older batched receipts lack scopes. Keep the current values and avoid
+      // rerunning an effectful controller whose output was already recorded.
+      if (cached.scopes !== undefined) scopes = replayProjectionDelta(scopes, cached.beforeScopes, cached.scopes)
       macroState = replayProjectionDelta(macroState, cached.beforeMacroState, cached.macroState)
       activationRequests.push(...cached.activationRequests)
       if (cached.diagnostic) diagnostics.push(cached.diagnostic)
@@ -262,8 +300,10 @@ export async function projectWorldBookTemplates(input = {}) {
     const beforeScopes = input.renderCache ? clone(scopes) : undefined
     const beforeMacroState = input.renderCache ? clone(macroState) : undefined
     const random = input.randomSeed ? entryRandom(input.randomSeed, entry.ref) : (input.random || Math.random)
-    const result = isWorldBookTemplateEntry(entry)
-      ? batch ? batch[templateIndex++] : await (runtime.renderProjection || runtime.render).call(runtime, templateBody(entry.content), Object.assign({}, templateContext, { scopes, randomSeed: input.randomSeed, randomRef: entry.ref }))
+    const template = isWorldBookTemplateEntry(entry)
+    const batched = Boolean(batch) && template
+    const result = template
+      ? batched ? batch[templateIndex++] : await (runtime.renderProjection || runtime.render).call(runtime, templateBody(entry.content), Object.assign({}, templateContext, { scopes, randomSeed: input.randomSeed, randomRef: entry.ref }))
       : { ok: true, text: entry.content, scopes }
     if (!result.ok) {
       const diagnostic = { kind: 'worldbook-template', code: result.kind, ref: str(entry.ref) }
@@ -274,7 +314,7 @@ export async function projectWorldBookTemplates(input = {}) {
     for (let count = 0; count < (result.randomCalls || 0); count++) random()
     const entryActivations = (result.activationRequests || []).map(request => ({ ...request, sourceRef: entry.ref }))
     activationRequests.push(...entryActivations)
-    if (!useBatch || input.renderCache) scopes = clone(result.scopes)
+    scopes = batched ? applyTemplateStateChanges(scopes, result.scopeChanges) : clone(result.scopes)
     // Foreground capability entries (foreground-capabilities.js) are already final text: never projected or cached.
     const projected = input.includeConstants === true && entry.foregroundCapability !== true
       ? projectAgentContent(renderWorldbookRandom(result.text, random), { charName: str(input.card?.name), macroState }) : null
@@ -282,7 +322,7 @@ export async function projectWorldBookTemplates(input = {}) {
     const body = str(entry.foregroundCapability === true ? entry.content : input.randomOutputs?.[entry.ref] ?? (projected ? projected.agentText : result.text))
     const helperVariableMacros = entry.foregroundCapability !== true && hasTavernHelperVariableMacro(body)
     const text = (helperVariableMacros ? renderHelperMacros(body) : body).trim()
-    if (entry.foregroundCapability !== true) input.renderCache?.set(entry.ref, { text, ...(helperVariableMacros ? { helperVariableMacros } : {}), beforeScopes, beforeMacroState, scopes: clone(result.scopes || scopes), macroState: clone(macroState), activationRequests: entryActivations, readerState, effectful: !dependencies || /\{\{|<%/.test(JSON.stringify(readerState)) })
+    if (entry.foregroundCapability !== true) input.renderCache?.set(entry.ref, { text, ...(helperVariableMacros ? { helperVariableMacros } : {}), beforeScopes, beforeMacroState, scopes: clone(scopes), macroState: clone(macroState), activationRequests: entryActivations, readerState, effectful: !dependencies || /\{\{|<%/.test(JSON.stringify(readerState)) })
     if (text === '') continue
     context.push(text)
     projectedEntries.push({ ...entry, content: text })

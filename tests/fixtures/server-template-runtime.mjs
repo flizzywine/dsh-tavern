@@ -22,6 +22,7 @@ export function createServerTemplateFixture() {
     tail=next.catch(()=>{});return next
   }
   return {
+    projectionScopeChanges: true,
     dispose: () => runtime.dispose(),
     renderInput:(text,context={})=>run(engine.renderInput,[text,context],context),
     prepareWorldbook:(entries,context={})=>run(engine.prepareWorldbook,[entries,context],{...context,worldBookEntries:entries}),

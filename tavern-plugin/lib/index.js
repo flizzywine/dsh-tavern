@@ -1931,6 +1931,7 @@ export async function apply(ctx) {
     },
     runtime: promptTemplateRuntime,
     globalVariables: readPromptTemplateGlobalVariables,
+    templateSettings: async () => (await tavernExtensionSettings.read()).EjsTemplate,
     scanText: async chat => {
       const extras = typeof pluginApi?.worldbookScanTexts === 'function'
         ? await pluginApi.worldbookScanTexts({ gameId: chat.sessionId }).catch(() => [])

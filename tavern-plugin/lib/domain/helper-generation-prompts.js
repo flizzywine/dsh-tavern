@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { compileSillyTavernRequest, createCleanCompatibilityPreset } from './sillytavern-compatibility.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
-import { isWorldBookTemplateEntry, prepareTemplateWorldbook, prepareWorldBookRecall, projectWorldBookTemplates } from './worldbook-recall.js'
+import { isWorldBookTemplateEntry, prepareTemplateWorldbook, prepareWorldBookRecall, projectWorldBookRequest, worldbookTemplatesEnabled } from './worldbook-recall.js'
 import { promptOrder } from './worldbook-activation.js'
 import { hasWorldbookPreprocessingSyntax } from './worldbook-entry-classification.js'
-import { entryRandom } from './worldbook-random-sequence.js'
 import { applyTavernHelperVariableMacros } from './tavern-helper-variable-macros.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './tavern-helper-context.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
@@ -100,41 +99,23 @@ export function helperGenerationHistory(chat) {
 }
 
 async function recallHelperWorldbook(input, templateChat, loadTemplates, signal) {
-  if (!loadTemplates || !input.worldBook?.view?.entries?.some(entry => entry && (isWorldBookTemplateEntry(entry) || hasWorldbookPreprocessingSyntax(entry)))) {
+  if (!input.worldBook?.view?.entries?.some(entry => entry && (isWorldBookTemplateEntry(entry) || hasWorldbookPreprocessingSyntax(entry)))) {
     return { entries: prepareWorldBookRecall(input).entries || [] }
   }
-  const { runtime, globalVariables, settings } = await loadTemplates()
+  const templates = await loadTemplates?.()
   signal?.throwIfAborted()
-  if (settings?.enabled === false || settings?.generate_enabled === false) {
+  if (!templates || !worldbookTemplatesEnabled(templates.settings)) {
     const { entries = [] } = prepareWorldBookRecall(input)
-    return { entries, errors: new Map(entries.filter(isWorldBookTemplateEntry).map(entry => [entry.ref, '生成模板已停用'])) }
+    const reason = templates ? '生成模板已停用' : '缺少模板运行时'
+    return { entries, errors: new Map(entries.filter(isWorldBookTemplateEntry).map(entry => [entry.ref, reason])) }
   }
-  const worldBook = await prepareTemplateWorldbook(input.worldBook, runtime, templateChat, globalVariables)
-  const preparedActivations = worldBook.templateActivationRequests || []
-  const renderCache = new Map()
-  const randomSeed = randomUUID(), nextRandom = entryRandom(randomSeed, 'activation'), randomValues = []
-  const forcedRefs = requests => JSON.stringify([...new Set(requests.filter(request => request.force).map(request => request.ref))].sort())
-  let activationRequests = preparedActivations
-  // A subsequent pass can add entries activated by a controller. Keep the same
-  // selection randomness and reuse controller outputs throughout this request.
-  for (let pass = 0; pass < 16; pass++) {
-    signal?.throwIfAborted()
-    let draw = 0
-    const random = () => { const index = draw++; return randomValues[index] ?? (randomValues[index] = nextRandom()) }
-    const { entries = [] } = prepareWorldBookRecall({ ...input, worldBook, activationRequests, random })
-    const selectedEntries = entries.filter(isWorldBookTemplateEntry)
-    if (!selectedEntries.length) return { entries }
-    const projection = await projectWorldBookTemplates({ worldBook, chat: templateChat, card: input.card, selectedEntries, runtime, globalVariables,
-      activationRequests, randomSeed, renderCache, preserveCachedScopes: true })
-    const next = [...preparedActivations, ...projection.activationRequests]
-    if (forcedRefs(next) === forcedRefs(activationRequests)) {
-      const rendered = new Map(projection.renderedEntries.map(entry => [entry.ref, entry.text]))
-      return { entries: entries.map(entry => isWorldBookTemplateEntry(entry) ? { ...entry, content: rendered.get(entry.ref) || '' } : entry),
-        errors: new Map(projection.diagnostics.map(diagnostic => [diagnostic.ref, diagnostic.code])) }
-    }
-    activationRequests = next
-  }
-  throw new Error('generate 世界书模板激活未收敛')
+  const { runtime, globalVariables, settings } = templates
+  const worldBook = await prepareTemplateWorldbook(input.worldBook, runtime, templateChat, globalVariables, settings)
+  const { selectedEntries, projection } = await projectWorldBookRequest({ worldBook, recall: { ...input, worldBook }, chat: templateChat,
+    runtime, globalVariables, randomSeed: randomUUID(), signal })
+  const rendered = new Map(projection.renderedEntries.map(entry => [entry.ref, entry.text]))
+  return { entries: selectedEntries.map(entry => isWorldBookTemplateEntry(entry) ? { ...entry, content: rendered.get(entry.ref) || '' } : entry),
+    errors: new Map(projection.diagnostics.map(diagnostic => [diagnostic.ref, diagnostic.code])) }
 }
 
 /** Read-only DSH emulation: card + bound worldbook activation + preset + history. */

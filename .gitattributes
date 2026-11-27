@@ -1,6 +1,7 @@
 # 客户端会内嵌 CSS 字符串；固定换行，保证 Windows 与 Linux 产物及校验一致。
 tavern-plugin/lib/client-assets/tavern.css text eol=lf
 tavern-plugin/lib/client.js text eol=lf
+tavern-plugin/lib/vendor/st-prompt-template/server-artifact/* text eol=lf
 # The lockfile records hashes of the original patch bytes.
 patches/*.patch text eol=lf
 examples/sillytavern-migration-helper/*.json text eol=lf

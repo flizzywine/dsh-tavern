@@ -1,3 +1,5 @@
+import { diffJson } from '../../../domain/json-mutation.js'
+
 /** Own a session's complete template work, including persistence before receipt.
  * The plugin protects upstream global state; connection protects save ordering;
  * dispatch protects remote leases. This queue owns orchestration between them.
@@ -32,10 +34,13 @@ export function createTemplateSessionTasks({ connection, plugin, dispatch }) {
           template: item.template,
           context: { ...input.context, scopes, randomRef: item.randomRef }
         })
-        if (result.ok) scopes = structuredClone(result.scopes)
-        // Scopes feed the next browser evaluation, not the host's completed
-        // projection. Do not retain/upload one full variable tree per entry.
-        const { scopes: _scopes, ...receipt } = result
+        const { scopes: nextScopes, ...receipt } = result
+        if (result.ok) {
+          // The host may need to replay each controller's writes on a later
+          // activation pass. Send changes without copying unchanged scopes.
+          if (input.context?.captureScopeChanges) receipt.scopeChanges = diffJson(scopes, nextScopes)
+          scopes = structuredClone(nextScopes)
+        }
         results.push(receipt)
       }
       return results

@@ -4,8 +4,7 @@ import { currentVirtualState, withdrawnEntryText, virtualEntriesVersion, virtual
 import { promptOrder } from './worldbook-activation.js'
 import { worldbookRandomState, hasWorldbookRandom, entryRandom } from './worldbook-random.js'
 import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
-import { fingerprint, isMvuUpdateEntry } from './worldbook-recall.js'
-import { prepareTemplateWorldbook, prepareWorldBookRecall, projectWorldBookTemplates } from './worldbook-recall.js'
+import { fingerprint, isMvuUpdateEntry, isWorldBookTemplateEntry, prepareTemplateWorldbook, projectWorldBookRequest, worldbookTemplatesEnabled } from './worldbook-recall.js'
 
 /** Persist only preprocessing differences. Original bodies stay authoritative in
  * the bound worldbook, never copied wholesale into a Chat header cache. */
@@ -46,7 +45,7 @@ function unreadCharacterDesigns(worldBook, chat) {
 }
 
 /** One request uses one bound-book snapshot for both selection and rendering. */
-export function createForegroundWorldbook({ bound, runtime, globalVariables, scanText = () => '' }) {
+export function createForegroundWorldbook({ bound, runtime, globalVariables, templateSettings = () => undefined, scanText = () => '' }) {
   const requests = new Map()
   // `preparationKey` 只影响上游整书预处理的复用：历史迁移一轮一个 requestKey，
   // 但一本书在同一段迁移里并不变，预处理没必要每轮重跑一遍。
@@ -56,25 +55,28 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText}) || { view: { entries: [] } }
       const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
       const randomState = worldbookRandomState(chat, turn)
-      const templateRuntime = await runtime(chat.sessionId), globals = await globalVariables()
+      const [templateRuntime, globals, settings] = await Promise.all([runtime(chat.sessionId), globalVariables(), templateSettings()])
+      const useTemplates = worldbookTemplatesEnabled(settings)
       const sourceEntries = worldBook?.view?.entries || []
       const executionKey = String(requestKey ?? `${turn}:${purpose}:${virtualHash(userText || '')}`)
       const preparationScope = String(preparationKey ?? executionKey)
       const scope = virtualScope(chat)
       const resolvedScanText = await scanText(chat)
-      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText, recentlyReadRefs])
+      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText, recentlyReadRefs, useTemplates])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result
       // Upstream preprocessing is an effectful whole-book batch without a
       // per-entry guard. Freeze it for one explicit execution request; ordinary
       // body edits may refresh, but new/changed decorators wait for next round.
-      const persistedPreparation = chat.worldBookVirtualState?.scope === scope && chat.worldBookVirtualState.preprocessing?.requestKey === preparationScope
+      const persistedPreparation = useTemplates && chat.worldBookVirtualState?.scope === scope && chat.worldBookVirtualState.preprocessing?.requestKey === preparationScope
         ? chat.worldBookVirtualState.preprocessing : null
-      const reusingPreparation = previous?.preparationKey === preparationScope || Boolean(persistedPreparation)
-      const preparation = previous?.preparationKey === preparationScope ? previous.preparation
-        : persistedPreparation ? Promise.resolve({ sources: persistedPreparation.sources, snapshot: persistedPreparation.prepared, prepared: restorePreparation(persistedPreparation.prepared, worldBook) })
-        : prepareTemplateWorldbook(worldBook, templateRuntime, chat, globals).then(prepared => ({ prepared, snapshot: preparationSnapshot(prepared, sourceEntries),
-          sources: sourceEntries.map(entry => ({ ref: entry.ref, version: virtualEntryVersion(entry), decorated: hasWorldbookPreprocessingSyntax(entry), enabled: entry.enabled })) }))
+      const previousPreparation = useTemplates && previous?.useTemplates && previous.preparationKey === preparationScope ? previous.preparation : null
+      const reusingPreparation = Boolean(previousPreparation || persistedPreparation)
+      const preparation = !useTemplates ? Promise.resolve({ prepared: worldBook, sources: [] })
+        : previousPreparation || (persistedPreparation
+          ? Promise.resolve({ sources: persistedPreparation.sources, snapshot: persistedPreparation.prepared, prepared: restorePreparation(persistedPreparation.prepared, worldBook) })
+          : prepareTemplateWorldbook(worldBook, templateRuntime, chat, globals, settings).then(prepared => ({ prepared, snapshot: preparationSnapshot(prepared, sourceEntries),
+            sources: sourceEntries.map(entry => ({ ref: entry.ref, version: virtualEntryVersion(entry), decorated: hasWorldbookPreprocessingSyntax(entry), enabled: entry.enabled })) })))
       const result = (async () => {
         const initial = await preparation
         const preparationDiagnostics = []
@@ -96,23 +98,25 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
             templateActivationRequests: revokedController ? [] : initial.prepared.templateActivationRequests?.filter(request => entries.some(entry => entry.ref === request.ref)),
             view: { ...worldBook.view, entries } }
         } else worldBook = initial.prepared
+        if (!useTemplates) worldBook = { ...worldBook, templateActivationRequests: [], templateScopes: undefined,
+          view: { ...worldBook.view, entries: sourceEntries.filter(entry => !isWorldBookTemplateEntry(entry)) } }
         const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || []), ...selectedRefs.map(ref => ({ ref, force: false, sourceRef: '[STRATEGY]' }))]
         const previousState = previous?.requestKey === executionKey ? (await previous.result).virtualState : undefined
         const executionChat = previousState ? { ...chat, worldBookVirtualState: previousState } : chat
-        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText, recentlyReadRefs })
-        if (initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
+        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText, recentlyReadRefs, signal })
+        if (useTemplates && initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
           requestKey: preparationScope, sources: initial.sources,
           prepared: initial.snapshot
         }
         projected.diagnostics.push(...preparationDiagnostics)
         return projected
       })()
-      requests.set(scope, { version, requestKey: executionKey, preparationKey: preparationScope, preparation, result })
+      requests.set(scope, { version, requestKey: executionKey, preparationKey: preparationScope, useTemplates, preparation, result })
       // A bounded foreground-request cache. No background scope is admitted.
       if (requests.size > 32) requests.delete(requests.keys().next().value)
       try { return await result } catch (error) { if (requests.get(scope)?.result === result) requests.delete(scope); throw error }
     } catch (error) {
-      if (error.code === 'FULL_TEMPLATE_UNAVAILABLE') throw error
+      if (signal?.aborted || error.code === 'FULL_TEMPLATE_UNAVAILABLE') throw error
       return { log: { error: String(error?.message || error), entries: [], outputs: [], counts: {} }, context: '', refs: [], diagnostics: [], activation: { schemaVersion: 2, refs: [], mode: 'error' }, error: String(error?.message || error) }
     }
   }
@@ -123,7 +127,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
 /** Native strategy: static optional content is available only through file search/read;
  * dynamic optional entries retain native conditions. Each controller executes at
  * most once per request, including activation convergence and empty outputs. */
-async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey, userText, userTextInHistory, scanText, recentlyReadRefs }) {
+async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey, userText, userTextInHistory, scanText, recentlyReadRefs, signal }) {
   const original = new Map(sourceEntries.map(entry => [entry.ref, entry]))
   const classify = entry => {
     const type = classifyWorldbookEntry(original.get(entry.ref) || entry)
@@ -155,91 +159,80 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
   }
   const staticEntries = promptOrder((worldBook?.view?.entries || []).filter(entry => entry.enabled !== false && classify(entry).kind === 'static-constant' && !isMvuUpdateEntry(entry)))
   const staticPrefix = staticEntries.map(entry => String((original.get(entry.ref) || entry).content ?? '')).join('\n\n')
-  let activationRequests = preparedActivations, projected, selectedEntries
-  const key = requests => JSON.stringify(requests.map(({ sourceRef, ref, force }) => [sourceRef, ref, force]).sort())
-  const selectionRandom = []
-  const selectionStream = entryRandom(virtualHash([executionSeed, requestKey]), 'activation')
-  for (let pass = 0; pass < 16; pass++) {
-    let randomIndex = 0
-    const random = () => { const index = randomIndex++; return selectionRandom[index] ?? (selectionRandom[index] = selectionStream()) }
-    const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: activePoolEntries } }
-    const recalled = prepareWorldBookRecall({ worldBook: dynamicBook, chat: { ...chat, worldBookReads: {} }, card, turn, userText, userTextInHistory, scanText, activationRequests, random })
-    const forced = new Set(activationRequests.filter(request => request.force).map(request => request.ref))
-    const activated = new Set((recalled.entries || []).map(entry => entry.ref))
-    selectedEntries = (worldBook?.view?.entries || []).filter(entry =>
-      (entry.enabled !== false || forced.has(entry.ref)) && !isMvuUpdateEntry(entry) &&
-      activated.has(entry.ref))
-    // Opaque native controllers can modify projection-local macro/template scopes.
-    // Their presence is a defined render occasion for otherwise pure readers.
-    const hasNativeController = selectedEntries.some(entry => classify(entry).nativeFallback)
-    const toRender = selectedEntries.filter(entry => {
-      const type = classify(entry), source = original.get(entry.ref) || entry
-      if (type.kind === 'static-constant') return false // always prefix, never a history frame
-      if (!type.dynamic) return false // static optional bodies are file resources only, even for force requests
-      const previous = virtualState.entries[entry.ref]
-      const dependencyHash = virtualDependencyHash(type, chat, card, globals)
-      return !previous || previous.version !== virtualEntryVersion(source) || hasNativeController ||
-        (type.nativeFallback ? previous.requestKey !== requestKey : previous.dependencyHash !== dependencyHash)
-    })
-    projected = await projectWorldBookTemplates({ worldBook, selectedEntries: toRender, includeConstants: true,
-      runtime: templateRuntime, globalVariables: globals, chat, card, activationRequests, randomSeed: virtualHash([executionSeed, requestKey]), renderCache, cacheReaders })
-    const next = [...preparedActivations, ...(projected.activationRequests || [])]
-    if (key(next) === key(activationRequests)) {
-      const changed = []
-      for (const entry of toRender) {
-        const type = classify(entry)
-        const output = projected.renderedEntries.find(output => output.ref === entry.ref)
-        if (!type.dynamic) { if (output) changed.push(output); continue }
-        if (projected.diagnostics.some(item => item.ref === entry.ref)) continue
-        const text = output?.text || '', renderHash = virtualHash(text)
-        const previous = chat.worldBookVirtualState?.scope === virtualState.scope ? chat.worldBookVirtualState.entries?.[entry.ref] : undefined
-        const withdrawn = !text && Boolean(previous?.text || previous?.withdrawn)
-        const contextText = text || (withdrawn ? withdrawnEntryText(entry.ref) : '')
-        virtualState.entries[entry.ref] = { contextText, withdrawn, version: virtualEntryVersion(original.get(entry.ref) || entry), text, renderHash, requestKey,
-          dependencyHash: virtualDependencyHash(type, chat, card, globals), projection: renderCache.get(entry.ref) }
-        if (contextText && previous?.renderHash !== renderHash) changed.push({ ...output, ref: entry.ref, text: contextText, renderHash })
-      }
-      const hasProjectedHelperVariables = entry => virtualState.entries[entry.ref]?.projection?.helperVariableMacros === true
-      const variableConstantRefs = promptOrder(selectedEntries.filter(entry =>
-        (entry.constant === true || classify(entry).channel !== 'auto')
-        && (hasTavernHelperVariableMacro(entry.content) || hasProjectedHelperVariables(entry)))).map(entry => entry.ref)
-      const changedByRef = new Map(changed.map(output => [output.ref, output]))
-      const tailOutputs = []
-      const tailRefs = new Set()
-      // 显式钉在 tail 通道的已激活条目每轮都贴近最新消息注入，不因静态或内容未变化而省略。
-      for (const entry of promptOrder(selectedEntries)) {
-        const type = classify(entry)
-        if (type.channel !== 'tail') continue
-        const sourceEntry = original.get(entry.ref) || entry
-        const text = type.dynamic
-          ? (changedByRef.get(entry.ref)?.text ?? virtualState.entries[entry.ref]?.contextText ?? virtualState.entries[entry.ref]?.text ?? '')
-          : String(sourceEntry.content ?? '').trim()
-        if (!text) continue
-        tailRefs.add(entry.ref)
-        const changedEntry = changedByRef.get(entry.ref)
-        tailOutputs.push({ ref: entry.ref, text, location: 'foreground', ...(changedEntry?.renderHash ? { renderHash: changedEntry.renderHash } : {}) })
-      }
-      const refs = [...new Set([
-        ...changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref),
-        ...tailOutputs.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
-      ])]
-      const titleHints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
-      const runtimeChanged = changed.filter(output => !tailRefs.has(output.ref) && (isWorldbookRuntimeEntry(original.get(output.ref) || {}) || hasProjectedHelperVariables(output)))
-      const deliveredOutputs = [...runtimeChanged, ...tailOutputs]
-      const renderedMap = new Map(changed.map(output => [output.ref, output]))
-      for (const output of tailOutputs) if (!renderedMap.has(output.ref)) renderedMap.set(output.ref, output)
-      const renderedEntries = [...renderedMap.values()]
-      // File-version notifications are emitted once by the shared pre-step hook,
-      // for both foreground and background agents; do not duplicate them here.
-      const context = deliveredOutputs.map(output => output.text).join('\n\n')
-      return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, variableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries, refs, reads: { ...chat.worldBookReads },
-        randomState: { ...randomState, seed: executionSeed, outputs: { ...randomState.outputs, ...Object.fromEntries(projected.renderedEntries
-          .filter(output => hasWorldbookRandom(original.get(output.ref)?.content)).map(output => [output.ref, output.text])) } },
-        activation: { schemaVersion: 2, turn, refs, diagnostics: [], mode: 'native-skills' },
-        log: { strategy: 'native-skills', entries: selectedEntries.map(entry => ({ ref: entry.ref, title: entry.title, reason: classify(entry).kind })),
-          outputs: deliveredOutputs, counts: { changed: changed.length, static: staticEntries.length }, activationRequests, templateDiagnostics: projected.diagnostics }, error: null }
+  const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: activePoolEntries } }
+  const recalled = { worldBook: dynamicBook, chat: { ...chat, worldBookReads: {} }, card, turn, userText, userTextInHistory, scanText }
+  const { selectedEntries, toRender, projection: projected, activationRequests } = await projectWorldBookRequest({
+    worldBook, recall: recalled, chat, runtime: templateRuntime, globalVariables: globals, preparedActivations, includeConstants: true,
+    randomSeed: virtualHash([executionSeed, requestKey]), renderCache, cacheReaders, signal,
+    select: entries => {
+      const activated = new Set(entries.map(entry => entry.ref))
+      const selectedEntries = activePoolEntries.filter(entry => activated.has(entry.ref))
+      // Opaque native controllers can modify projection-local macro/template scopes.
+      // Their presence is a defined render occasion for otherwise pure readers.
+      const hasNativeController = selectedEntries.some(entry => classify(entry).nativeFallback)
+      const toRender = selectedEntries.filter(entry => {
+        const type = classify(entry), source = original.get(entry.ref) || entry
+        if (type.kind === 'static-constant') return false // always prefix, never a history frame
+        if (!type.dynamic) return false // static optional bodies are file resources only, even for force requests
+        const previous = virtualState.entries[entry.ref]
+        const dependencyHash = virtualDependencyHash(type, chat, card, globals)
+        return !previous || previous.version !== virtualEntryVersion(source) || hasNativeController ||
+          (type.nativeFallback ? previous.requestKey !== requestKey : previous.dependencyHash !== dependencyHash)
+      })
+      return { selectedEntries, toRender }
     }
-    activationRequests = next
+  })
+  const changed = []
+  for (const entry of toRender) {
+    const type = classify(entry)
+    const output = projected.renderedEntries.find(output => output.ref === entry.ref)
+    if (!type.dynamic) { if (output) changed.push(output); continue }
+    if (projected.diagnostics.some(item => item.ref === entry.ref)) continue
+    const text = output?.text || '', renderHash = virtualHash(text)
+    const previous = chat.worldBookVirtualState?.scope === virtualState.scope ? chat.worldBookVirtualState.entries?.[entry.ref] : undefined
+    const withdrawn = !text && Boolean(previous?.text || previous?.withdrawn)
+    const contextText = text || (withdrawn ? withdrawnEntryText(entry.ref) : '')
+    virtualState.entries[entry.ref] = { contextText, withdrawn, version: virtualEntryVersion(original.get(entry.ref) || entry), text, renderHash, requestKey,
+      dependencyHash: virtualDependencyHash(type, chat, card, globals), projection: renderCache.get(entry.ref) }
+    if (contextText && previous?.renderHash !== renderHash) changed.push({ ...output, ref: entry.ref, text: contextText, renderHash })
   }
-  throw new Error('世界书脚本激活未在 16 次投影内收敛')
+  const hasProjectedHelperVariables = entry => virtualState.entries[entry.ref]?.projection?.helperVariableMacros === true
+  const variableConstantRefs = promptOrder(selectedEntries.filter(entry =>
+    (entry.constant === true || classify(entry).channel !== 'auto')
+    && (hasTavernHelperVariableMacro(entry.content) || hasProjectedHelperVariables(entry)))).map(entry => entry.ref)
+  const changedByRef = new Map(changed.map(output => [output.ref, output]))
+  const tailOutputs = []
+  const tailRefs = new Set()
+  // 显式钉在 tail 通道的已激活条目每轮都贴近最新消息注入，不因静态或内容未变化而省略。
+  for (const entry of promptOrder(selectedEntries)) {
+    const type = classify(entry)
+    if (type.channel !== 'tail') continue
+    const sourceEntry = original.get(entry.ref) || entry
+    const text = type.dynamic
+      ? (changedByRef.get(entry.ref)?.text ?? virtualState.entries[entry.ref]?.contextText ?? virtualState.entries[entry.ref]?.text ?? '')
+      : String(sourceEntry.content ?? '').trim()
+    if (!text) continue
+    tailRefs.add(entry.ref)
+    const changedEntry = changedByRef.get(entry.ref)
+    tailOutputs.push({ ref: entry.ref, text, location: 'foreground', ...(changedEntry?.renderHash ? { renderHash: changedEntry.renderHash } : {}) })
+  }
+  const refs = [...new Set([
+    ...changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref),
+    ...tailOutputs.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
+  ])]
+  const titleHints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
+  const runtimeChanged = changed.filter(output => !tailRefs.has(output.ref) && (isWorldbookRuntimeEntry(original.get(output.ref) || {}) || hasProjectedHelperVariables(output)))
+  const deliveredOutputs = [...runtimeChanged, ...tailOutputs]
+  const renderedMap = new Map(changed.map(output => [output.ref, output]))
+  for (const output of tailOutputs) if (!renderedMap.has(output.ref)) renderedMap.set(output.ref, output)
+  const renderedEntries = [...renderedMap.values()]
+  // File-version notifications are emitted once by the shared pre-step hook,
+  // for both foreground and background agents; do not duplicate them here.
+  const context = deliveredOutputs.map(output => output.text).join('\n\n')
+  return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, variableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries, refs, reads: { ...chat.worldBookReads },
+    randomState: { ...randomState, seed: executionSeed, outputs: { ...randomState.outputs, ...Object.fromEntries(projected.renderedEntries
+      .filter(output => hasWorldbookRandom(original.get(output.ref)?.content)).map(output => [output.ref, output.text])) } },
+    activation: { schemaVersion: 2, turn, refs, diagnostics: [], mode: 'native-skills' },
+    log: { strategy: 'native-skills', entries: selectedEntries.map(entry => ({ ref: entry.ref, title: entry.title, reason: classify(entry).kind })),
+      outputs: deliveredOutputs, counts: { changed: changed.length, static: staticEntries.length }, activationRequests, templateDiagnostics: projected.diagnostics }, error: null }
 }

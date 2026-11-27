@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { readFile, writeFile } from 'node:fs/promises'
-import { resolve, dirname, relative } from 'node:path'
+import { resolve, dirname, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { auditUpstream } from './audit.mjs'
@@ -19,7 +19,7 @@ export async function buildServerTemplate({ dependencyRoot, outputPath }) {
     module: { rules: [{ test: /\.ts$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'), options: { configFile: false, babelrc: false, presets: [require.resolve('@babel/preset-typescript')] } } }] },
     plugins: [new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }),
       new webpack.NormalModuleReplacementPlugin(/^\.\.\//, resource => {
-        if (resource.context.startsWith(root) && relative(root, resolve(resource.context, resource.request)).startsWith('../')) resource.request = resolve(here, 'host.js')
+        if (resource.context.startsWith(root) && relative(root, resolve(resource.context, resource.request)).startsWith('..' + sep)) resource.request = resolve(here, 'host.js')
       })],
     performance: { hints: false }
   }, (error, stats) => error || stats.hasErrors() || stats.hasWarnings()
