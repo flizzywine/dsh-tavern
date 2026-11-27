@@ -80,3 +80,58 @@ test('自动更新失败也发布已结束的状态，旧的正在更新视图�
   assert.equal(reload.failure('session', status.digest), '更新失败')
   assert.equal(reload.schedule('session', status), false)
 })
+
+test('自动重载连续遇到存档写入时等待空闲重试，并保留最新变量', async () => {
+  const jobs = [], published = []
+  let clock = 10000, concurrentWrites = 3, committed = 0
+  let chat = { id: 'chat', sessionId: 'session', cardPath: 'hero', _storageRevision: 1,
+    tavernHelperLifecycleRevision: 4, variables: { hp: 8 } }
+  const updates = createPlayCardUpdate({
+    chats: {
+      header: async () => chat,
+      forSession: async () => chat,
+      update: async (_id, mutate) => {
+        if (concurrentWrites > 0) {
+          concurrentWrites--
+          chat = { ...chat, _storageRevision: chat._storageRevision + 1, variables: { hp: chat.variables.hp - 1 } }
+        }
+        chat = mutate(chat)
+        committed++
+        return chat
+      }
+    },
+    cards: { read: async () => ({ name: 'hero' }), extensions: async () => ({}), stamp: async () => 1 },
+    snapshots: () => ({ currentStatus: async () => status, replacement: async () => ({ applied: true }) }),
+    liveUpdate: { prepare: async prepared => prepared, project: async () => {} },
+    native: { agent: () => null, session: () => null },
+    activity: { observed: async () => ({ busy: false }), current: () => ({ busy: false }) },
+    present: async saved => saved,
+    published: id => published.push(id),
+    now: () => clock,
+    defer: job => jobs.push(job),
+    logger: { warn: () => assert.fail('暂时的存档写入冲突不应记录为失败') }
+  })
+
+  assert.equal((await updates.status(chat)).autoReloading, true)
+  await jobs.shift()()
+  assert.equal(concurrentWrites, 0)
+  assert.equal(committed, 0)
+  assert.deepEqual(chat.variables, { hp: 5 })
+  assert.equal(chat.tavernHelperLifecycleRevision, 4)
+  const waiting = await updates.status(chat)
+  assert.equal(waiting.autoReloading, false)
+  assert.equal(waiting.autoReloadError, '')
+  await updates.notice('session')
+  assert.equal(jobs.length, 0, '状态刷新和空闲探测不会马上重新尝试')
+
+  clock += 5000
+  await updates.notice('session')
+  assert.equal(jobs.length, 1)
+  await jobs.shift()()
+  assert.equal(committed, 1)
+  assert.equal(chat.applied, true)
+  assert.equal(chat.tavernHelperLifecycleRevision, 5)
+  assert.equal(chat.cardAutoReload.at, clock)
+  assert.deepEqual(chat.variables, { hp: 5 })
+  assert.deepEqual(published, ['session', 'session'])
+})
