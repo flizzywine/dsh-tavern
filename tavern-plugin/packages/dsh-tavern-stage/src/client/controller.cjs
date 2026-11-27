@@ -804,7 +804,7 @@ function GalStage(props) {
             return true;
         };
         return galHoldLeave(hold);
-    });
+    }, [activeSkin, reading.reducedMotion]);
     // ADV skins (textbox.layout other than box) read like the official games: no
     // 【】「」, no face window; quickMenu capsule / orb folds the quick buttons into the system menu behind one top-right
     // control (R13: one place each).
@@ -1001,7 +1001,7 @@ function GalStage(props) {
         if (leasing && nextPage !== page) voicePlayer.stopPlayback();
         setForwardReading(forward);
         if (!forward) setSceneVisit(n => n + 1);
-        subtitles.select(nextPage, nextCard); setPage(nextPage); setTyped(false); setEndedAt(null);
+        subtitles.select(nextPage, nextCard); setPage(nextPage); setTyped(!forward); setEndedAt(null); // reading back shows the line whole (a forward turn types it)
     }
     // a clip export (clip-render.js) reads the text box pager's cards of
     // the page on screen and turns its cards the way auto does, so the video walks the same cards as the stage.
