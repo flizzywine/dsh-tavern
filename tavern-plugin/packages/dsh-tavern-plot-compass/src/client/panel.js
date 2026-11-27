@@ -374,6 +374,25 @@ function PcSpinner({ className }) {
   })
 }
 
+function PcCompassIcon({ size = 16, className } = {}) {
+  return h('svg', {
+    className: 'pc-compass-icon' + (className ? ' ' + className : ''),
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+    focusable: 'false'
+  },
+    h('circle', { cx: 12, cy: 12, r: 9.25 }),
+    h('polygon', { points: '16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88' })
+  )
+}
+
 function pcEmptyCompass() {
   return {
     strength: 'guided',
@@ -589,7 +608,7 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
         }
       }
     },
-      isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
+      isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, h(PcCompassIcon, { size: 14 })),
       h('span', { className: 'dsh-tavern-compass-dock-label' }, label)
     )
   )
@@ -627,7 +646,7 @@ function PlotCompassComposerTool({ ui, sessionId, busy }) {
       }
     }
   },
-    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, '🧭'),
+    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, h(PcCompassIcon, { size: 16 })),
     hasActiveAnchor && !isRunning ? h('span', { className: 'dsh-tavern-compass-tool-dot', 'aria-hidden': 'true' }) : null
   )
 }
@@ -1251,7 +1270,8 @@ function PlotCompassPanel({ ui, gameId }) {
   }
 
   const topTitleBlock = h('h3', { className: 'pc-wb-title' },
-    '🧭 剧情罗盘',
+    h(PcCompassIcon, { size: 16 }),
+    '剧情罗盘',
     h(PcHelpToggle, { title: '剧情罗盘', open: overviewHelpOpen, onToggle: value => setOverviewHelpOpen(Boolean(value)) }))
 
   if (!sessionId) {
@@ -1609,7 +1629,7 @@ function PlotCompassPanel({ ui, gameId }) {
     (active.count > 0 || activeGoal || editingDirective || customDirective)
       ? h(PcSection, {
         accent: true,
-        title: (active.count > 0 || activeGoal) ? '🧭 当前激活方向' : '✏️ 剧情微调引导',
+        title: (active.count > 0 || activeGoal) ? h(Fragment, null, h(PcCompassIcon, { size: 14 }), '当前激活方向') : '✏️ 剧情微调引导',
         helpTitle: '当前激活方向与微调引导',
         help: PC_HELP.funnel,
         actions: h(Fragment, null,

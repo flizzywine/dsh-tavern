@@ -737,7 +737,17 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.28);
   background: rgba(38, 130, 101, 0.08);
 }
-.dsh-tavern-compass-dock-glyph { font-size: 12px; line-height: 1; }
+.pc-compass-icon {
+  display: block;
+  flex: none;
+}
+.dsh-tavern-compass-dock-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 1;
+}
 @media (max-width: 1023px) {
   .dsh-tavern-compass-dock-btn {
     gap: 0; justify-content: flex-start; min-width: 30px; min-height: 30px; padding: 5px 0;
@@ -746,7 +756,7 @@ const PC_CSS_TEXT = `
     gap: 0; min-width: 30px; min-height: 30px; padding: 5px 8px;
   }
   .dsh-tavern-compass-dock-label { display: none; }
-  .dsh-tavern-compass-dock-glyph { font-size: 15px; line-height: 1; }
+  .dsh-tavern-compass-dock-glyph .pc-compass-icon { width: 16px; height: 16px; }
   .dsh-tavern-compass-dock-btn .dsh-tavern-compass-spinner { width: 14px; height: 14px; }
 }
 .dsh-tavern-compass-tool-btn {
@@ -767,6 +777,7 @@ const PC_CSS_TEXT = `
   line-height: 1;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .dsh-tavern-compass-tool-btn:hover,
 .dsh-tavern-compass-tool-btn:active {
@@ -778,7 +789,13 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.24);
   background: rgba(38, 130, 101, 0.1);
 }
-.dsh-tavern-compass-tool-glyph { font-size: 15px; line-height: 1; }
+.dsh-tavern-compass-tool-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 1;
+}
 .dsh-tavern-compass-tool-dot {
   position: absolute; top: 3px; right: 3px; width: 5px; height: 5px;
   border-radius: 50%; background: currentColor;

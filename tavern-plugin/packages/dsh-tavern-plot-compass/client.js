@@ -756,7 +756,17 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.28);
   background: rgba(38, 130, 101, 0.08);
 }
-.dsh-tavern-compass-dock-glyph { font-size: 12px; line-height: 1; }
+.pc-compass-icon {
+  display: block;
+  flex: none;
+}
+.dsh-tavern-compass-dock-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 1;
+}
 @media (max-width: 1023px) {
   .dsh-tavern-compass-dock-btn {
     gap: 0; justify-content: flex-start; min-width: 30px; min-height: 30px; padding: 5px 0;
@@ -765,7 +775,7 @@ const PC_CSS_TEXT = `
     gap: 0; min-width: 30px; min-height: 30px; padding: 5px 8px;
   }
   .dsh-tavern-compass-dock-label { display: none; }
-  .dsh-tavern-compass-dock-glyph { font-size: 15px; line-height: 1; }
+  .dsh-tavern-compass-dock-glyph .pc-compass-icon { width: 16px; height: 16px; }
   .dsh-tavern-compass-dock-btn .dsh-tavern-compass-spinner { width: 14px; height: 14px; }
 }
 .dsh-tavern-compass-tool-btn {
@@ -786,6 +796,7 @@ const PC_CSS_TEXT = `
   line-height: 1;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .dsh-tavern-compass-tool-btn:hover,
 .dsh-tavern-compass-tool-btn:active {
@@ -797,7 +808,13 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.24);
   background: rgba(38, 130, 101, 0.1);
 }
-.dsh-tavern-compass-tool-glyph { font-size: 15px; line-height: 1; }
+.dsh-tavern-compass-tool-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 1;
+}
 .dsh-tavern-compass-tool-dot {
   position: absolute; top: 3px; right: 3px; width: 5px; height: 5px;
   border-radius: 50%; background: currentColor;
@@ -1275,6 +1292,25 @@ function PcSpinner({ className }) {
   })
 }
 
+function PcCompassIcon({ size = 16, className } = {}) {
+  return h('svg', {
+    className: 'pc-compass-icon' + (className ? ' ' + className : ''),
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+    focusable: 'false'
+  },
+    h('circle', { cx: 12, cy: 12, r: 9.25 }),
+    h('polygon', { points: '16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88' })
+  )
+}
+
 function pcEmptyCompass() {
   return {
     strength: 'guided',
@@ -1490,7 +1526,7 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
         }
       }
     },
-      isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
+      isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, h(PcCompassIcon, { size: 14 })),
       h('span', { className: 'dsh-tavern-compass-dock-label' }, label)
     )
   )
@@ -1528,7 +1564,7 @@ function PlotCompassComposerTool({ ui, sessionId, busy }) {
       }
     }
   },
-    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, '🧭'),
+    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, h(PcCompassIcon, { size: 16 })),
     hasActiveAnchor && !isRunning ? h('span', { className: 'dsh-tavern-compass-tool-dot', 'aria-hidden': 'true' }) : null
   )
 }
@@ -2152,7 +2188,8 @@ function PlotCompassPanel({ ui, gameId }) {
   }
 
   const topTitleBlock = h('h3', { className: 'pc-wb-title' },
-    '🧭 剧情罗盘',
+    h(PcCompassIcon, { size: 16 }),
+    '剧情罗盘',
     h(PcHelpToggle, { title: '剧情罗盘', open: overviewHelpOpen, onToggle: value => setOverviewHelpOpen(Boolean(value)) }))
 
   if (!sessionId) {
@@ -2510,7 +2547,7 @@ function PlotCompassPanel({ ui, gameId }) {
     (active.count > 0 || activeGoal || editingDirective || customDirective)
       ? h(PcSection, {
         accent: true,
-        title: (active.count > 0 || activeGoal) ? '🧭 当前激活方向' : '✏️ 剧情微调引导',
+        title: (active.count > 0 || activeGoal) ? h(Fragment, null, h(PcCompassIcon, { size: 14 }), '当前激活方向') : '✏️ 剧情微调引导',
         helpTitle: '当前激活方向与微调引导',
         help: PC_HELP.funnel,
         actions: h(Fragment, null,
