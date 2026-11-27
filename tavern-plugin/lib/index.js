@@ -320,6 +320,8 @@ import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import {withConversationReadLane} from './domain/conversation-read-lanes.js'
+import {recoverRuntimeHistory as recoverHistory} from './domain/runtime-history-recovery.js'
 import { installTavernTokenMeter } from './domain/tavern-token-meter.js'
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
