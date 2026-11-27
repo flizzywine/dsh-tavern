@@ -76,7 +76,11 @@ export function worldbookTitleHints(input) {
   const entries = (input.worldBook?.view?.entries || []).filter(isStaticWorldbookSkillEntry)
   const recentRefs = new Set(input.recentlyReadRefs)
   const matched = activateWorldBook({ ...input, entries, isCoolingDown: entry => recentRefs.has(entry.ref), ignoreBudget: true })
-  const titles = [...new Set(promptOrder(matched.entries).map(worldbookEntryTitle))]
+  return formatWorldbookTitleHints(promptOrder(matched.entries))
+}
+
+export function formatWorldbookTitleHints(entries) {
+  const titles = [...new Set(entries.map(worldbookEntryTitle))]
   if (!titles.length) return ''
   const shown = titles.slice(0, 3).map(title => title.slice(0, 80))
   return promptSection('lorebook_title_hints', '可能用到的世界书条目：' + shown.join('、'))

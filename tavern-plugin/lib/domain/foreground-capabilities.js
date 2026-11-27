@@ -3,7 +3,7 @@ import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRost
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
-import {sessionEvents} from './session-events.js'
+import {completedCompactionEpoch,sessionEvents} from './session-events.js'
 import {estimateDirectorTokens} from './stage-director-tokens.js'
 import {managedForegroundEntries,managedPromptSections} from './mod-system-prompt-adapter.js'
 import {promptSection} from './prompt-section.js'
@@ -12,14 +12,7 @@ import {liveContextUpdate} from './card-system-prompt.js'
 const managed = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
 const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
 
-// Only a completed native replacement before this turn can change its prefix.
-export function foregroundCapabilityEpoch(session) {
-  const events=sessionEvents(session),start=events.findLastIndex(event=>event.type==='turn/start')
-  const prior=start<0?events:events.slice(0,start)
-  const completed=new Set(prior.filter(event=>event.type==='compaction/end' && !event.data?.error).map(event=>event.data.compactionId))
-  const replaced=new Set(prior.filter(event=>event.type==='user/message' && event.surfaceOp?.op==='replace').map(event=>event.data?.source?.compactionId))
-  return prior.findLast(event=>event.type==='compaction/summary' && completed.has(event.data.compactionId) && replaced.has(event.data.compactionId))?.data.compactionId || ''
-}
+export const foregroundCapabilityEpoch = session => completedCompactionEpoch(session, { beforeTurn: true })
 
 // The one recall for the foreground roster: the latest reply, this turn's input and the saved judge.
 export function foregroundRecalledFigures(config,chat,{userText='',judge}={}) {

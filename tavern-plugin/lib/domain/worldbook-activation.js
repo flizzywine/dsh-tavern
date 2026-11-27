@@ -145,9 +145,9 @@ export function matchesWorldBookKeywords(entry, text) {
   return keywordEvaluation(entry, text, []).matched
 }
 
-function scanMessages(input) {
+export function worldbookScanMessages(input) {
   const messages = (input.chat?.messages || []).map((message, messageIndex) => ({ ...message, messageIndex }))
-    .filter(message => ['user', 'assistant'].includes(message?.role))
+    .filter(message => ['user', 'assistant'].includes(message?.role) && (!input.ignorePlaceholders || !message.placeholder))
     .map(message => ({ text: str(message.sourceText || message.text), source: 'history', messageIndex: message.messageIndex, role: message.role, turn: message.turn, greeting: message.greeting === true }))
   if (input.latestBody !== undefined) {
     const last = messages.length - 1
@@ -210,7 +210,7 @@ function filterGroups(candidates, activated, textFor, random, reject) {
  */
 export function activateWorldBook(input) {
   const settings = worldBookSettings(input.worldBook)
-  const messages = scanMessages(input)
+  const messages = worldbookScanMessages(input)
   const injected = str(input.scanText)
   const random = input.random || Math.random
   const entries = priorityOrder(input.entries).map(entry => ({ ...entry,

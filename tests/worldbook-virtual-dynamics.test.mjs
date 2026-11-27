@@ -30,7 +30,8 @@ test('静态常驻 mvu_plot 进入稳定前缀，旧运行时快照退出，按�
   }
   const result = await f.run('next', '去码头')
   assert.equal(result.staticPrefix, fixed.content)
-  assert.match(result.titleHints, /码头/)
+  assert.match(result.automaticContext, /码头[\s\S]*码头晚上关门/)
+  assert.equal(result.titleHints, '')
   assert.equal(result.virtualState.entries[fixed.ref], undefined)
   assert.equal(result.virtualState.entries[optional.ref], undefined)
   assert.equal(result.virtualState.entries[dynamic.ref].text, '当前余额 10')

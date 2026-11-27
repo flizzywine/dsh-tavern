@@ -7,6 +7,16 @@ export function sessionEvents(session) {
   return Array.isArray(session.events) ? session.events : []
 }
 
+/** Identity of the last successful native history replacement. Fixed prompt
+ * sections can opt to keep the epoch frozen throughout a native turn. */
+export function completedCompactionEpoch(session, { beforeTurn = false } = {}) {
+  const events = sessionEvents(session), start = beforeTurn ? events.findLastIndex(event => event.type === 'turn/start') : -1
+  const prior = start < 0 ? events : events.slice(0, start)
+  const completed = new Set(prior.filter(event => event.type === 'compaction/end' && !event.data?.error).map(event => event.data.compactionId))
+  const replaced = new Set(prior.filter(event => event.type === 'user/message' && event.surfaceOp?.op === 'replace').map(event => event.data?.source?.compactionId))
+  return prior.findLast(event => event.type === 'compaction/summary' && completed.has(event.data.compactionId) && replaced.has(event.data.compactionId))?.data.compactionId || ''
+}
+
 // Released V4 rejects any surface event written outside an open turn, and the
 // token meter rejects a step that starts before the previous one ended. Both the
 // reserved head and the Agent's own step therefore have to agree on which turn

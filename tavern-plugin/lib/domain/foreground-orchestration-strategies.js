@@ -476,7 +476,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         gameId: sessionId, frame, chat: staged.chat, signal: request.signal, context, foregroundSelection
       }).then(material => {
         request.signal?.throwIfAborted()
-        const injection = pureWritingInjection(frame, material)
+        const injection = pureWritingInjection(frame, [frame.source?.worldBook?.automaticContext, material].filter(Boolean).join('\n\n'))
         // The player input is already on the native surface. Append the
         // receipt before the reply so later requests and forks keep its place.
         if (injection) appendSessionEvent(staged.session, 'user/message', injection, { surfaceOp: 'append' })

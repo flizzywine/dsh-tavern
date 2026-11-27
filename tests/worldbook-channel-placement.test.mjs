@@ -209,7 +209,8 @@ test('前台 native-skills 运行时正确处理 prefix 与 tail（含静态与�
   assert.match(first.context, /每日天气晴朗/)
   assert.match(first.context, /状态：85/)
   assert.equal(first.foregroundContext, first.context)
-  assert.match(first.titleHints, /普通线索/)
+  assert.match(first.context, /普通线索[\s\S]*酒馆传闻/)
+  assert.doesNotMatch(first.titleHints, /普通线索/)
   assert.doesNotMatch(first.titleHints, /暗线前置|每日天气晴朗/)
   // static-tail 不写入 virtualState.entries，动态 tail 写入 virtualState.entries。
   assert.equal(first.virtualState.entries['const-tail'], undefined)

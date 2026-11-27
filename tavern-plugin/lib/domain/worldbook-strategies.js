@@ -12,7 +12,7 @@ export function createWorldbookStrategies({ nativeSkills }) {
     strategies.set(id, entry)
     return () => { if (strategies.get(id) === entry) strategies.delete(id) }
   }
-  register({ id: 'native-skills', label: '主动检索', description: '关键词提供标题线索，模型按需搜索和读取资料', project: nativeSkills })
+  register({ id: 'native-skills', label: '自动注入 + 主动检索', description: '关键词命中后按相关性自动注入最多 5 条，模型可按需检索其余资料', project: nativeSkills })
   return {
     register,
     has: id => strategies.has(id),

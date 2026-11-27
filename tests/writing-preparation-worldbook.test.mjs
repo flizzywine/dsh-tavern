@@ -51,6 +51,27 @@ test('白手套能重查历史索引里的世界书，前台只追加新资料',
   assert.equal(material, '【世界书 · 新塔】\n塔门朝北。')
 })
 
+test('白手套可以直接使用本轮自动注入正文，主动检索只交接缺少的资料', async () => {
+  const automatic = '【世界书 · 钟楼】\n塔钟整点鸣响。'
+  const frame = { frameId: 'current', turn: 2, source: { worldBook: { automaticContext: automatic } } }
+  const task = { role: 'user', source: { kind: 'plugin:dsh-tavern', form: 'writing-preparation-task' }, content: [{ type: 'text', text: '查本轮资料。' }] }
+  const preparation = createWritingPreparation({
+    allowed: async () => true,
+    readSources: () => ({ worldbook: async () => [{ title: '钟楼', text: '塔钟整点鸣响。' }, { title: '侧门', text: '侧门朝北。' }] }),
+    runAgent: async (_owner, { tools: [find] }, context, onToolResult) => {
+      assert.equal(projectWritingPreparationRequest({ messages: [task] }, context).messages[0].content[0].text, automatic)
+      const result = find({ query: '钟楼' }).then(text => ({ ok: true, text }))
+      onToolResult('find_worldbook', result)
+      assert.equal((await result).text, '【世界书 · 侧门】\n侧门朝北。')
+    }
+  })
+  preparation.register('white-glove', { prepare: ({ findWorldbook, runAgent }) => runAgent({ tools: [findWorldbook] }) })
+  const material = await preparation.prepare(await preparation.forGame('game'), {
+    gameId: 'game', frame, context: { messages: [], preparation: { system: '', snapshot: '' } }
+  })
+  assert.equal(material, '【世界书 · 侧门】\n侧门朝北。')
+})
+
 test('white glove shows plot references by title and recognizes the same reference in legacy history', async () => {
   const frame = { frameId: 'writing', turn: 2 }
   const legacy = '【世界书 · [mvu_plot] 钟楼】\n塔钟在整点响。'

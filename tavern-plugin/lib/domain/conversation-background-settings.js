@@ -6,7 +6,7 @@ import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
 export function createConversationBackgroundSettings({ readConfig, readChat, updateChat, modelCatalog, modelReasoning,
   isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {},
-  worldbookStrategies = { list: () => [{ id: 'native-skills', label: '主动检索' }], has: id => id === 'native-skills' } }) {
+  worldbookStrategies = { list: () => [{ id: 'native-skills', label: '自动注入 + 主动检索' }], has: id => id === 'native-skills' } }) {
   function requirePlay(chat) {
     if (!chat || !isPlayMode(chat.mode)) throw new Error('请先打开游玩会话')
     return chat

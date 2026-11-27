@@ -147,7 +147,7 @@ import { createWorkbenchResources } from './domain/workbench-resources.js'
 import { createCardOpeningRuntime } from './domain/card-opening-runtime.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
 import { createScriptLibrary } from './domain/script-library.js'
-import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
+import { appendSessionEvent, completedCompactionEpoch, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { acquireHostSession, readHostSessionEvents, withHostAgent } from './host/sessions.js'
@@ -315,6 +315,7 @@ import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { createForegroundWorldbook } from './domain/foreground-worldbook.js'
+import { hasWorldbookCooldownHistory } from './domain/worldbook-auto-injection.js'
 import { createWorldbookStrategies } from './domain/worldbook-strategies.js'
 import { createWorldbookFiles } from './domain/worldbook-files.js'
 import { recentWorldbookLookups } from './domain/worldbook-title-hints.js'
@@ -1948,7 +1949,8 @@ export async function apply(ctx) {
   const projectForegroundWorldbook = async input => {
     const agent = input.purpose === 'history-import' ? null : agentRegistry.get(input.chat.sessionId)
     const lookups = recentWorldbookLookups(agent?.session, input.chat.messages)
-    return await worldbookStrategies.project({ ...input, recentlyReadRefs: worldbookSkillProvider.refsForLookups(agent, lookups) })
+    return await worldbookStrategies.project({ ...input, worldbookEpoch: completedCompactionEpoch(agent?.session),
+      recentlyReadRefs: worldbookSkillProvider.refsForLookups(agent, lookups) })
   }
   const worldbookSkillProvider = createWorldbookFiles({
     directory: path.join(dataRoot, 'worldbook-files'),
@@ -3159,7 +3161,8 @@ export async function apply(ctx) {
     return chat
   }
   async function storyContext({ sessionId, chatId }) {
-    const need = { storyRows: async header => (await worldBookScanDepth(header)) + 1, lastAssistant: true, lastVariables: true, messageFields: storyContextMessageFields }
+    const need = { storyRows: async header => (await worldBookScanDepth(header)) + 1, lastAssistant: true, lastVariables: true,
+      enough: hasWorldbookCooldownHistory, messageFields: storyContextMessageFields }
     const selected = chatId === undefined ? await boundedHistory.forSession(sessionId, need) : await boundedHistory.read(chatId, undefined, need)
     if (selected && ['story', 'script'].includes(selected.chat.mode || 'story') && selected.chat.requestMode !== 'sillytavern') return normalizeChat(selected.chat)
     return chatId === undefined ? chatForSession(sessionId) : readChat(chatId)

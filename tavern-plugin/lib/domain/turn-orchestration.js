@@ -859,6 +859,7 @@ export function createTurnOrchestrator(options) {
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
+    if (foregroundWorldBook?.automaticContext) source.worldBook.automaticContext = foregroundWorldBook.automaticContext
     if (foregroundWorldBook?.virtualState) source.worldBook.virtualWorldbook = {
       scope: foregroundWorldBook.virtualState.scope,
       texts: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.contextText ?? foregroundWorldBook.virtualState.entries[ref]?.text])),

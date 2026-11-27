@@ -12,6 +12,7 @@ import { createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plu
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { projectRegenerationRequestMessages } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
+import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -260,6 +261,25 @@ test('正文请求里的世界书标题提示独立于激活正文', async () =>
     assert.ok(foreground.content[0].text.split('\n\n').includes(titleHints))
     assert.doesNotMatch(foreground.content[0].text, /<lorebook_activated>/)
   }
+})
+
+test('自动注入正文进入实际前台帧，提交回合后冷却记录随存档保留', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const worldBook = { view: { entries: [{ ref: 'lore', title: '钟楼', primaryKeys: ['钟楼'], content: '钟楼闭门前响铃三次。' }] } }
+  const projectForegroundWorldbook = createForegroundWorldbook({ bound: async () => worldBook,
+    runtime: async () => ({ render: async text => ({ ok: true, text, scopes: {} }) }), globalVariables: async () => ({}) })
+  const run = harness('story', { planner, projectForegroundWorldbook })
+  const adapter = createForegroundFrameSessionAdapter()
+  const input = { sessionId: 'session-1', turn: 2, userText: '去钟楼。' }
+  const { frame } = await run.orchestrator.prepare(input)
+  const first = adapter.append({ frame, step: 1 }).messages
+  assert.deepEqual(frame.source.worldBook.refs, ['lore'])
+  assert.equal(first.find(message => message.source.form === 'worldbook-snapshot').content[0].text,
+    '<lorebook_activated>\n【世界书 · 钟楼】\n钟楼闭门前响铃三次。\n</lorebook_activated>')
+  await run.orchestrator.finalize({ ...input, assistantText: '钟楼响起第一声铃。' })
+  const next = await run.orchestrator.prepare({ ...input, turn: 4 })
+  assert.deepEqual(next.frame.source.worldBook.refs, [])
+  assert.equal(adapter.append({ frame: next.frame, step: 1 }).messages.some(message => message.source.form === 'worldbook-snapshot'), false)
 })
 
 test('停用姿势和台账后，新请求和旧上下文帧均不会注入这些状态', async () => {

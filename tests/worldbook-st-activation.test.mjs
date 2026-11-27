@@ -35,16 +35,17 @@ test('包含组支持优先级、权重、计分和多个组，不会重复入�
   assert.deepEqual(recall(entries, { userText: 'Alice Bob' }).refs, ['entry:0'])
 })
 
-test('失败的 EJS 不泄露源码、不消耗冷却；静态资料只提供标题提醒', async () => {
+test('失败的 EJS 不泄露源码、不消耗冷却；静态资料预算耗尽时退回标题提醒', async () => {
   const entries = Array.from({ length: 6 }, (_, uid) => e(uid, uid > 2 ? 'script' : 'player', { order: uid }))
   entries.push(e(9, 'player', { content: '<% if ( %>', order: 999 }))
   const project = createForegroundWorldbook({ bound: async () => book(entries, { token_budget: 15 }), runtime: async () => runtime, globalVariables: async () => ({}), scanText: () => 'script' })
   const result = await project({ chat: { messages: [] }, card: {}, userText: 'player' })
-  assert.equal(result.refs.length, 0)
-  assert.equal(result.context, '')
+  assert.equal(result.refs.length, 1)
+  assert.match(result.automaticContext, /设定[0-9]/)
   assert.match(result.titleHints, /可能用到的世界书条目：/)
   assert.doesNotMatch(result.titleHints, /设定[0-9]/)
   assert.equal(result.reads['entry:9'], undefined)
+  assert.equal(result.virtualState.automatic.entries['entry:9'], undefined)
   assert.doesNotMatch(result.context, /<%/)
   assert.equal(result.diagnostics[0].code, 'syntax-error')
 })
