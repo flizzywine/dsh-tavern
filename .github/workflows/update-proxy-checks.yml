@@ -82,6 +82,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Check launcher downloads and updater proxy inheritance
         run: node --test tests/system-proxy.test.mjs tests/system-proxy-inheritance.test.mjs tests/application-update-proxy.test.mjs tests/profile-bridge-download.test.mjs
+      # Keep Node 22 proxy coverage, then run the full installer on the DSH runtime's supported Node.
+      - uses: actions/setup-node@v5
+        if: runner.os == 'Linux'
+        with:
+          node-version: 24.12.0
       - name: Check runtime downloads and staged updates
         run: node --test tests/download.test.mjs tests/staged-app-install.test.mjs tests/cdn-upgrade.test.mjs
       - name: Check Android source updates
