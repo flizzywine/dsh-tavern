@@ -748,7 +748,6 @@ function saveDialogueInjection(sessionId, change) {
     return run;
 }
 // 恢复默认: the host's default template and no extra request; the worldbook placement stays where the user put it.
-function resetDialogueInjection(sessionId) { return saveDialogueInjection(sessionId, injection => ({ ...injection, template: '', extra: '' })); }
 // The 对白格式 editor (BubblePromptEditor) over the session's dialogue data. Its 「角色 ↗」 shows the page's 素材包 (stage setup wizard: the 人物 section is gone).
 function StageDialogueEditor({ sessionId, onClose }) {
     const data = useBubbles(sessionId, true), askConfirm = useTavernConfirm(sessionId);
