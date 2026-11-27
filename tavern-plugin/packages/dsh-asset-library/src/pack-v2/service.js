@@ -188,19 +188,7 @@ export function createAssetPackService(options) {
   // A pack/set import keys its uploadHash on the whole archive (one hash per transfer); a card bundle reads none.
   async function archiveFile(file) {
     const archive = await localArchive(file), hash = createHash('sha256')
-    const handle = await open(file, 'r')
-    try {
-      const buffer = Buffer.allocUnsafe(256 * 1024)
-      let size = 0
-      for (;;) {
-        const {bytesRead} = await handle.read(buffer)
-        if (!bytesRead) break
-        size += bytesRead
-        check(size <= archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-        hash.update(buffer.subarray(0, bytesRead))
-      }
-      check(size === archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-    } finally { await handle.close() }
+    for await (const chunk of createReadStream(file)) hash.update(chunk)
     return {...archive, archiveSha256:hash.digest('hex')}
   }
   const blankManifest=(id,name,description)=>({format:'dsh-asset-pack',schemaVersion:1,id,name,...(description===undefined?{}:{description}),contentHash:'0'.repeat(64),assets:[],figures:[],sprites:{},bundles:{},blobs:{},files:[]})
