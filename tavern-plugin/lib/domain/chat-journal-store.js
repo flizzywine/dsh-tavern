@@ -57,7 +57,8 @@ export function createChatJournalStore(options = {}) {
   const dataRoot = path.resolve(String(options.dataRoot || ''))
   const chatsRoot = path.join(dataRoot, 'chats')
   const loadMetrics = new Map()
-  const native = createNativeConversationStorage({dataRoot,onIO:event => {
+  // conversationFormat: layout of new native saves, 2 (default) or experimental 3, or a function returning it.
+  const native = createNativeConversationStorage({dataRoot,format:options.conversationFormat,onIO:event => {
     options.onNativeIO?.(event)
     if (event.kind === 'phase' && readMetrics.hasSubscribers) readMetrics.publish(event)
     const row=loadMetrics.get(event.chatId)

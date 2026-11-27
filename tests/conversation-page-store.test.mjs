@@ -74,10 +74,7 @@ test('process death before head publication preserves old state and recovers wri
 })
 
 test('corrupt immutable pages fail explicitly instead of returning incomplete history',async t=>{
- const root=await mkdtemp(join(tmpdir(),'conversation-pages-v2-'))
- t.after(()=>rm(root,{recursive:true,force:true}))
- const store=createConversationPageStore({root,format:2})
- await store.create('a',{metadata:{card:'test'},state:{gold:10},messages:[{id:'m0',text:'body 0'}]})
+ const {root}=await fixture(t,1)
  const {readFile,writeFile}=await import('node:fs/promises')
  const pointer=JSON.parse(await readFile(join(root,'a','head.json'),'utf8'))
  const block=id=>join(root,'a','blocks',id.slice(0,2),id+'.json')

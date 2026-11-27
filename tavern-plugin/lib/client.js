@@ -53009,6 +53009,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                             sw("disableEnterSend", "关闭回车键发送消息", "开启后，在输入框按回车键只换行不发送，需要点击发送按钮（或按 Ctrl/Cmd + 回车）发送消息。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
+                            sw("experimentalSqliteStorage", "单文件存档（实验）", "实验功能，默认关闭。开启后，之后新建的存档改用单文件格式（SQLite）：每个存档只占两个文件，复制和备份更快、体积更小。已有存档保持原格式，不会自动转换。风险：这种格式仍在试验，旧版本 DSH Tavern 打不开用它保存的存档。关闭后新存档恢复原格式，已经是单文件格式的存档照常读写；要把它们转回原格式，可运行 node bin/migrate-conversation-storage.mjs --data 数据目录 --chat 存档ID --export-format-2。", false),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );

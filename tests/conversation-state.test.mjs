@@ -60,7 +60,7 @@ test('new world records use one packed flush instead of one durable write per no
 
 test('initial pages and head metadata are durable before one packed head publication',async t=>{
  const root=await mkdtemp(join(tmpdir(),'conversation-head-pack-'));t.after(()=>rm(root,{recursive:true,force:true}))
- const io=[],store=createConversationPageStore({root,format:2,onIO:event=>io.push(event)}),domain=createConversationState({store})
+ const io=[],store=createConversationPageStore({root,onIO:event=>io.push(event)}),domain=createConversationState({store})
  await domain.create('packed-head',{world:{variables:{gold:10}},messages:[{id:'m1',text:'history'}]})
  const direct=io.filter(event=>event.kind==='write'&&['page','index','state','metadata','head'].includes(event.type))
  assert.deepEqual(direct,[])

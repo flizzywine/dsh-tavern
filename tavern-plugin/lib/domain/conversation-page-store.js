@@ -1,4 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto'
+import {existsSync} from 'node:fs'
 import {mkdir, open, opendir, readFile, readdir, rename, rm, link, stat, unlink, utimes} from 'node:fs/promises'
 import path from 'node:path'
 import {createDurableFilePromotion} from '../durable-file-promotion.js'
@@ -138,8 +139,16 @@ function integer(value,min=0){return Number.isSafeInteger(value)&&value>=min}
 
 const noopIO=()=>{}
 export const supportsIndependentFiles = true
-export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unlinkFile=unlink,format=SQLITE_FORMAT,keepOpenMs=0}={}) {
- if(format!==POINTER_FORMAT&&format!==SQLITE_FORMAT)throw Error('Unsupported conversation storage format')
+// `format` picks the layout of conversations this store creates: 2 (default) or the
+// experimental 3. It may be a function read at each creation, so a setting switched
+// while running applies to the next new save; existing saves keep their own format.
+export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unlinkFile=unlink,format=POINTER_FORMAT,keepOpenMs=0}={}) {
+ const newFormat=async()=>{
+  const value=typeof format==='function'?await format():format
+  if(value!==POINTER_FORMAT&&value!==SQLITE_FORMAT)throw Error('Unsupported conversation storage format')
+  return value
+ }
+ if(typeof format!=='function'&&format!==POINTER_FORMAT&&format!==SQLITE_FORMAT)throw Error('Unsupported conversation storage format')
  const independentFiles=process.env.DSH_STORAGE_COPY_ONLY==='1'
  if(!root)throw Error('Conversation store requires root')
  root=path.resolve(root)
@@ -229,8 +238,16 @@ export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unli
    throw Error('Unsupported conversation format')
   }
   if(!allowMissingHead)return {backend:null,pointer:null}
-  if(sqlite.hasDatabase(dir)){sqlite.setSessionBackend(dir,'sqlite');return {backend:'sqlite',pointer:null}}
-  return {backend:format===SQLITE_FORMAT?'sqlite':'files',pointer:null}
+  const backend=await newBackend(dir)
+  if(backend==='sqlite')sqlite.setSessionBackend(dir,'sqlite')
+  return {backend,pointer:null}
+ }
+ // A conversation without a head yet: blocks written before its creation already
+ // fixed its backend; otherwise the configured format for new saves decides.
+ async function newBackend(dir){
+  if(sqlite.hasDatabase(dir))return 'sqlite'
+  if(existsSync(path.join(dir,'blocks')))return 'files'
+  return await newFormat()===SQLITE_FORMAT?'sqlite':'files'
  }
  function blobPath(dir,id){
   if(!/^[a-f0-9]{64}$/.test(id))throw Error('Invalid block reference')
@@ -430,6 +447,7 @@ export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unli
   let result
   await sqlite.withSession(dir,()=>promotion.update(path.join(dir,'head.json'),async current=>{
    if(current!==undefined)throw conflict()
+   const backend=await newBackend(dir)
    // Build the initial page/state/metadata/head graph in memory. One packed flush
    // replaces four or more file fsyncs plus their per-block directory barriers.
    const pending=new Map()
@@ -438,7 +456,7 @@ export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unli
    const head={kind:'head',format:FORMAT,id,revision:1,count:messages.length,...tree,
     stateId:await write({kind:'state',value:value.state}),metadataId:await write({kind:'metadata',value:value.metadata??{}})}
    const headId=await write(head)
-   if(format===SQLITE_FORMAT){
+   if(backend==='sqlite'){
     sqlite.createInitial(dir,id,[...pending.values()],headId)
     result={revision:1,snapshotId:headId}
     await verifyBeforePublish?.(headId)

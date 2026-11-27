@@ -15,6 +15,7 @@ import {
   migrateConversationToSqlite,
 } from '../tavern-plugin/lib/domain/conversation-storage-format.js'
 import { migrateConversationStorage } from '../bin/migrate-conversation-storage.mjs'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 const canonicalHash = value => sha256(JSON.stringify(value))
@@ -42,7 +43,7 @@ function sqliteIntegrity(sqlitePath) {
 
 test('Format 3 keeps strictly 2 files at rest across 120 commits, pruning, compaction, and deletion', async t => {
   const root = await tempDir(t, 'sqlite-file-count-')
-  const store = createChatJournalStore({ dataRoot: root, newConversations: true })
+  const store = createChatJournalStore({ dataRoot: root, newConversations: true, conversationFormat: 3 })
   const persistence = createChatPersistence({ store })
 
   await persistence.write({ id: 'c1', sessionId: 's1', mode: 'story', messages: [sampleRow(0), sampleRow(1)] })
@@ -79,28 +80,87 @@ test('Format 3 keeps strictly 2 files at rest across 120 commits, pruning, compa
   await assert.rejects(stat(chatDir), { code: 'ENOENT' })
 })
 
+test('the experimental single-file setting is off by default and only accepts booleans', () => {
+  assert.equal(presentTavernSettings({}, {}).experimentalSqliteStorage, false)
+  const enabled = applyTavernSettingsPatch({ other: 'keep' }, { experimentalSqliteStorage: true })
+  assert.equal(enabled.other, 'keep')
+  assert.equal(presentTavernSettings(enabled, {}).experimentalSqliteStorage, true)
+  assert.equal(presentTavernSettings(applyTavernSettingsPatch(enabled, { experimentalSqliteStorage: false }), {}).experimentalSqliteStorage, false)
+  for (const value of ['true', 1, null]) {
+    assert.throws(() => applyTavernSettingsPatch(enabled, { experimentalSqliteStorage: value }), /单文件存档设置必须是布尔值/)
+    assert.equal(presentTavernSettings({ experimentalSqliteStorage: value }, {}).experimentalSqliteStorage, false)
+  }
+})
+
+test('new saves default to Format 2; the switch only changes saves created while it is on', async t => {
+  const root = await tempDir(t, 'sqlite-optin-')
+  const formatOf = chatId => inspectConversationFormat({ root: join(root, 'chats'), chatId }).then(result => result.format)
+  const defaults = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  await defaults.write({ id: 'default', sessionId: 's0', mode: 'story', messages: [sampleRow(0)] })
+  assert.equal(await formatOf('default'), 2)
+  assert.deepEqual((await readdir(join(root, 'chats', 'default'))).sort(), ['blocks', 'head.json'])
+
+  // One running store; the setting is read whenever a save is created.
+  let enabled = false
+  const store = createChatJournalStore({ dataRoot: root, newConversations: true, conversationFormat: async () => enabled ? 3 : 2 })
+  const persistence = createChatPersistence({ store })
+  await persistence.write({ id: 'off-1', sessionId: 's1', mode: 'story', messages: [sampleRow(0)] })
+  enabled = true
+  await persistence.write({ id: 'on', sessionId: 's2', mode: 'story', messages: [sampleRow(0)] })
+  await persistence.patch('off-1', 1, [{ op: 'splice', path: ['messages'], index: 1, deleteCount: 0, items: [sampleRow(1)] }])
+  assert.equal(await formatOf('off-1'), 2, 'an existing Format 2 save is not migrated when the switch turns on')
+  assert.equal(await formatOf('on'), 3)
+  assert.deepEqual((await readdir(join(root, 'chats', 'on'))).sort(), ['chat.sqlite', 'head.json'])
+
+  enabled = false
+  await persistence.write({ id: 'off-2', sessionId: 's3', mode: 'story', messages: [sampleRow(0)] })
+  assert.equal(await formatOf('off-2'), 2)
+  // With the switch off again, the Format 3 save keeps reading and writing as Format 3.
+  await persistence.patch('on', 1, [{ op: 'splice', path: ['messages'], index: 1, deleteCount: 0, items: [sampleRow(1, '关闭后继续写')] }])
+  assert.equal(await formatOf('on'), 3)
+  const fresh = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  const saved = await fresh.read('on')
+  assert.equal(saved._storageRevision, 2)
+  assert.equal(saved.messages[1].text, sampleRow(1, '关闭后继续写').text)
+  assert.equal((await fresh.read('off-1')).messages.length, 2)
+})
+
+test('a block written before creation fixes the new save backend even if the switch flips', async t => {
+  const root = await tempDir(t, 'sqlite-optin-pending-')
+  let format = 2
+  const store = createConversationPageStore({ root, format: () => format })
+  const ref = await store.writeRecord('a', { early: true })
+  format = 3
+  await store.create('a', { state: { ref }, messages: [] })
+  assert.equal((await inspectConversationFormat({ root, chatId: 'a' })).format, 2)
+  assert.deepEqual(await createConversationPageStore({ root }).readRecord('a', ref), { early: true })
+  format = 4
+  await assert.rejects(store.create('b', { state: {}, messages: [] }), /Unsupported conversation storage format/)
+  assert.throws(() => createConversationPageStore({ root, format: 4 }), /Unsupported conversation storage format/)
+})
+
 test('Format 2 and Format 3 coexist: Format 2 remains readable and writable without silent conversion', async t => {
   const root = await tempDir(t, 'sqlite-dual-read-')
   const chatsRoot = join(root, 'chats')
   const v2Pages = createConversationPageStore({ root: chatsRoot, format: 2 })
   await v2Pages.create('legacy-v2', { metadata: { card: 'v2' }, state: { gold: 1 }, messages: [{ id: 'm0' }] })
 
-  const defaultStore = createConversationPageStore({ root: chatsRoot })
-  await defaultStore.create('modern-v3', { metadata: { card: 'v3' }, state: { gold: 2 }, messages: [{ id: 'm0' }] })
+  const sqliteStore = createConversationPageStore({ root: chatsRoot, format: 3 })
+  await sqliteStore.create('modern-v3', { metadata: { card: 'v3' }, state: { gold: 2 }, messages: [{ id: 'm0' }] })
 
   assert.equal((await inspectConversationFormat({ root: chatsRoot, chatId: 'legacy-v2' })).format, 2)
   assert.equal((await inspectConversationFormat({ root: chatsRoot, chatId: 'modern-v3' })).format, 3)
 
-  // Default (Format 3) store reads and commits to existing Format 2 without converting it.
-  await defaultStore.commit('legacy-v2', { expectedRevision: 1, state: { gold: 11 }, append: [{ id: 'm1' }] })
+  // A store creating Format 3 still reads and commits to existing Format 2 without converting it.
+  await sqliteStore.commit('legacy-v2', { expectedRevision: 1, state: { gold: 11 }, append: [{ id: 'm1' }] })
   assert.equal((await inspectConversationFormat({ root: chatsRoot, chatId: 'legacy-v2' })).format, 2)
-  assert.equal((await defaultStore.openConversation('legacy-v2')).state.gold, 11)
-  assert.equal((await defaultStore.openConversation('legacy-v2')).messageCount, 2)
+  assert.equal((await sqliteStore.openConversation('legacy-v2')).state.gold, 11)
+  assert.equal((await sqliteStore.openConversation('legacy-v2')).messageCount, 2)
 
   // And Format 3 stays Format 3.
-  await defaultStore.commit('modern-v3', { expectedRevision: 1, state: { gold: 22 }, append: [{ id: 'm1' }] })
+  await sqliteStore.commit('modern-v3', { expectedRevision: 1, state: { gold: 22 }, append: [{ id: 'm1' }] })
   assert.equal((await inspectConversationFormat({ root: chatsRoot, chatId: 'modern-v3' })).format, 3)
-  assert.equal((await defaultStore.openConversation('modern-v3')).state.gold, 22)
+  assert.equal((await sqliteStore.openConversation('modern-v3')).state.gold, 22)
 
   // Older reader (accepting only formats 1 and 2) explicitly rejects Format 3 head.json.
   const v3Pointer = JSON.parse(await readFile(join(chatsRoot, 'modern-v3', 'head.json'), 'utf8'))
@@ -201,7 +261,7 @@ test('Format 2 -> Format 3 -> write new progress -> Format 2 round-trip is byte-
 
 test('Format 3 corruption fails explicitly without silent fallback', async t => {
   const root = await tempDir(t, 'sqlite-corrupt-')
-  const store = createConversationPageStore({ root })
+  const store = createConversationPageStore({ root, format: 3 })
   await store.create('a', { metadata: { card: 'test' }, state: { gold: 10 }, messages: [{ id: 'm0' }] })
 
   // 1. Corrupt block payload inside SQLite blocks table -> Invalid immutable block
@@ -224,7 +284,7 @@ test('Format 3 corruption fails explicitly without silent fallback', async t => 
 
 test('Format 3 dedup corruption check rejects and rolls back whole batch; aged dedup renews grace period', async t => {
   const root = await tempDir(t, 'sqlite-dedup-')
-  const store = createConversationPageStore({ root })
+  const store = createConversationPageStore({ root, format: 3 })
   await store.create('a', { state: { n: 1 }, messages: [] })
   const values = Array.from({ length: 20 }, (_, i) => ({ type: 'scalar', value: 'v-' + i }))
   const refs = await store.writeRecords('a', values)
@@ -252,7 +312,7 @@ test('Format 3 dedup corruption check rejects and rolls back whole batch; aged d
 
 test('power-loss / SIGKILL crash stress: killed writer always leaves exact pre- or post-commit state', async t => {
   const root = await tempDir(t, 'sqlite-crash-')
-  const store = createChatJournalStore({ dataRoot: root, newConversations: true })
+  const store = createChatJournalStore({ dataRoot: root, newConversations: true, conversationFormat: 3 })
   const persistence = createChatPersistence({ store })
   const initial = await persistence.write({ id: 'crash-chat', sessionId: 's', mode: 'story', messages: [sampleRow(0), sampleRow(1)] })
 
