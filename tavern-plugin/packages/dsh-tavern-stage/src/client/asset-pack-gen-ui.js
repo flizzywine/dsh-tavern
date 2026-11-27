@@ -4,7 +4,7 @@
   // 设定图 or the 设定文字 (外貌 + 服装描述), never from 平和 (平和 only stays the ruler an adopted 立绘 is aligned to). Nothing loops,
   // retries or refills in the background, and nothing here talks about money. The pack modal owns one controller
   // (useAssetGen); nothing is read from the backend until a 生图 surface opens.
-  const GEN_POLL_MS=1500,GEN_PARALLEL=4,GEN_REF_LIMIT=4,GEN_REF_BYTES=8*1024*1024;
+  const GEN_POLL_MS=1500,GEN_REF_LIMIT=4,GEN_REF_BYTES=8*1024*1024;
   // ⚠ chips: a short label per deterministic check; the backend sentence is the tooltip.
   const GEN_WARNINGS={NO_TRANSPARENCY:'没有透明背景',EDGE_CONTACT:'人物碰到边缘',CELL_EDGE_CONTACT:'碰到格子边缘',ASPECT_MISMATCH:'比例不对',LOW_RESOLUTION:'分辨率偏低',
     EMPTY_IMAGE:'图是空的',CHECK_UNAVAILABLE:'无法自动检查',SHEET_UNSLICEABLE:'不能自动切分'};
@@ -142,11 +142,10 @@
       if(pumping.current)return;pumping.current=true;
       try{
         while(alive.current&&queue.current.length){
-          if((known.current||[]).filter(j=>j.status==='running').length>=GEN_PARALLEL){await genSleep(GEN_POLL_MS);await refresh();continue;}
           const item=queue.current.shift();
           try{await start(item.target,item.input,{approved:item.approved,plan:item.plan});}
           catch(e){
-            // Another pack's requests fill the four seats: the same consented plan is sent once a seat frees up.
+            // The same target is already drawing: the same consented plan is sent once it is done.
             if(e.code==='BUSY'&&e.plan&&alive.current){queue.current.push({...item,plan:e.plan});mark(genKey(item.target),'queued');fail(genKey(item.target),'');await genSleep(GEN_POLL_MS*2);await refresh();}
             else if(GEN_PROBLEMS[e.code])for(const rest of queue.current.splice(0))mark(genKey(rest.target),'');
           }

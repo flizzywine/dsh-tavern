@@ -478,7 +478,6 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(input.consentToken === plan.consentToken, 'CONSENT_REQUIRED', '请确认本次模型、网关与参考图')
       assert(!Object.values(jobs).some(job => job.status === 'running' && targetKey(job.target) === targetKey(plan.target)), 'BUSY', '同一目标已有生成任务，请等待或取消')
       for (const previous of uncertain(plan.target)) checkPurchaseConfirmation(previous,{confirmNewRequestId:input.confirmNewRequestIds?.includes(previous.jobId) ? previous.jobId : input.confirmNewRequestId})
-      assert(controllers.size + plan.imageCount <= 4, 'BUSY', '已有素材生图任务在途（最多四张）')
       await reserveJobs(plan.imageCount)
       const pack = await snapshot(plan.target,plan.expectedRevision); context(pack,plan.target)
       const group = Array.from({length:plan.imageCount},(_,index) => {
@@ -502,8 +501,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       }
       return {jobs:group.map(publicJob)}
     }),
-    // One picture for a plugin (tavern.generateImage) on the image plugin's current channel, under the same limit of four
-    // in flight as the asset pictures. Nothing is kept or retried here. `mayHaveCharged` is false only for a refusal
+    // One picture for a plugin (tavern.generateImage) on the image plugin's current channel; how many run at once is the image plugin's
+    // own setting (its queue). Nothing is kept or retried here. `mayHaveCharged` is false only for a refusal
     // before dispatch or a failure the image plugin marks requestMayHaveSucceeded === false.
     // promptPreset / usage name an image plugin style for the picture; without one the prompt is sent as written (no-style).
     async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal, promptPreset = 'no-style', usage} = {}, source = imageProvider()) {
@@ -518,7 +517,6 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         assert(['png','jpeg','webp'].includes(kind) && reference.mediaType === 'image/' + kind, 'INVALID_ARGUMENT', '参考图须为最多 8 MiB 的 PNG/JPEG/WebP')
         return {data, mediaType:reference.mediaType}
       })
-      assert(controllers.size < 4, 'BUSY', '已有生图任务在途（最多四张）')
       const key = randomUUID(), controller = new AbortController(); controllers.set(key, controller)
       const failed = (message, mayHaveCharged) => fail('GENERATION_FAILED', String(message || '生图失败').replace(/\s+/g, ' ').trim().slice(0, 300), {mayHaveCharged})
       try {
