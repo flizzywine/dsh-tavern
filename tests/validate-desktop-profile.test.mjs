@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 const script = fileURLToPath(new URL('../bin/validate-desktop-profile.mjs', import.meta.url))
+const startup = fileURLToPath(new URL('../bin/validate-desktop-startup.mjs', import.meta.url))
 const bridge = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern', import.meta.url))
 // The host's own profile loader validates the profile: a real DSH install provides it.
 const hostRoot = process.env.DSH_BOOT_MODULE ? process.env.DSH_BOOT_MODULE.split(path.sep + 'node_modules' + path.sep)[0] : ''
@@ -52,4 +53,30 @@ test('原版 Desktop 切换入口：酒馆加进去的 dsh-tavern 加载不了�
   const { home, dir } = await profileWith(t, ['dsh-tavern'])
   await rm(path.join(dir, 'node_modules', 'dsh-tavern'), { recursive: true })
   await assert.rejects(run(process.execPath, [script, dir], { env: env(home) }), /dsh-tavern/)
+})
+
+test('桌面宿主能启动时仍拒绝重复导入的酒馆入口，并接受可响应的候选版本', { skip: !hostRoot || !process.versions.electron, timeout: 90000 }, async t => {
+  const { home, dir } = await profileWith(t, [], 'tavern')
+  const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-tavern-plugin']
+  await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-tavern', dsh: { profile: { bundles } }, dshTavern: { managedBundles: bundles },
+  }))
+  const modules = path.join(dir, 'node_modules')
+  const bad = path.join(modules, 'dsh-tavern-plugin')
+  await mkdir(bad)
+  await writeFile(path.join(bad, 'package.json'), JSON.stringify({ name: 'dsh-tavern-plugin', version: '3.4.0', type: 'module', exports: './index.js',
+    dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+  await writeFile(path.join(bad, 'cordis.patch.yml'), '- insert:\n    - id: dsh-tavern\n      name: dsh-tavern-plugin\n')
+  await writeFile(path.join(bad, 'index.js'), "import { readFile } from 'node:fs'\nimport { readFile } from 'node:fs'\n")
+  const options = { env: env(home), timeout: 40000 }
+  await assert.rejects(run(process.execPath, [startup, dir, 'desktop'], options), error => {
+    assert.match(error.stderr, /Identifier 'readFile' has already been declared/)
+    assert.match(error.stderr, /酒馆插件未激活/)
+    return true
+  })
+  await rm(bad, { recursive: true })
+  await symlink(fileURLToPath(new URL('../tavern-plugin', import.meta.url)), bad, process.platform === 'win32' ? 'junction' : 'dir')
+  const { stdout } = await run(process.execPath, [startup, dir, 'desktop'], options)
+  assert.match(stdout, /桌面酒馆启动验证通过/)
+  assert.deepEqual(await readdir(path.dirname(dir)), ['tavern'])
 })

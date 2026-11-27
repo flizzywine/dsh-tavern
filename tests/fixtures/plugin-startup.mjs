@@ -139,9 +139,9 @@ try {
   // the five first-party mods (dice, phone, redaction, textcard, timer)
   assert.equal(mods.mods.length, 5)
   assert.ok(mods.mods.every(mod => mod.switches.global === false && mod.switches.effective === false))
-  const plan = await modRpc('managedModSwitchPlan', { revision: mods.revision, kind: 'mod', scope: 'global', id: 'dsh.dice', value: true })
+  const plan = await modRpc('managedModSwitchPlan', { revision: mods.revision, kind: 'mod', scope: 'global', id: 'dsh.phone', value: true })
   await modRpc('managedModApply', { token: plan.token, revision: plan.revision, answers: {} })
   const enabled = await modRpc('managedModsList', {})
-  assert.deepEqual(enabled.mods.filter(mod => mod.switches.effective).map(mod => mod.id), ['dsh.dice'])
+  assert.deepEqual(enabled.mods.filter(mod => mod.switches.effective).map(mod => mod.id), ['dsh.phone'])
   console.log('plugin apply completed')
 } finally { releaseIdentities.forEach(release => release()); await host.dispose() }

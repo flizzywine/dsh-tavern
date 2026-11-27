@@ -425,6 +425,11 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       }
       // --dump-config never imports the plugin; a partial node_modules would only fail after restart.
       assertRuntimeDependencies(SOURCE_ROOT)
+      if (host === 'desktop' || host === 'next') {
+        await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-startup.mjs'), profileDir, host], {
+          label: '验证桌面酒馆启动', timeoutMs: 120_000,
+        })
+      }
       ensureSidebarDefaults()
       const [theme] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-theme': null } })
       // 0.2.0-rc.2 适配：桌面把 dsh-client-ui-theme 打进 app.asar（只读归档），纯 Node 既读不到
