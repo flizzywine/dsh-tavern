@@ -281,7 +281,7 @@ import { createDialogueBubblePresets, DEFAULT_BUBBLE_TEMPLATE } from './domain/d
 import { bubbleCharacter } from '../src/client/bubble-line.cjs'
 import { modLibrary } from './mod-library.js'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
-import { createCardStorage } from './card-storage.js'
+import { CARD_ID, createCardStorage } from './card-storage.js'
 import { createCardLeftovers } from './card-leftovers.js'
 import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
@@ -1969,6 +1969,14 @@ export async function apply(ctx) {
       await cardLeftovers.remove({ cardPath: normalized, cardId })
     }
     return result
+  }
+  // A card deleted before deleteCard cleaned up after it: the same cleanup, once the card is gone. cardId is the id its
+  // storage knew (per-card records such as the stage's CG gallery are named by it).
+  async function removeDeletedCardLeftovers(cardPath, cardId) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    if (cardId !== undefined && !CARD_ID.test(cardId)) throw new Error('人物卡身份不合法')
+    if (await fileResources.readCard(normalized) !== undefined || await cardStorage.findId(normalized) !== undefined) throw Object.assign(new Error('人物卡还在，请用删除人物卡'), { code: 'CARD_EXISTS' })
+    return await cardLeftovers.remove({ cardPath: normalized, cardId })
   }
   const sessionInventory = createSessionInventory({
     persistence: ctx.get('sessionPersistence'), sessions: sessionStore, agents: agentRegistry,
@@ -4787,7 +4795,7 @@ export async function apply(ctx) {
     cardArchiveUploads, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
-    conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
+    conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, removeDeletedCardLeftovers, deleteChat, deleteChats,
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
     fileResources, forkCardWorkbench, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
