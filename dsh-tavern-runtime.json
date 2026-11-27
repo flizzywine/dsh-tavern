@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d00664bacc7ef40bf439112117a5736108a3df5a",
-  "releaseSequence": 2198,
+  "revision": "326744a4409e2ec0d36bfffd48547986383ade2d",
+  "releaseSequence": 2199,
   "version": "3.4.0",
   "files": [
     {
@@ -246,8 +246,8 @@
     },
     {
       "path": "android/setup.sh",
-      "sha256": "2ed1f257ad210f8e6279fb671a28cf11401b661e8dcfeb3f8ee094b4d71d122a",
-      "size": 20604
+      "sha256": "f412068135f220c61063f95f5b9b8bdd91302f538717ce50cd335dc55610b383",
+      "size": 20870
     },
     {
       "path": "android/update.sh",
@@ -386,8 +386,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "04f6cd3e454f22809dfa36ddc815e2214d3cddc14462f9f4ca89af23b82b5945",
-      "size": 26683
+      "sha256": "079237ba37bebdc2cd721d94991310e11c2724ca967ac35f709e2b234ebcf58d",
+      "size": 28393
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -541,8 +541,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "1dc0064f24bd8c3675e32bb59cc501c9c20f013543882f73cdc4e692fb83accf",
-      "size": 37871
+      "sha256": "f03a9d7b47da1a672bb611ed9d41d14197259615757fa4513e6f65f583c125ed",
+      "size": 38124
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -650,6 +650,11 @@
       "size": 2763
     },
     {
+      "path": "bin/validate-desktop-startup.mjs",
+      "sha256": "4eec9049374de6ef38ff9a7436fe7c70941cb3dccbe3280e4b60717f4b3f66c6",
+      "size": 3815
+    },
+    {
       "path": "bin/vendor-dream-skin.mjs",
       "sha256": "0af4683faa29ef13b0d26481c1be26e428e49d6201eb6803cef1775b64c323d8",
       "size": 8927
@@ -726,13 +731,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "90e6935cddfa169973d6dba13aed4884883150980c09827f6a46e753174287dd",
-      "size": 123362
+      "sha256": "fd4de9934db2a41150c47a3f313e465d099c05a8a2c75852d2ef8f023ed371db",
+      "size": 124780
     },
     {
       "path": "install.sh",
-      "sha256": "a532c4be826c24381c256e6083ce4eaf045a98a4c7316ba4b630cc61e76be000",
-      "size": 91766
+      "sha256": "ac48cae78d8fbf387994c5c9d7ca52f9c5b281a47f48b875e608aa0319b43dc4",
+      "size": 93335
     },
     {
       "path": "package.json",
@@ -1156,8 +1161,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "574c28108017de8fc36e59cdf4b6c7551bd1801fa6b0ac586de9978b5241c792",
-      "size": 50417
+      "sha256": "16d0292a41abcb08dbe0046dcff2a2e7b51490ad440a0f8dc2b27f2d1c743b07",
+      "size": 43153
     },
     {
       "path": "tavern-plugin/lib/asset-engine-settings-owner.js",
@@ -3326,8 +3331,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-history-recovery.js",
-      "sha256": "36ab03434380ca5251e7145bdbba8533c3a1fe05253ef7829b0bd7a649562ed1",
-      "size": 1264
+      "sha256": "ae0816f9c6ed83ce2f355ed64b2f9f3ea2a2313b13488245879c5e53bac733f6",
+      "size": 2940
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-preset-lifecycle.js",
@@ -4501,8 +4506,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "0318706a63047e4f6a85018510c0ad0653fed1c9ce1575630461f7d75e083ae8",
-      "size": 346958
+      "sha256": "6da855ca4dec3dc4807a25dbfc58d8412c2fef2c7c2ff20ea85bab691e66791e",
+      "size": 345621
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10326,9 +10331,9 @@
     }
   ],
   "archive": {
-    "commit": "b3a514028fedbf69498e77c30c46ee30aceda35e",
+    "commit": "ac2f2dadd77043eedfd0138ee038c1eda5b2c334",
     "path": "runtime.zip",
-    "sha256": "2c9a5e2cb9ac40ae7ac1da58bc933dec79b7537179e4b9eba3500e25cabbfc86",
-    "size": 18283518
+    "sha256": "78912a5f4fc4b6191f52e509e5e1abf829bdec8c19b2bc8e59485b859cabbdcc",
+    "size": 18284462
   }
 }
