@@ -536,7 +536,10 @@ export function createAssetPackService(options) {
   // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
   // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
-    const zip = await openZip(file, limits), files = new Map()
+    return readZipEntries(await openZip(file, limits), archiveBytes, extraBytes, signal)
+  }
+  async function readZipEntries(zip, archiveBytes, extraBytes, signal) {
+    const files = new Map()
     guardArchive(zip.entries)
     const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
     check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
