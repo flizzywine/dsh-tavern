@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9099f501d6cd967ef5d6fd5ec1a83c6e6acbfeb7",
-  "releaseSequence": 2239,
+  "revision": "5961798fba26a0b25879deb2ff0d5f74ffde99cd",
+  "releaseSequence": 2240,
   "version": "3.5.0",
   "files": [
     {
@@ -10420,9 +10420,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "363f0b3eae8725a35c85f8b8b455c0f8ae2abc43",
+    "commit": "3db5aac9083dcecffce362eee891e593fb24f568",
     "path": "runtime.zip",
-    "sha256": "9a5a34f7f38d15f8bf3827fc68f079a8288888a0b63ba97470993056dc28415f",
+    "sha256": "fda9033997c775e115e136cb49801204e7be9f8c2221a1396cc3386115e620da",
     "size": 18349386
   }
 }
