@@ -3,6 +3,7 @@ import { createChatStorageMigration } from './chat-storage-migration.js'
 import {projectTavernHelperContext,hydrateTavernHelperMessages} from './tavern-helper-context.js'
 import { createNativeConversationStorage } from './native-conversation-storage.js'
 import { createLegacyCompatibleStorage } from './legacy-compatible-storage.js'
+import { exportConversationToFormat2, inspectConversationFormat, migrateConversationToSqlite } from './conversation-storage-format.js'
 import { createSessionMessageIndex } from './session-message-index.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
@@ -57,7 +58,8 @@ export function createChatJournalStore(options = {}) {
   const dataRoot = path.resolve(String(options.dataRoot || ''))
   const chatsRoot = path.join(dataRoot, 'chats')
   const loadMetrics = new Map()
-  const native = createNativeConversationStorage({dataRoot,onIO:event => {
+  // conversationFormat: layout of new native saves, 2 (default) or experimental 3, or a function returning it.
+  const native = createNativeConversationStorage({dataRoot,format:options.conversationFormat,onIO:event => {
     options.onNativeIO?.(event)
     if (event.kind === 'phase' && readMetrics.hasSubscribers) readMetrics.publish(event)
     const row=loadMetrics.get(event.chatId)
@@ -582,7 +584,7 @@ export function createChatJournalStore(options = {}) {
 
   /** Exact-version internal commit; stale callers must use their existing merge path. */
   async function patch(chatId, expectedRevision, changes, metadata={}) {
-    return serialize(chatId,async()=>{
+    return serialize(chatId,()=>native.withSession(chatId,async()=>{
       if (!readCache.has(chatId) || Array.isArray(metadata.returnProjection)) {
         const cached=readCache.get(chatId)?.state
         const reusable=cached?.native && cached.revision===expectedRevision
@@ -640,7 +642,7 @@ export function createChatJournalStore(options = {}) {
         rememberChanges(recentChanges, frame.revision, changes))
       committed(chatId,frame.revision,metadata.source)
       return slice(next,[],metadata.returnProjection).chat
-    })
+    }))
   }
 
   async function readRevision(chatId, revision) {
@@ -653,7 +655,7 @@ export function createChatJournalStore(options = {}) {
   async function update(chatId, updater, metadata = {}) {
     if (typeof updater !== 'function') throw new Error('Chat Journal Store 缺少 updater')
     const site = options.wholeReadGuard?.site()
-    return await serialize(chatId, async function () {
+    return await serialize(chatId, () => native.withSession(chatId, async function () {
       const paths = layout(chatId)
       const currentState = await cachedState(paths.id)
       // The updater gets a copy of the whole Chat and the result is diffed against it.
@@ -729,7 +731,7 @@ export function createChatJournalStore(options = {}) {
         rememberChanges(recentChanges, revision, changes))
       committed(chatId, revision, metadata.source)
       return copyJsonTree(next)
-    })
+    }))
   }
 
   // Maintenance can recreate a deleted directory when taking its head lock.
@@ -753,6 +755,7 @@ export function createChatJournalStore(options = {}) {
         const paths = layout(chatId)
         forgetState(chatId)
         sessionMessages.forget(chatId)
+        native.close(chatId)
         await compatible?.remove(chatId)
         await rm(paths.root, { recursive: true, force: true })
         if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
@@ -797,5 +800,49 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
+  // Explicit storage format conversion of native saves: 3 moves Format 1/2 saves into one
+  // SQLite file, 2 moves Format 3 saves back. Each save is verified byte-for-byte before
+  // its head switches; only then is its previous layout removed, so a save that fails
+  // keeps exactly its old files and the batch goes on with the next one.
+  async function convertFormat(chatId, target) {
+    return await serializeNativeMaintenance(chatId, async () => {
+      await flushMaintenance()
+      return await serialize(chatId, async () => {
+        const dir = layout(chatId).root
+        const current = await inspectConversationFormat({ root: chatsRoot, chatId })
+        if (current.status === 'missing') return { chatId, status: 'skipped', reason: 'not-native' }
+        if (target === 3 ? current.format === 3 : current.format !== 3) return { chatId, status: 'skipped', reason: 'already' }
+        native.close(chatId)
+        forgetState(chatId)
+        if (target === 3) {
+          const result = await migrateConversationToSqlite({ root: chatsRoot, chatId, keepBackup: false })
+          await rm(path.join(dir, 'blocks'), { recursive: true, force: true })
+          return { chatId, status: 'converted', format: 3, blocks: result.blocks }
+        }
+        const result = await exportConversationToFormat2({ root: chatsRoot, chatId, inPlace: true, keepSqliteBackup: false })
+        for (const suffix of ['', '-wal', '-shm']) await rm(path.join(dir, 'chat.sqlite' + suffix), { force: true })
+        return { chatId, status: 'converted', format: 2, blocks: result.blocks }
+      })
+    })
+  }
+  async function convertStorage(target, { onProgress } = {}) {
+    if (target !== 2 && target !== 3) throw new Error('Unsupported conversation storage format')
+    let names = []
+    try { names = (await readdir(chatsRoot, { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith('.')).map(entry => entry.name) }
+    catch (error) { if (error?.code !== 'ENOENT') throw error }
+    const results = []
+    for (const chatId of names) {
+      try { results.push(await convertFormat(chatId, target)) }
+      catch (error) {
+        logger.warn?.('dsh-tavern: 存档 ' + chatId + ' 格式转换失败，保持原样：' + (error?.message || error))
+        results.push({ chatId, status: 'failed', error: String(error?.message || error) })
+      }
+      onProgress?.(results.length, names.length)
+    }
+    const count = status => results.filter(result => result.status === status).length
+    return { format: target, total: names.length, converted: count('converted'), skipped: count('skipped'),
+      failed: results.filter(result => result.status === 'failed') }
+  }
+
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, convertStorage, close: chatId => native.close(chatId), closeAll: () => native.closeAll(), detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
 }

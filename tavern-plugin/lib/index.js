@@ -902,7 +902,9 @@ export async function apply(ctx) {
     }
     return chat
   }
+  // New saves use Format 2 unless 设置 › 高级 › 新存档使用单文件格式（实验） is on; read at each creation.
   const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console, backgroundSnapshots: true, newConversations: true, wholeReadGuard: wholeReads, migrateLegacy: process.env.DSH_TAVERN_COMPATIBLE_STORAGE === '1',
+    conversationFormat: async () => (await readTavernSettings()).experimentalSqliteStorage ? 3 : 2,
     onCommit: (chatId, revision) => noteCommit(chatId, revision) })
   ctx.effect(() => () => chatJournalStore.flushMaintenance(), 'dsh-tavern: finish queued Chat snapshots')
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
@@ -3789,7 +3791,7 @@ export async function apply(ctx) {
       hostCompatibility, llm, modelRequestLog, modelSelection, mvuDiagnostics, pluginApi, preparedSaveSessions,
       readChat, readChatCard, readSessionMap, readTavernSettings, saveUpgrade, sessionPatch, sessionStateForSession,
       sessionStore, str, worldbookRecallLog, backgroundTasks, deploymentActivity, deploymentWork, autoChoices,
-      listTavernSessions, pluginSettlementProgress, taskStateReader,
+      listTavernSessions, pluginSettlementProgress, taskStateReader, chatJournalStore,
     }),
     createCardHandlers({
       agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardTaskPrompts,

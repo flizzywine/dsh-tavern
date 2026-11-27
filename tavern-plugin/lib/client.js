@@ -52889,6 +52889,29 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 return h(TavernSettingRow, { title: "恢复所有已隐藏的确认", help: "在删除等确认框里勾过「以后不再显示」的那几类操作会直接执行；恢复后它们重新先问一次。", note: notice },
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: !hidden, onClick: () => { hiddenConfirms.restoreAll(); setNotice("已恢复"); } }, "恢复"));
             }
+            // 单文件存档（实验）：手动把现有存档转成 Format 3，或全部转回 Format 2。每个存档逐字节核对后才切换；失败的保持原样。
+            function ConversationStorageConversion() {
+                const h = React.createElement;
+                const askConfirm = useTavernConfirm();
+                const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
+                async function run(format) {
+                    const toSqlite = format === 3;
+                    const ok = await askConfirm(toSqlite
+                        ? "把现有存档逐个转成单文件格式。每个存档先写好新文件并逐字节核对，一致才切换并删掉旧文件；核对失败的存档保持原样。存档多时要几分钟，期间不要游玩。建议先备份数据。旧版本 DSH Tavern 打不开转换后的存档，可随时用「全部转回」恢复。"
+                        : "把单文件格式的存档逐个转回原格式，同样逐字节核对后才切换。期间不要游玩。要让之后的新存档也用原格式，请同时关掉上面的开关。",
+                        { title: toSqlite ? "把现有存档转成单文件格式？" : "把存档全部转回原格式？", confirmText: toSqlite ? "开始转换" : "全部转回" });
+                    if (!ok) return;
+                    setBusy(true); setNotice("转换中…");
+                    try {
+                        const result = await rpc("convertConversationStorage", { format });
+                        setNotice("已转换 " + result.converted + " 个" + (result.failed.length ? "，" + result.failed.length + " 个失败已保持原样" : ""));
+                    } catch (err) { setNotice("转换失败：" + err.message); }
+                    finally { setBusy(false); }
+                }
+                return h(TavernSettingRow, { title: "现有存档的格式（实验）", help: "手动把已有存档转成单文件格式，或全部转回原格式。只在你点击时运行，不会自动转换。早于当前存档结构的旧存档不在转换范围内。", note: notice },
+                    h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: () => run(3) }, "转成单文件"),
+                    h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: () => run(2) }, "全部转回"));
+            }
             function GlobalPlayDefaults({ settings, children }) {
                 const h = React.createElement;
                 const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
@@ -53074,6 +53097,8 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                             sw("disableEnterSend", "关闭回车键发送消息", "开启后，在输入框按回车键只换行不发送，需要点击发送按钮（或按 Ctrl/Cmd + 回车）发送消息。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
+                            sw("experimentalSqliteStorage", "新存档使用单文件格式（实验）", "实验功能，默认关闭。开启后，之后新建的存档改用单文件格式（Format 3，SQLite）：每个存档只占两个文件，复制和备份更快、体积更小。已有存档保持原格式，不会自动转换。风险：这种格式仍在试验，旧版本 DSH Tavern 打不开用它保存的存档。关闭后新存档恢复原格式，已经是单文件格式的存档照常读写；要把它们也变回去，用下一行的「全部转回」。", false),
+                            h(ConversationStorageConversion),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );

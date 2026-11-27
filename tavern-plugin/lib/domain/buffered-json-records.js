@@ -19,7 +19,7 @@ export function createBufferedJsonRecords({read,writeMany}){
    return ref
   }
  })
- async function flush(roots){
+ function collect(roots){
   const selected=new Map()
   function visit(ref){
    if(!pending.has(ref)||selected.has(ref))return
@@ -31,9 +31,13 @@ export function createBufferedJsonRecords({read,writeMany}){
    else if(value.type!=='scalar')throw Error('Invalid buffered JSON tree node')
   }
   roots.forEach(visit)
+  return {values:[...selected.values()],refs:[...selected.keys()]}
+ }
+ async function flush(roots){
+  const {values,refs}=collect(roots)
   // refs come from the store's own record encoding (recordBlock); the store reuses them
   // rather than hashing every record again and comparing.
-  await writeMany([...selected.values()],[...selected.keys()])
+  await writeMany(values,refs)
  }
- return Object.freeze({tree,flush})
+ return Object.freeze({tree,flush,collect})
 }
