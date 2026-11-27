@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { registerPlayChatTool } from '../tavern-plugin/lib/tools/play-chat.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from '../tavern-plugin/lib/domain/play-chat-debug.js'
+import { createWorkbenchResources } from '../tavern-plugin/lib/domain/workbench-resources.js'
 
 function chats() {
   const source = {
@@ -20,6 +24,33 @@ function chats() {
   const editor = { id: 'chat-editor', mode: 'card', cardPath: 'cards/校园.json', workspace: { mountedResources: [] } }
   return { source, editor }
 }
+
+test('工作台挂载游玩诊断后发布资源绑定、会话上下文和诊断摘要', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'workbench-resources-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const { source, editor } = chats()
+  const writes = []
+  const workbench = createWorkbenchResources({
+    root,
+    listCards: async () => [{ path: source.cardPath, name: source.cardName, script: { path: 'materials/校园.txt' } }],
+    fileResources: { worldBookBindingForCard: async () => ({ path: 'worldbooks/校园.json' }) },
+    readChat: async id => id === source.id ? source : undefined,
+    chatForSession: async id => id === 'editor' ? editor : id === source.sessionId ? source : undefined,
+    writeChat: async (chat, meta) => writes.push([chat.id, meta.source])
+  })
+  const attachment = await workbench.attachPlayChatDebug('editor', source.sessionId, 2)
+  await workbench.attachPlayChatDebug('editor', source.sessionId, 2)
+  assert.deepEqual(writes, [[editor.id, 'play-chat.attach'], [editor.id, 'play-chat.attach']])
+  assert.equal(editor.workspace.mountedResources.length, 1)
+  assert.equal(await workbench.publishResourceWorkspace(source.sessionId, source), null)
+  const projection = await workbench.publishResourceWorkspace('editor', editor)
+  const read = async relative => JSON.parse(await readFile(join(root, relative), 'utf8'))
+  assert.equal((await read(projection.contextPath)).playChats[0].path, attachment.path)
+  assert.equal((await read(projection.bindingsPath)).cards[0].script.path, 'materials/校园.txt')
+  const [diagnostic] = (await read(projection.diagnosticsPath)).items
+  assert.equal(diagnostic.status, 'available')
+  assert.equal(diagnostic.turn, 2)
+})
 
 test('初始概览提供本局预设和完整上下文查询入口，分页保留大字段并隐藏凭据', () => {
   const { source, editor } = chats()

@@ -7,8 +7,8 @@ import { createCardScripts } from '../tavern-plugin/lib/card-scripts.js'
 import { createCardStorage } from '../tavern-plugin/lib/card-storage.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { projectTavernHelperScripts } from '../tavern-plugin/lib/domain/tavern-helper-scripts.js'
-import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/lib/domain/card-extension-reading.js'
-import { withModHidden } from '../tavern-plugin/lib/mod-tools.js'
+import { inspectCardExtensions } from '../tavern-plugin/lib/domain/card-extension-reading.js'
+import { createCardWorkspaceReader } from '../tavern-plugin/lib/domain/card-workspace-reader.js'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
@@ -60,7 +60,6 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   await profileData.writeJson(resourcePath, workspace)
   const host = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
   await profileData.writeJson(key, {version:1, muted:['bgm']})
-  const readerSource = host.slice(host.indexOf('  async function readCardExtensionSources('), host.indexOf('  function presetRegexScripts('))
   const snapshot = { spec: 'chara_card_v3', data: { extensions: {
     regex_scripts: [{ id: 'display', findRegex: 'old', replaceString: 'new', placement: [2] }],
     tavern_helper: { scripts: [bgm, utility, disabled, { ...utility, id: 'legacy-disabled', disabled: true }] }
@@ -68,10 +67,17 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   const chat = { cardPath, cardName: 'Test card', cardDefinitionSnapshot: snapshot }
   const before = structuredClone(chat)
   let liveReads = 0
-  const readCardExtensions = new Function('readSharedCardWorkspace', 'cardPreparation', 'withGlobalRegexScripts', 'withModHidden', 'tavernExtensionSettings', 'cardScripts', `${readerSource}; return readCardExtensions`)(
-    async () => { liveReads++; return { spec: 'chara_card_v3', data: { extensions: { tavern_helper: { scripts: [bgm] } } } } },
-    { present: ({ card, as }) => { assert.equal(as, 'card-extensions'); return inspectCardExtensions(card) } },
-    withGlobalRegexScripts, withModHidden, { read: async () => ({}) }, cardScripts)
+  const { readCardExtensions } = createCardWorkspaceReader({
+    cardStorage: { readWorkspace: async () => {
+      liveReads++
+      return { raw: { spec: 'chara_card_v3', data: { extensions: { tavern_helper: { scripts: [bgm] } } } } }
+    } },
+    cardPreparation: {
+      isWorkspace: card => Boolean(card.raw),
+      present: ({ card, as }) => { assert.equal(as, 'card-extensions'); return inspectCardExtensions(card.raw || card) }
+    },
+    tavernExtensionSettings: { read: async () => ({}) }, cardScripts
+  })
   assert.deepEqual(projectTavernHelperScripts((await readCardExtensions(cardPath, chat)).helperScripts).scripts.map(script => script.id), ['utility'])
   // The production RPC handler; index.js routes getCardScripts to the same method.
   const handlers = createCardHandlers({ chatForSession: async id => id === 'session' ? chat : undefined, readCardExtensions, cardScripts, resolveCardId: cardStorage.resolve, str: value => typeof value === 'string' ? value : '' })
