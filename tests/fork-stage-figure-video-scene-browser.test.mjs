@@ -71,12 +71,13 @@ test('changing to an image the shown one has a transition into plays the transit
   const { page, errors } = await scenePage(t)
   await page.evaluate(() => show(figure('calm', '#3b3550', { video: { outfit: 'school', image: 'calm', source: clip('idle-calm'), rect: [0, 0, 600, 1800], into: { joy: { source: clip('calm-joy'), rect: [0, 0, 600, 1800] } } } })))
   await page.waitForFunction(() => figureVideos[0] && !figureVideos[0].paused && figureVideos[0].currentTime > 0, null, { timeout: 30000 })
+  assert.deepEqual(await page.evaluate(() => figureVideos.map(video => [video.loop, video.paused])), [[true, false], [false, true]], 'the transition is preloaded with the old picture')
   await page.waitForTimeout(400)
   await page.evaluate(() => show(figure('joy', '#50353b', { video: { outfit: 'school', image: 'joy', source: clip('idle-joy'), rect: [0, 0, 600, 1800], into: {} } })))
   // The new picture's idle loop and its transition: the transition plays to its end, then the idle loop plays.
-  await page.waitForFunction(() => figureVideos.length === 3 && !figureVideos[2].loop && figureVideos[2].currentTime > 0, null, { timeout: 30000 })
-  assert.equal(await page.evaluate(() => figureVideos[1].paused), true, 'the new idle loop waits for the transition')
-  await page.waitForFunction(() => figureVideos[2].ended && !figureVideos[1].paused && figureVideos[1].currentTime > 0, null, { timeout: 30000 })
+  await page.waitForFunction(() => figureVideos.length === 3 && figureVideos[1].currentTime > 0, null, { timeout: 30000 })
+  assert.equal(await page.evaluate(() => figureVideos[2].paused), true, 'the new idle loop waits for the transition')
+  await page.waitForFunction(() => figureVideos[1].ended && !figureVideos[2].paused && figureVideos[2].currentTime > 0, null, { timeout: 30000 })
   // The old picture's loop went with its fade-out.
   await page.waitForFunction(() => !figureVideos[0].getAttribute('src'), null, { timeout: 10000 })
   assert.equal(await page.evaluate(() => scene.debug.stats().figures.length), 1)

@@ -305,6 +305,7 @@ const stageClientPlugin = (() => {
                     views.input=own(createStageInput({React:options.React,window,document,clock:options.sceneServices?.foreground,controls,navigation:options.navigation}));
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances,skipShows:stageFeatures.skipShows}));
+                    views.figureVideos=figureVideos;
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality}));
                     // Live2D figures draw through the scene's figure renderer seam; the module itself loads with the first Cubism Core a scene names.
                     if(live2d){const live2dFigures=own(createStageLive2dFigures({window,math:sceneMath,idle:figureIdle,tap:figureTap,lipSync:options.sceneServices?.lipSync,runtime:live2d.runtime,measure:options.live2d.measure}));own({dispose:views.scene.figureRenderers.register('live2d',live2dFigures.renderer)});}
