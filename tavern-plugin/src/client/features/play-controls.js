@@ -294,15 +294,16 @@
                 if (view?.characterDesignTask?.status === "done" && view.characterDesignTask.published?.length) notifyTavernDataChanged(["worldbooks", "cards"], "character-design");
             }, [props.sessionId, JSON.stringify(view?.characterDesignTask?.published || [])]);
 			const missingCard = isMissingTavernCardError(liveState.error);
+			const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
+			const readFailed = loadState === "unavailable" && !emptyView;
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				// no-session / no-chat / empty-view 是「这个对话还没有游戏」，不是读取失败：
 				// live view 重试耗尽后把原因留在 error 上，面板应显示空态提示，
 				// 不能把「出错了，请稍后再试」推进错误中心。
-				const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
 				setError(missingCard || emptyView ? "" : (liveState.error || ""));
-			}, [liveState.error, missingCard]);
+			}, [liveState.error, missingCard, emptyView]);
             const [resourceLinkBusy, setResourceLinkBusy] = React.useState(false);
             const [resourceLinkError, setResourceLinkError] = React.useState("");
             const [resourceBinding, setResourceBinding] = React.useState(null);
@@ -429,8 +430,8 @@
 			if (!view) return h("aside", { className: "dsh-tavern-status dsh-tavern-status-dashboard" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
 				h("div", { className: "dsh-tavern-status-body" },
-					h("div", { className: "dsh-tavern-status-empty" }, missingCard ? "人物卡已删除，酒馆状态不可用；已有对话仍可查看。" : (loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。")))),
-					loadState === "retrying" || missingCard ? h("button", { className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
+					h("div", { className: "dsh-tavern-status-empty" }, missingCard ? "人物卡已删除，酒馆状态不可用；已有对话仍可查看。" : (loadState === "retrying" ? "正在重新连接酒馆状态…" : (readFailed ? playerErrorText(liveState.error, { fallback: "酒馆状态读取失败，已停止自动重试。" }) : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。"))))),
+					readFailed ? h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
 				)
 			);
 			if (view.mode === "card") return null;
