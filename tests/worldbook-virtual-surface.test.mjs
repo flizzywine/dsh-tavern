@@ -65,7 +65,7 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
 test('missing dynamic context restores at the message tail and retries use pending evidence', async () => {
   const { appendWorldbookRecovery } = await import('../tavern-plugin/lib/hooks/request.js')
   const current = state(), native = session([])
-  const chat = { worldbookStrategy: 'native-skills', worldBookVirtualState: current }
+  const chat = { worldbookStrategy: 'plugin-example', worldBookVirtualState: current }
   const input = { role: 'user', content: [{ type: 'text', text: '继续' }] }
   const decision = { kind: 'enter', messages: [input] }
   const before = JSON.stringify(native)

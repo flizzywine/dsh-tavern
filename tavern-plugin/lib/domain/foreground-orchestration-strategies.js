@@ -382,7 +382,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const randomSeed = rawSnapshot ? presetSeed(sessionId, Math.max(0, Number(payload.turn) || 0), Math.max(1, Number(payload.step) || 1)) : undefined
     const snapshot = resolveRuntimePresetMacros(rawSnapshot, { charName: input.chat?.cardName, macroState: input.chat?.macroState, randomSeed }).snapshot
     const prepareTurn = () => options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
-      userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
+      userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot, signal: payload.signal })
     if (pureWriter) {
       enteredSeriesPrompts.delete(sessionId)
       const prepared = await prepareTurn()

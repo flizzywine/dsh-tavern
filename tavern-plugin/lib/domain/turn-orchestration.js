@@ -798,7 +798,7 @@ export function createTurnOrchestrator(options) {
     // input first, then continue from its latest timeline instead of overwriting it.
     if (typeof options.projectForegroundWorldbook === 'function') await savePreparation({ source: 'foreground.prepare-worldbook' })
     const foregroundWorldBook = typeof options.projectForegroundWorldbook === 'function'
-      ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId }) : null
+      ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId, signal: input.signal }) : null
     if (typeof options.projectForegroundWorldbook === 'function') {
       const screenedFrom = Number(preparationBase?._storageRevision)
       if (!preview) {

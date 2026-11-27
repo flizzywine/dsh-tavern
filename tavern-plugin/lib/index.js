@@ -2710,9 +2710,7 @@ export async function apply(ctx) {
     skills: tavernSkills,
     addSkillRoot: addPluginSkillRoot,
     worldbookStrategies,
-    worldbookStrategyEntries: input => input.worldBook || playWorldBook(input.chat, input.card),
-    projectWorldbookSelection: (input, refs) => projectBuiltinWorldbook({ ...input,
-      selectedRefs: refs || [] }),
+    projectWorldbookSelection: (input, staticStrategy) => projectBuiltinWorldbook({ ...input, staticStrategy }),
     readCardImage: async sessionId => {
       const header = await chatHeaderForSession(sessionId, ['cardPath'])
       const cardPath = str(header?.cardPath)

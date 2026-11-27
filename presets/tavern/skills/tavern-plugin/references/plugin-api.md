@@ -156,23 +156,26 @@ Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【�
 
 ## 注册世界书召回策略
 
-`ctx.tavern.worldbookStrategy({ name, label, description, select })` 注册一种可在本局设置中选择的策略。`name` 是插件内唯一的名称（规则同 `worldbookSource`）；宿主自动添加插件命名空间，插件卸载时自动移除。调用返回移除注册的函数。注册本身不切换任何游戏；默认仍为现有关键词注入策略。
+`ctx.tavern.worldbookStrategy({ name, label, description, select })` 注册静态非常驻世界书的自动注入策略。玩家可在「本局设置 → 功能 → 世界书策略」选择。宿主为 `name` 添加插件命名空间，返回取消注册的函数。注册后，本局仍使用玩家保存的策略，默认为「自动注入 + 主动检索」。用 `ctx.tavern.capabilities?.worldbookStaticSelection === 1` 检查是否支持静态条目筛选和排序。
 
 ```js
 ctx.tavern.worldbookStrategy({
   name: 'first-match',
   label: '首个匹配条目',
   description: '用于与现有召回策略进行对比',
-  select({ gameId, userText, purpose, entries }) {
-    const entry = entries.find(entry => entry.primaryKeys?.some(key => userText.includes(key)))
+  select({ userText, history, entries }) {
+    const scene = [history.at(-1)?.text, userText].filter(Boolean).join('\n')
+    const entry = entries.find(entry => !entry.coolingDown && entry.primaryKeys?.some(key => key && scene.includes(key)))
     return entry ? [entry.ref] : []
   }
 })
 ```
 
-`select` 可以异步执行，最多 5 秒。输入是独立副本，不包含 Chat 内部状态；`entries` 只含本局启用且非 MVU 更新规则的条目，字段为 `ref`、`sourceUid`、`sourcePath`、`title`、`content`、`constant`、`primaryKeys`、`secondaryKeys`、`order`、`position`、`depth`、`role`。返回该数组内的 `ref` 字符串数组，不能返回任意正文。Tavern 负责模板渲染以及常驻、强制激活条目的保留；策略不能通过省略它们取消强制规则。此模式不消耗现有关键词召回的冷却记录，也不调用“世界书模型筛选”。
+`select` 在准备游玩正文时执行，可异步，等待上限为 5 秒。输入是独立副本，含 `gameId`、`purpose: 'generation'`、`userText`、`history`、`scanText`、`entries`。历史按时间正序提供最多 20 条近期可用的玩家或助手消息，跳过开场白和占位消息。每条消息含 `role`、`text`，有保存编号时还含 `turn`。脚本或插件显式提供的扫描文本在 `scanText` 中。
 
-卡内插件只能参与所属人物卡的游戏；异步回调结束时再次核对作用域和卸载状态。异常、超时、非法引用、插件不可用时退回现有召回，不覆盖玩家保存的策略选择。插件代码不得在选择回调中产生游戏外副作用。可以用 `tavern.capabilities.worldbookStrategy === 1` 检查支持情况。
+`entries` 包含本局可见、启用、使用自动通道的静态非常驻条目。字段为 `ref`、`sourceUid`、`sourcePath`、`title`、`content`、`constant`、`primaryKeys`、`secondaryKeys`、`order`、`position`、`depth`、`role`、`coolingDown`。返回其中的 `ref` 数组，按想要的顺序排列。空数组表示本轮跳过自动注入。Tavern 负责原文注入、去重、每轮 5 条上限、Token 预算和 10 回合冷却，成功压缩后重置。常驻、固定通道、动态模板、MVU 和 Agent 主动读取继续各自运行。
+
+卡内插件只参与所属人物卡的游戏。异常、超时、非法引用或插件不可用时，Tavern 当轮采用内置策略并保留玩家保存的选择。选择回调应只返回结果。插件卸载后，服务会移除其策略。
 
 ## 正文边写边润（replyRewriter）
 

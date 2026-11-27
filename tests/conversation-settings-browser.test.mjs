@@ -31,7 +31,7 @@ test('普通卡和舞台卡都能从本局设置进入舞台设置', async t => 
 })
 
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
-  let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'legacy', screening = true, fail = false, candidateTabs = true
+  let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'native-skills', strategyInstalled = true, fail = false, candidateTabs = true
   const { page, calls } = await openTavernSettings(t, { sessionId: 'game', respond(method, args) {
     if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
     if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', playerName, runtimePreset: preset, statusBarPlacement: 'sidebar' } }
@@ -51,7 +51,9 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
         if (Array.isArray(args.disabledForegroundTools)) disabledTools = args.disabledForegroundTools
       }
       return {
-        backgroundModel: model, worldbookStrategy: strategy, worldbookStrategies: [{ id: 'legacy', label: '外部注入（旧机制）' }, { id: 'native-skills', label: '主动检索（推荐）' }], backgroundTasks: { variables: true, posture: true },
+        backgroundModel: model, worldbookStrategy: strategy,
+        worldbookStrategies: [{ id: 'native-skills', label: '自动注入 + 主动检索' }, ...(strategyInstalled ? [{ id: 'plugin-demo', label: '示例召回策略' }] : [])],
+        backgroundTasks: { variables: true, posture: true },
         disabledForegroundTools: disabledTools, candidateTabs,
         foregroundTools: [
           { name: 'tavern_recall_history', label: '召回历史', description: '查阅历史正文。' },
@@ -120,7 +122,17 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   assert.equal(await page.getByLabel('状态栏位置', { exact: true }).count(), 0)
   assert.equal(await page.getByRole('button', { name: /^读取方式：/ }).count(), 0)
   assert.equal(await page.getByLabel('世界书模型筛选', { exact: true }).count(), 0)
-  assert.equal(calls.some(call => Object.hasOwn(call.args || {}, 'worldbookStrategy')), false)
+  const worldbookStrategy = page.getByRole('button', { name: /^世界书策略：/ })
+  await worldbookStrategy.click()
+  await page.getByRole('menuitemradio', { name: '示例召回策略', exact: true }).click()
+  await until(() => strategy === 'plugin-demo')
+  await page.getByRole('button', { name: /^世界书策略：示例召回策略/ }).waitFor()
+  strategyInstalled = false
+  await page.evaluate(() => window.dispatchEvent(new Event('dsh-tavern-settings-changed')))
+  await page.getByRole('button', { name: /^世界书策略：插件不可用/ }).waitFor()
+  await worldbookStrategy.click()
+  await page.getByRole('menuitemradio', { name: '自动注入 + 主动检索', exact: true }).click()
+  await until(() => strategy === 'native-skills')
   fail = true
   await modelField.click()
   await page.getByRole('menuitemradio', { name: '跟随前台', exact: true }).click()

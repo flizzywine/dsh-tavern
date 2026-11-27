@@ -1,7 +1,6 @@
 import { createHostBehaviorPolicies } from './domain/plugin-host-behavior.js'
 import { MAX_PLUGIN_DATA } from './domain/plugin-data-store.js'
 import { createHash } from 'node:crypto'
-import { isMvuUpdateEntry } from './domain/worldbook-mvu-entry.js'
 import { createPluginGameModes } from './domain/plugin-game-mode.js'
 import { createGameModeAgents } from './domain/game-mode-agents.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
@@ -220,7 +219,7 @@ export function createTavernPluginApi(deps) {
     }
     return name
   }
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
     ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
@@ -1852,36 +1851,45 @@ export function createTavernPluginApi(deps) {
       const owner = ownerOf(this)
       sectionName(name)
       if (typeof select !== 'function') throw new TypeError('select 必须是函数')
-      if (!deps.worldbookStrategies || !deps.worldbookStrategyEntries || !deps.projectWorldbookSelection) throw new Error('世界书策略服务不可用')
+      if (!deps.worldbookStrategies || !deps.projectWorldbookSelection) throw new Error('世界书策略服务不可用')
       const id = 'plugin-' + createHash('sha256').update(owner).digest('hex').slice(0, 16) + '-' + name
       return owned(this, () => {
         let active = true
-        const dispose = deps.worldbookStrategies.register({ id, label, description, project: async input => {
+        async function available(gameId) {
+          if (!active || !gameId) return false
+          const choices = await choicesFor(gameId)
+          return active && Boolean(choices.game) && !choices.disabled.has(owner)
+        }
+        async function selectForGame(input, { entries, history, scanText }) {
           const gameId = input.chat?.sessionId
-          const fallback = () => deps.projectWorldbookSelection(input, null)
           try {
             input.signal?.throwIfAborted()
-            if (!active || !gameId || (await choicesFor(gameId)).disabled.has(owner)) return fallback()
+            if (!await available(gameId)) return null
             await guardScope(owner, { gameId })
-            const worldBook = await deps.worldbookStrategyEntries(input)
-            const entries = (worldBook?.view?.entries || []).filter(entry => entry.enabled !== false && !isMvuUpdateEntry(entry))
-              .map(({ ref, sourceUid, sourcePath, title, content, constant, primaryKeys, secondaryKeys, order, position, depth, role }) =>
-                ({ ref, sourceUid, sourcePath, title, content, constant, primaryKeys, secondaryKeys, order, position, depth, role }))
-            const request = select(structuredClone({ gameId, userText: input.userText || '', purpose: input.purpose || 'generation', entries }))
+            if (!active) return null
+            input.signal?.throwIfAborted()
+            const candidates = entries.map(({ ref, sourceUid, sourcePath, title, content, constant, primaryKeys, secondaryKeys, order, position, depth, role, coolingDown }) =>
+              ({ ref, sourceUid, sourcePath, title, content, constant, primaryKeys, secondaryKeys, order, position, depth, role, coolingDown }))
+            const request = select(structuredClone({ gameId, userText: input.userText || '', purpose: 'generation', history, scanText, entries: candidates }))
             const result = await bounded(input.signal ? untilAborted(request, input.signal) : request, '世界书策略 ' + name, POOL_TIMEOUT_MS)
             input.signal?.throwIfAborted()
-            if (!active || (await choicesFor(gameId)).disabled.has(owner)) return fallback()
+            if (!await available(gameId)) return null
             await guardScope(owner, { gameId })
-            if (!Array.isArray(result) || result.some(ref => typeof ref !== 'string')) throw new Error('select 必须返回条目 ref 数组')
+            if (!active) return null
+            input.signal?.throwIfAborted()
+            const refs = Array.isArray(result) ? [...result] : null
+            if (!refs || refs.some(ref => typeof ref !== 'string')) throw new Error('select 必须返回条目 ref 数组')
             const allowed = new Set(entries.map(entry => entry.ref))
-            if (result.some(ref => !allowed.has(ref))) throw new Error('select 返回了不可用的条目 ref')
-            return deps.projectWorldbookSelection({ ...input, worldBook }, [...new Set(result)])
+            if (refs.some(ref => !allowed.has(ref))) throw new Error('select 返回了不可用的条目 ref')
+            return [...new Set(refs)]
           } catch (error) {
             input.signal?.throwIfAborted()
             recordError(gameId, owner, '世界书策略 ' + name, error)
-            return fallback()
+            return null
           }
-        } })
+        }
+        const dispose = deps.worldbookStrategies.register({ id, label, description, available,
+          project: input => deps.projectWorldbookSelection(input, { id, select: payload => selectForGame(input, payload) }) })
         return () => { active = false; dispose() }
       }, 'tavern.worldbookStrategy()')
     },

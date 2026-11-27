@@ -51,7 +51,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, tem
   const projectAutoInjection = createWorldbookAutoInjection()
   // `preparationKey` 只影响上游整书预处理的复用：历史迁移一轮一个 requestKey，
   // 但一本书在同一段迁移里并不变，预处理没必要每轮重跑一遍。
-  const project = async function project({ requestKey, preparationKey, chat, card, turn: nativeTurn, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [], recentlyReadRefs = [], worldbookEpoch = '' }) {
+  const project = async function project({ requestKey, preparationKey, chat, card, turn: nativeTurn, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, staticStrategy, recentlyReadRefs = [], worldbookEpoch = '' }) {
     try {
       // No bound book is an empty projection, including its request preparation cache.
       let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText}) || { view: { entries: [] } }
@@ -66,7 +66,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, tem
       const resolvedScanText = await scanText(chat)
       const completedTurns = purpose === 'generation' ? recentCompletedWorldbookTurns(chat.messages) : new Set()
       const currentTurn = nativeTurn ?? ((completedTurns.values().next().value ?? 0) + 1)
-      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText, recentlyReadRefs, useTemplates,
+      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), staticStrategy?.id, resolvedScanText, recentlyReadRefs, useTemplates,
         purpose, userText, userTextInHistory, worldbookEpoch, currentTurn, [...completedTurns]])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result
@@ -105,12 +105,12 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, tem
         } else worldBook = initial.prepared
         if (!useTemplates) worldBook = { ...worldBook, templateActivationRequests: [], templateScopes: undefined,
           view: { ...worldBook.view, entries: sourceEntries.filter(entry => !isWorldBookTemplateEntry(entry)) } }
-        const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || []), ...selectedRefs.map(ref => ({ ref, force: false, sourceRef: '[STRATEGY]' }))]
+        const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || [])]
         const previousState = previous?.requestKey === executionKey ? (await previous.result).virtualState : undefined
         const executionChat = previousState ? { ...chat, worldBookVirtualState: previousState } : chat
         const projected = await projectNativeWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn,
           requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText, recentlyReadRefs, signal,
-          autoInjection: purpose !== 'generation' ? null : { project: projectAutoInjection, currentTurn, completedTurns, epoch: worldbookEpoch } })
+          autoInjection: purpose !== 'generation' ? null : { project: projectAutoInjection, currentTurn, completedTurns, epoch: worldbookEpoch, strategy: staticStrategy } })
         if (useTemplates && initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
           requestKey: preparationScope, sources: initial.sources,
           prepared: initial.snapshot
@@ -227,7 +227,7 @@ async function projectNativeWorldbook({ worldBook, sourceEntries, chat, card, te
     entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill' && isStaticWorldbookSkillEntry(entry)) } }
   const titleInput = { worldBook: staticOptionalBook, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, ignorePlaceholders: true,
     random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') }
-  const automatic = autoInjection?.project(titleInput, { ...autoInjection, entries: staticOptionalBook.view.entries, original,
+  const automatic = await autoInjection?.project(titleInput, { ...autoInjection, entries: staticOptionalBook.view.entries, original,
     prior: chat.worldBookVirtualState?.scope === virtualState.scope ? chat.worldBookVirtualState.automatic : undefined })
   if (automatic) virtualState.automatic = automatic.state
   const autoOutputs = automatic?.selected || []
@@ -249,7 +249,7 @@ async function projectNativeWorldbook({ worldBook, sourceEntries, chat, card, te
     randomState: { ...randomState, seed: executionSeed, outputs: { ...randomState.outputs, ...Object.fromEntries(projected.renderedEntries
       .filter(output => hasWorldbookRandom(original.get(output.ref)?.content)).map(output => [output.ref, output.text])) } },
     activation: { schemaVersion: 2, turn, refs, diagnostics: [], mode: 'native-skills' },
-    log: { strategy: 'native-skills', entries: [...selectedEntries.map(entry => ({ ref: entry.ref, title: entry.title, reason: classify(entry).kind })),
-      ...autoOutputs.map(({ ref, title, score }) => ({ ref, title, score, reason: 'keyword-bm25' }))],
+    log: { strategy: automatic?.strategy ?? 'native-skills', entries: [...selectedEntries.map(entry => ({ ref: entry.ref, title: entry.title, reason: classify(entry).kind })),
+      ...autoOutputs.map(({ ref, title, score }) => ({ ref, title, score, reason: score === undefined ? 'plugin-strategy' : 'keyword-bm25' }))],
       outputs: deliveredOutputs, counts: { changed: changed.length, static: staticEntries.length, automatic: autoOutputs.length }, activationRequests, templateDiagnostics: projected.diagnostics }, error: null }
 }

@@ -21,7 +21,7 @@ export function appendVariableChanges({ chat, payload, decision }) {
 }
 
 export async function appendWorldbookRecovery({ chat, payload, decision, project }) {
-  if (!chat || chat.worldbookStrategy !== 'native-skills' || decision.kind !== 'enter' || !project) return decision
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || chat.requestMode === 'sillytavern' || decision.kind !== 'enter' || !project) return decision
   const state = chat.worldBookVirtualState
   const refs = virtualWorldbookRestoreRefs(payload.agent.session, state, decision.messages)
   if (!refs.length) return decision

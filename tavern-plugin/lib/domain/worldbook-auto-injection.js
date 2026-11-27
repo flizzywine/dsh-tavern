@@ -6,6 +6,7 @@ import { virtualEntriesVersion, virtualEntryVersion } from './worldbook-virtual-
 
 const MAX_ENTRIES = 5
 const COOLDOWN_ROUNDS = 10
+const STRATEGY_HISTORY_LIMIT = 20
 
 export function recentCompletedWorldbookTurns(messages = []) {
   const turns = new Set()
@@ -18,8 +19,7 @@ export function recentCompletedWorldbookTurns(messages = []) {
 
 export const hasWorldbookCooldownHistory = messages => recentCompletedWorldbookTurns(messages).size >= COOLDOWN_ROUNDS
 
-/** Rank already keyword-eligible entries. A match never grants access to a
- * disabled/runtime-only entry, and neither overflow nor cooldown affects tools. */
+/** Admit ordered static entries from the built-in ranker or the selected plugin. */
 export function createWorldbookAutoInjection() {
   const corpora = new Map()
   function indexFor(entries) {
@@ -32,7 +32,19 @@ export function createWorldbookAutoInjection() {
     if (corpora.size > 2) corpora.delete(corpora.keys().next().value)
     return index
   }
-  return function project(input, { entries, original, currentTurn, completedTurns, epoch, prior }) {
+  function rankBuiltIn(input, entries, docs, isCoolingDown) {
+    const matched = activateWorldBook({ ...input, entries, isCoolingDown, ignoreBudget: true })
+    const docIndexes = new Map(docs.map((entry, index) => [entry.ref, index]))
+    const query = matched.entries.length > 1
+      ? [...worldbookScanMessages(input).slice(0, historyScanDepth(input.worldBook)).map(row => row.text), input.scanText].join('\n')
+      : ''
+    const scores = query ? bm25Scores(new Set(tokenizeBigram(query)), indexFor(docs), new Set(matched.entries.map(entry => docIndexes.get(entry.ref)))) : []
+    // Stable sort keeps the author's activation priority on ties.
+    return matched.entries.map(entry => ({ entry: docs[docIndexes.get(entry.ref)], score: scores[docIndexes.get(entry.ref)] || 0 }))
+      .sort((a, b) => b.score - a.score)
+  }
+
+  return async function project(input, { entries, original, currentTurn, completedTurns, epoch, prior, strategy }) {
     const cooldown = new Map()
     if (prior?.epoch === epoch) {
       for (const entry of entries) {
@@ -41,17 +53,23 @@ export function createWorldbookAutoInjection() {
             receipt.version === virtualEntryVersion(original.get(entry.ref) || entry)) cooldown.set(entry.ref, receipt)
       }
     }
-    const isCoolingDown = entry => completedTurns.has(cooldown.get(entry.ref)?.turn)
-    const matched = activateWorldBook({ ...input, entries, isCoolingDown, ignoreBudget: true })
+    const isCoolingDown = entry => cooldown.has(entry.ref)
     const docs = entries.map(entry => original.get(entry.ref) || entry)
-    const docIndexes = new Map(docs.map((entry, index) => [entry.ref, index]))
-    const query = matched.entries.length > 1
-      ? [...worldbookScanMessages(input).slice(0, historyScanDepth(input.worldBook)).map(row => row.text), input.scanText].join('\n')
-      : ''
-    const scores = query ? bm25Scores(new Set(tokenizeBigram(query)), indexFor(docs), new Set(matched.entries.map(entry => docIndexes.get(entry.ref)))) : []
-    // Stable sort keeps the author's activation priority on ties.
-    const ranked = matched.entries.map(entry => ({ entry: docs[docIndexes.get(entry.ref)], score: scores[docIndexes.get(entry.ref)] || 0 }))
-      .sort((a, b) => b.score - a.score)
+    let pluginRefs = null
+    if (strategy) {
+      const history = worldbookScanMessages({ ...input, userTextInHistory: true })
+        .slice(0, STRATEGY_HISTORY_LIMIT).reverse().map(({ role, text, turn }) => ({ role, text, turn }))
+      pluginRefs = await strategy.select({ history, scanText: input.scanText, entries: entries.map((entry, index) => ({
+        ...entry, content: docs[index].content, coolingDown: isCoolingDown(entry)
+      })) })
+    }
+    let ranked
+    if (pluginRefs === null) {
+      ranked = rankBuiltIn(input, entries, docs, isCoolingDown)
+    } else {
+      const byRef = new Map(docs.map(entry => [entry.ref, entry]))
+      ranked = pluginRefs.map(ref => byRef.get(ref)).filter(entry => entry && !isCoolingDown(entry)).map(entry => ({ entry }))
+    }
     const selected = [], refs = new Set()
     let remainingBudget = worldBookSettings(input.worldBook).tokenBudget
     for (const { entry, score } of ranked) {
@@ -68,6 +86,6 @@ export function createWorldbookAutoInjection() {
     const recentlyRead = new Set(input.recentlyReadRefs)
     const titleHints = formatWorldbookTitleHints(ranked.map(item => item.entry)
       .filter(entry => !refs.has(entry.ref) && !recentlyRead.has(entry.ref)))
-    return { selected, titleHints, state: { epoch, entries: Object.fromEntries(cooldown) } }
+    return { selected, titleHints, strategy: pluginRefs === null ? 'native-skills' : strategy.id, state: { epoch, entries: Object.fromEntries(cooldown) } }
   }
 }

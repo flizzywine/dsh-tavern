@@ -65226,11 +65226,22 @@ function createConversationSettingsModule({
         const [problem, write] = useSectionWriter(config);
         const data = config.data, tasks = data?.backgroundTasks || {}, disabled = !data || config.busy;
         const task = (key, checked) => write({ backgroundTasks: { [key]: checked } }, { backgroundTasks: { ...tasks, [key]: checked } });
+        const strategies = data?.worldbookStrategies || [];
+        const strategy = data?.worldbookStrategy || "native-skills";
+        const currentStrategy = strategies.find(option => option.id === strategy);
+        const strategyHelp = currentStrategy?.description || "选择本局自动注入世界书的筛选规则。";
         return h(packUi.StageSection, { title: "功能", foldKey: FOLD("功能") },
             !data && !config.error ? h(PanelLoading, { shape: "fields", count: 5 }) : null,
             data ? rows(
                 ...FEATURES.filter(([key]) => key !== "posture" || TAVERN_PLAY_FEATURES.postureSummary).map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
                     checked: tasks[key] === true, onChange: checked => void task(key, checked) })),
+                strategies.length ? h(InlineField, { kind: "menu", label: "世界书策略", value: strategy, disabled,
+                    help: help("世界书策略", currentStrategy ? strategyHelp : "已保存的插件策略当前不可用，游玩时采用内置策略。"),
+                    options: [
+                        ...(!currentStrategy ? [{ value: strategy, label: "插件不可用（使用内置策略）" }] : []),
+                        ...strategies.map(option => ({ value: option.id, label: option.label }))
+                    ],
+                    onCommit: value => write({ worldbookStrategy: value }, { worldbookStrategy: value }) }) : null,
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
                     onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
             problemLine(problem));
