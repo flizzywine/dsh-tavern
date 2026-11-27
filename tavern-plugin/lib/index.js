@@ -240,6 +240,7 @@ import { createRuntimeLogBuffer, runtimeHealthReport } from './domain/runtime-he
 import { createCastAssets } from './domain/cast-assets.js'
 import { createLineSpeech, createSpeechProviderBridge } from './domain/speech.js'
 import { speechAudioToWav } from './speech-wav.js'
+import { createSpeechRecognitionHost } from './speech-recognition-host.js'
 import { deploymentActivity } from './domain/deployment-activity.js'
 import { buildCharx, cardImport, cardImportFromCard, pngCardTextChunk, pngWithTextChunks } from './domain/card-assets.js'
 import { createAssetPacks } from './domain/asset-packs.js'
@@ -319,8 +320,6 @@ import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
-import {withConversationReadLane} from './domain/conversation-read-lanes.js'
-import {recoverRuntimeHistory as recoverHistory} from './domain/runtime-history-recovery.js'
 import { installTavernTokenMeter } from './domain/tavern-token-meter.js'
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
