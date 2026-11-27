@@ -6,6 +6,7 @@ import { helperApiChecks, helperApiScript } from './helper-api.mjs'
 import { backgroundFailureChecks } from './background-failure.mjs'
 import { createConversationPageStore } from '../../tavern-plugin/lib/domain/conversation-page-store.js'
 import { createConversationState } from '../../tavern-plugin/lib/domain/conversation-state.js'
+import playFeatures from '../../tavern-plugin/shared/play-features.cjs'
 import { settlementPerformanceChecks, settlementPerformanceInitialVariables } from './settlement-performance.mjs'
 import {setupRealVariables,realVariableLookupChecks} from './real-variable-lookup.mjs'
 import { setupRealCharacterDesign, realCharacterDesignChecks } from './real-character-design.mjs'
@@ -98,6 +99,7 @@ const root = process.env.TAVERN_E2E_HOME
   : await mkdtemp(join(tmpdir(), 'tavern-e2e-'))
 const restoredSave = process.env.TAVERN_E2E_RESTORE_DATA || ''
 const profile = join(root, 'profiles/tavern'), data = join(root, 'profile-data/tavern/data')
+const directoryLink = process.platform === 'win32' ? 'junction' : 'dir'
 const timeout = Number(process.env.TAVERN_E2E_TIMEOUT_MS) || 30000
 const report = { status: 'running', scope: 'real isolated DSH + Tavern + Chromium; fixed model only', steps: [] }
 const started = Date.now(), errors = []
@@ -149,7 +151,7 @@ function inspectSaved(chat) {
   const variables = Array.isArray(reply.variables) ? reply.variables[reply.swipeId || 0] : reply.variables
   assert.equal(variables.stat_data.gold, 10, '落盘金币必须为 10')
   assert.equal(reply.mvu.receipt.status, 'updated')
-  assert.equal(chat.posture, '站在柜台前，收下奖励。')
+  assert.equal(chat.posture, playFeatures.postureSummary ? '站在柜台前，收下奖励。' : '')
   return { chatId: chat.id, sessionId: chat.sessionId, userMessages: 1, replies: 1,
     gold: variables.stat_data.gold, receipt: reply.mvu.receipt.status, posture: chat.posture }
 }
@@ -213,7 +215,7 @@ try {
       'dsh-tavern-stage': join(applicationSource, 'tavern-plugin/packages/dsh-tavern-stage'),
       'dsh-tavern-remote': join(applicationSource, 'tavern-plugin/packages/dsh-tavern-remote'),
       'dsh-web-mobile': join(source, 'node_modules/dsh-web-mobile')
-    })) if (!(stageIsolation === 'absent' && name === 'dsh-tavern-stage')) await symlink(target, join(profile, 'node_modules', name))
+    })) if (!(stageIsolation === 'absent' && name === 'dsh-tavern-stage')) await symlink(target, join(profile, 'node_modules', name), directoryLink)
     const sidebar = process.env.TAVERN_E2E_SIDEBAR || join(source, 'node_modules/dsh-better-sidebar')
     const sidebarVersion = JSON.parse(await readFile(join(sidebar, 'package.json'), 'utf8')).version
     const expectedSidebar = JSON.parse(await readFile(join(applicationSource, 'package.json'), 'utf8')).devDependencies['dsh-better-sidebar']
@@ -221,15 +223,15 @@ try {
     report.sidebarVersion = sidebarVersion
     const profileSidebar = join(profile, 'node_modules/dsh-better-sidebar')
     // A sidebar installed alongside DSH already resolves against the isolated host.
-    if (resolve(sidebar) === join(modules, 'dsh-better-sidebar')) await symlink(sidebar, profileSidebar, 'junction')
+    if (resolve(sidebar) === join(modules, 'dsh-better-sidebar')) await symlink(sidebar, profileSidebar, directoryLink)
     else await cp(sidebar, profileSidebar, { recursive: true, dereference: true })
-    await symlink(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'))
+    await symlink(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'), directoryLink)
     const applicationPackage=JSON.parse(await readFile(join(applicationSource,'package.json'),'utf8'))
     for (const name of await readdir(join(source, 'node_modules'))) {
       if (name.startsWith('.') || ['@deepseek-ai', 'dsh-tavern-plugin', 'dsh-tavern-stage', 'dsh-tavern-remote', 'dsh-web-mobile', 'dsh-better-sidebar'].includes(name)) continue
       const local=applicationPackage.devDependencies?.[name]
       const target=typeof local==='string'&&local.startsWith('link:') ? resolve(applicationSource,local.slice(5)) : join(source,'node_modules',name)
-      await symlink(target, join(profile, 'node_modules', name))
+      await symlink(target, join(profile, 'node_modules', name), directoryLink)
     }
     if(applicationSource!==source) {
       report.packagedBundles={}
@@ -847,7 +849,7 @@ try {
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
   })
-  await step('玩一轮，确认正文、金币与人物姿势', async () => {
+  await step('玩一轮，确认正文、金币与姿势结算状态', async () => {
     const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('领取任务奖励')
     await composer.press('Enter')
