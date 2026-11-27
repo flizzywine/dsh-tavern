@@ -1,5 +1,5 @@
 {
-  "adaptedDshVersion": "0.2.1-rc.2",
+  "adaptedDshVersion": "0.2.2-rc.5",
   "minDshVersion": "0.2.0-rc.2",
   "belowDshVersion": "0.3.0",
   "blockedDshVersions": [],

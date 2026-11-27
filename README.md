@@ -241,7 +241,7 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/scripts/
 
 ### 命令行版（Windows / macOS / Linux，用浏览器玩）
 
-需要 [Node.js 22.19+](https://nodejs.org/) 和 pnpm。自带独立 DSH，默认安装到 `~/.dsh-tavern`，与已有桌面版或全局 DSH 互不影响。
+需要 [Node.js 24.9+](https://nodejs.org/) 和 pnpm。自带独立 DSH，默认安装到 `~/.dsh-tavern`，与已有桌面版或全局 DSH 互不影响。
 
 Windows（PowerShell）：
 

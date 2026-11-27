@@ -61,9 +61,18 @@ jobs:
           pnpm exec playwright install --with-deps chromium
           export TAVERN_E2E_RUNTIME="$RUNNER_TEMP/tavern-smoke-runtime"
           export TAVERN_E2E_OUTPUT="$RUNNER_TEMP/tavern-smoke-results"
-          mkdir -p "$TAVERN_E2E_RUNTIME/lib"
+          sidebar_root="$TAVERN_E2E_RUNTIME/lib/tavern-sidebar"
+          mkdir -p "$sidebar_root"
           cp config/cli-runtime/package{,-lock}.json "$TAVERN_E2E_RUNTIME/lib/"
           npm ci --prefix "$TAVERN_E2E_RUNTIME/lib" --no-audit --no-fund
+          # The profile already supplies the host peers. Do not install another DSH graph for the sidebar.
+          cp .github/runtime-smoke/package{,-lock}.json "$sidebar_root/"
+          npm ci --prefix "$sidebar_root" --legacy-peer-deps --no-audit --no-fund
+          ln -s "$GITHUB_WORKSPACE/node_modules/react" "$sidebar_root/node_modules/react"
+          ln -s "$GITHUB_WORKSPACE/node_modules/react-dom" "$sidebar_root/node_modules/react-dom"
+          export TAVERN_E2E_SIDEBAR="$TAVERN_E2E_RUNTIME/lib/node_modules/dsh-better-sidebar"
+          ln -s "$sidebar_root/node_modules/dsh-better-sidebar" "$TAVERN_E2E_SIDEBAR"
+          git -C "$TAVERN_E2E_SIDEBAR" apply "$GITHUB_WORKSPACE/patches/dsh-better-sidebar@0.32.1.patch"
           node tests/e2e/runtime-archive.mjs "$RUNNER_TEMP/runtime.zip" dsh-tavern-runtime.json
       - uses: actions/upload-artifact@v4
         if: failure()

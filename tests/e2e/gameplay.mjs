@@ -214,14 +214,15 @@ try {
       'dsh-tavern-remote': join(applicationSource, 'tavern-plugin/packages/dsh-tavern-remote'),
       'dsh-web-mobile': join(source, 'node_modules/dsh-web-mobile')
     })) if (!(stageIsolation === 'absent' && name === 'dsh-tavern-stage')) await symlink(target, join(profile, 'node_modules', name))
-    // This package resolves DSH imports relative to its directory, so give it
-    // the isolated profile's runtime scope rather than the development scope.
     const sidebar = process.env.TAVERN_E2E_SIDEBAR || join(source, 'node_modules/dsh-better-sidebar')
     const sidebarVersion = JSON.parse(await readFile(join(sidebar, 'package.json'), 'utf8')).version
     const expectedSidebar = JSON.parse(await readFile(join(applicationSource, 'package.json'), 'utf8')).devDependencies['dsh-better-sidebar']
     if (!process.env.TAVERN_E2E_SIDEBAR) assert.equal(sidebarVersion, expectedSidebar, '侧栏依赖与仓库锁定版本不一致；安装锁定依赖或用 TAVERN_E2E_SIDEBAR 指向独立测试包')
     report.sidebarVersion = sidebarVersion
-    await cp(sidebar, join(profile, 'node_modules/dsh-better-sidebar'), { recursive: true, dereference: true })
+    const profileSidebar = join(profile, 'node_modules/dsh-better-sidebar')
+    // A sidebar installed alongside DSH already resolves against the isolated host.
+    if (resolve(sidebar) === join(modules, 'dsh-better-sidebar')) await symlink(sidebar, profileSidebar, 'junction')
+    else await cp(sidebar, profileSidebar, { recursive: true, dereference: true })
     await symlink(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'))
     const applicationPackage=JSON.parse(await readFile(join(applicationSource,'package.json'),'utf8'))
     for (const name of await readdir(join(source, 'node_modules'))) {

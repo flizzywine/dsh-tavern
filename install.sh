@@ -1561,6 +1561,7 @@ run_install() {
 ADAPTED_DSH_VERSION=$(node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --version)
 node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --notice "${INSTALL_HOST}"
 if [ "${INSTALL_HOST}" = "cli" ]; then
+  node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --check "${INSTALL_HOST}" "${ADAPTED_DSH_VERSION}"
   set --
   INSTALLED_PNPM_VERSION=$(run_install dependencies.version 30000 pnpm --version 2>/dev/null || true)
   assert_installation_active
