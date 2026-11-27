@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b7b563dbe36bf75ab252c55085103389734182e7",
-  "releaseSequence": 2200,
+  "revision": "78de92616664f6a2d39fd02a033bd1e2eaec10ac",
+  "releaseSequence": 2201,
   "version": "3.4.0",
   "files": [
     {
@@ -1246,8 +1246,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "d8454036c774bb12a6115d31f86006cb424d374bd377a41a2ffe58f42fddaf41",
-      "size": 749834
+      "sha256": "27322bb749d77f5a3edf1c0dc96f5554f13e0aabc43d83b0be8e21ff53526e19",
+      "size": 770931
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1291,8 +1291,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "7279cbaeb20508e1ed8e4585277647fa2f6be4e8b162463056a2dc6a85dd9a92",
-      "size": 6835737
+      "sha256": "f76e67e8c663b7a6216935ea28c9382e875ab7444f3fe8852844f9536ec71d13",
+      "size": 6918546
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2841,8 +2841,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/narrative-damper.js",
-      "sha256": "953fb282f944afbe9ab61ab3440cdcc28e93dcec991c84d6bd816001b703d945",
-      "size": 106220
+      "sha256": "df08d877c4ac3752f4eb5c1f295cfd16c9d2d867e7edacf74cd749f287875ee8",
+      "size": 106895
     },
     {
       "path": "tavern-plugin/lib/domain/native-conversation-storage.js",
@@ -4275,9 +4275,14 @@
       "size": 11952
     },
     {
+      "path": "tavern-plugin/lib/domain/worldbook-layout-reorder.js",
+      "sha256": "a790f396de727e8416002773940b532b981e9d1b95240c435e64eda1da275dbd",
+      "size": 8437
+    },
+    {
       "path": "tavern-plugin/lib/domain/worldbook-library.js",
-      "sha256": "283bf1e68a58c384a02f5913cbbb9eac7cbf73347803c7427eb9839672a92581",
-      "size": 31698
+      "sha256": "37c31c343e1e058a5646dfede33ee224bd671c82b55bb2edf8e20cdd32ad16a3",
+      "size": 34457
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-merge.js",
@@ -4293,6 +4298,11 @@
       "path": "tavern-plugin/lib/domain/worldbook-placement.js",
       "sha256": "3aa7de7f361727da99005fa4352adc7b7ebdbfff0a7e119270e43bd10c1975b9",
       "size": 3634
+    },
+    {
+      "path": "tavern-plugin/lib/domain/worldbook-prompt-layout.js",
+      "sha256": "c5c79df1d9947b17ac5a93488c77a5a405beef07f87c74373160f6a5c20e0ec3",
+      "size": 7727
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-random-sequence.js",
@@ -4651,8 +4661,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/resources.js",
-      "sha256": "ba3ced47deac25b901cbcaa3168c1f88e9c522810c9a307ba5fce553a33fdb31",
-      "size": 14043
+      "sha256": "5a01a0396f59a89b4d647fdfd4eb45dc6d02ee3b1a4f1c6cd45cb30792ee49de",
+      "size": 14997
     },
     {
       "path": "tavern-plugin/lib/rpc/settings.js",
@@ -7866,28 +7876,28 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/auto-profiler.js",
-      "sha256": "e5a72cbbc7682567830af3f47be1d4d07cead20463ae49d7a6470f0a9b2cd4ee",
-      "size": 27909
+      "sha256": "85336e816a9ac42894168ea7486b05f607cb1eaa8d6c6af07e55ee28240d66e4",
+      "size": 30896
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js",
-      "sha256": "ea8ab326bfbd43a8f9a53ff20ec04875d0c4964c52972e048bfb99b897de3cf5",
-      "size": 19772
+      "sha256": "88a24a5d22e6ece5662d725369da3316c8b0b2d8c5296336148312851d835773",
+      "size": 22899
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js",
-      "sha256": "9fee35920d2180f76cd86748a3e6d9bf970918f96d13682e547bc8e44ac42f82",
-      "size": 21954
+      "sha256": "6c49a34e568a917e2e0005bb8d954d494d932fd1231621806ba336052a2763db",
+      "size": 22354
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/difficulty-judge.js",
-      "sha256": "f2afb9f22197e940236520cfc02079ce6861dc970caf86c378b3d6425140ba8e",
-      "size": 23287
+      "sha256": "ab24addb0f50db34c40fe11177a5cd8c342273d7cd58c236106ff9e9ab6a18c9",
+      "size": 26532
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js",
-      "sha256": "97bdcd76564c746e581385a8cefd976ec275aa792a57f1ab3e365c91b6266503",
-      "size": 100787
+      "sha256": "c4eb06b374383c6ee690b0cb729a969fe02a7af38e5aabfe8576da507adb0f7c",
+      "size": 105885
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/pre-send-gate.js",
@@ -7896,8 +7906,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/prompt-builder.js",
-      "sha256": "f340faca7846cfebf5f8a6e1fc58dcef66a7962409c90a97c3c3e64113c05559",
-      "size": 10314
+      "sha256": "899df875152e85195fb7884d97d7e0b103b822968ae4035f2ebc12c826bf1721",
+      "size": 10610
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/LICENSE",
@@ -8541,8 +8551,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "6e35beea1e9b4b778a334c67412b6ea042cbaefc5a81660919cf10d9e78a1ca4",
-      "size": 130016
+      "sha256": "e2af69525695fc25fc1cfd05af82c1cc2683ceb30f004bc15aa0453f4a56b1e0",
+      "size": 130949
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -10331,9 +10341,9 @@
     }
   ],
   "archive": {
-    "commit": "7e354d91405b87f12234f93047bf93f5e83edc27",
+    "commit": "ef31a8dc9b3571c2e813ebf4cd6c8b63d0c2b1f1",
     "path": "runtime.zip",
-    "sha256": "a9d9667083f4e9de56cec62583027606e363e2ee813bf443bc0857b883e9b856",
-    "size": 18284477
+    "sha256": "a1c26eee2ef98c865181677e96b2723384274fe778a789de49b9f5da5024ea6c",
+    "size": 18319876
   }
 }
