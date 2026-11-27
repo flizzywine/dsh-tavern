@@ -4143,9 +4143,13 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     position: fixed !important; top: calc(var(--dsh-vv-top, 0px) + max(8px, env(safe-area-inset-top, 0px))) !important;
     max-height: calc(var(--dsh-vv-height, 100dvh) - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
   }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) :is([class*="_close"], [class*="_arrow"]:not([class*="_arrows"])) { min-width: 40px; min-height: 40px; }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_stepper"] { width: auto; height: auto; min-height: 40px; padding: 0 4px; gap: 8px; }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrows"] { position: static; flex-direction: row; width: auto; height: auto; opacity: 1; }
+  /* 宿主设置关闭按钮与字号步进器：移动端保持紧凑对称，避免 40px 方形箭头撑爆胶囊并压扁左侧说明。 */
+  body.dsh-tavern-shell-active:not(:has([data-mobile-nav="frame"])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_close"] { min-width: 36px; min-height: 36px; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_control"]:has(> [class*="_stepper"]) { flex: none; gap: 6px; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_stepper"] { width: auto; height: 36px; min-height: 36px; padding: 3px 3px 3px 10px; gap: 8px; box-sizing: border-box; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrows"] { position: static; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; width: auto; height: auto; opacity: 1; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrow"]:not([class*="_arrows"]) { width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: calc(var(--dsw-radius-md, 10px) - 3px); }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_expander"] { width: 28px; height: 28px; flex: none; }
   body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
 
   /* 外壳、侧面板和弹层共享 visualViewport，键盘弹出时只重排一次。
@@ -4653,6 +4657,146 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-mobile-nav="frame"] [data-phase] header [class*="_titleCluster"] {
     mask-image: none !important;
     -webkit-mask-image: none !important;
+  }
+  /* DSH 0.2.2 设置弹窗改为四直子 grid（_navTitle / nav._nav / _header / _options），
+     dsh-web-mobile@3.1.0 的 :has(> :first-child > :last-child > button) 门控失效：
+     移动端圆角弹层、隐藏「打开配置文件」、单行紧凑标签栏与右上角关闭钮全部落空，
+     同时误命中导出弹窗的 :not(...) 规则把面板压窄 32px、保留 0 圆角且顶栏报错挤出。
+     按 0.2.2 直子结构（同时含 > nav[class*="_nav"] 与 > [class*="_header"]）恢复移动端设置弹层排版。 */
+  body.dsh-tavern-shell-active [class*="_overlay"]:has(> [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]) {
+    position: fixed !important;
+    inset: 0 !important;
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: calc(var(--dsh-vv-top, 0px) + max(8px, env(safe-area-inset-top, 0px))) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    height: auto !important;
+    max-height: calc(var(--dsh-vv-height, 100dvh) - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px))) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_navTitle"] {
+    display: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    padding: 10px 12px 6px !important;
+    box-sizing: border-box !important;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .08));
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"] {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    gap: 6px !important;
+    padding: 0 14px 4px 0 !important;
+    margin-right: 42px !important;
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    scrollbar-width: thin !important;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar {
+    display: block !important;
+    height: 2px !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar-thumb {
+    background: var(--dsw-alias-border-l2, rgba(0, 0, 0, .22)) !important;
+    border-radius: 1px !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar-track {
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navCell"] {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 32px !important;
+    padding: 0 10px !important;
+    gap: 6px !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    white-space: nowrap !important;
+    justify-content: flex-start !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navCell"] svg {
+    width: 14px !important;
+    height: 14px !important;
+    flex: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] {
+    position: absolute !important;
+    top: 10px !important;
+    right: 12px !important;
+    z-index: 10 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0 0 0 4px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] [class*="_actions"] {
+    display: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] > [class*="_close"] {
+    position: relative !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    margin: 0 !important;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, .06)) !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] > [class*="_close"]::after {
+    content: "";
+    position: absolute;
+    inset: -6px -6px 0 -6px;
+    border-radius: 50%;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_options"] {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) [class*="_row"]:has(> [class*="_rowText"]) > [class*="_rowText"] {
+    padding-right: 12px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) and (pointer: coarse) {
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) {
+    left: 0 !important;
+    right: 0 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: min(calc(100vw - 32px), 720px) !important;
+    max-width: min(calc(100vw - 32px), 720px) !important;
   }
 }
 
