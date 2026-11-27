@@ -322,6 +322,7 @@ import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import { createConversationIndexStore } from './domain/conversation-index.js'
 import { installTavernTokenMeter } from './domain/tavern-token-meter.js'
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
@@ -843,35 +844,7 @@ export async function apply(ctx) {
   }
 
   // ---------- 角色卡 ----------
-  // 会话列表和资源图每次刷新都要这份索引：按文件版本缓存解析结果，命中时只花一次
-  // stat。返回值带着自己的外层对象和两个数组，调用方的 filter/map/sort 改不到缓存
-  // 里的那一份；行对象本身只读共享（现有调用方只读）。
-  let indexCache
-  function indexView(value) {
-    return { ...value, cards: [...(Array.isArray(value.cards) ? value.cards : [])], chats: [...(Array.isArray(value.chats) ? value.chats : [])] }
-  }
-  async function readIndex() {
-    const stamp = await profileData.version('index.json')
-    if (indexCache !== undefined && indexCache.stamp === stamp) return indexView(indexCache.value)
-    const idx = await readJson('index.json')
-    const value = (idx !== undefined && typeof idx === 'object') ? idx : { cards: [], chats: [] }
-    indexCache = { stamp, value }
-    return indexView(value)
-  }
-  // 写入后立刻换成刚写下的那一份：下一次列表读取不必再解析一遍磁盘。
-  async function cacheWrittenIndex(value) {
-    indexCache = { stamp: await profileData.version('index.json'), value }
-  }
-  async function writeIndex(idx) {
-    await writeJson('index.json', idx)
-    await cacheWrittenIndex(idx)
-  }
-  async function updateIndex(updater) {
-    const next = await profileData.updateJson('index.json', value => updater(value || { cards: [], chats: [] }))
-    if (next !== undefined && typeof next === 'object') await cacheWrittenIndex(next)
-    else indexCache = undefined
-    return next
-  }
+  const { readIndex, writeIndex, updateIndex, readLinks, updateLinks } = createConversationIndexStore({ dataRoot, store: profileData })
   const updateCard = createCardEditor({ readCardWorkspace, cardPreparation, fileResources, bumpCardProjectionRevision, syncCardName,
     cardRevision: path => cardProjectionRevision(normalizeResourcePath(path, 'card')),
     withCardLock: (id, edit) => cardStorage.withCardLock(id, edit), cardAssetWorkspaceRevision })
@@ -1190,13 +1163,6 @@ export async function apply(ctx) {
       return changed ? current : undefined
     }, { source: 'body-edit.stale-clear' })
   }
-  // 缓存 sessions.json 的 stat 指纹与内容，避免每 5 秒协调轮询重复 readdir/读盘/解析。
-  let sessionsLinksCache = null
-  const sessionsLinksPath = path.join(dataRoot, 'sessions.json')
-  function cloneLinks(value) {
-    if (!value || typeof value !== 'object') return value
-    return structuredClone(value)
-  }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
     // History lists each game under its card's current name (the cached catalogue summary).
@@ -1207,27 +1173,8 @@ export async function apply(ctx) {
     }),
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
-      readLinks: async function () {
-        let info = null
-        try { info = await stat(sessionsLinksPath) } catch { sessionsLinksCache = null }
-        if (info && sessionsLinksCache && sessionsLinksCache.mtimeMs === info.mtimeMs && sessionsLinksCache.size === info.size) {
-          return cloneLinks(sessionsLinksCache.value)
-        }
-        const value = await readJson('sessions.json')
-        try {
-          const after = info || await stat(sessionsLinksPath)
-          sessionsLinksCache = { mtimeMs: after.mtimeMs, size: after.size, value: cloneLinks(value) }
-        } catch { sessionsLinksCache = null }
-        return value
-      },
-      updateLinks: async function (updater) {
-        const result = await profileData.updateJson('sessions.json', updater)
-        try {
-          const info = await stat(sessionsLinksPath)
-          sessionsLinksCache = { mtimeMs: info.mtimeMs, size: info.size, value: cloneLinks(result) }
-        } catch { sessionsLinksCache = null }
-        return result
-      },
+      readLinks,
+      updateLinks,
       readIndex,
       updateIndex,
       readChat,
