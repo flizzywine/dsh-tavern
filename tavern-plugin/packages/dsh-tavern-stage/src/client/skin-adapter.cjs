@@ -768,7 +768,7 @@ function stageSkinArt(document, files, entry = '') {
         // untitled: title false (an original log screen with no title; theme.css 「art screens」 keeps only its accessible name);
         // noclip: clip false (no 导出片段 button beside the close); nolatest: latest false (no 跳到最新 control); noground:
         // ground false (the stage, not the panel ground, round the sheet)
-        marks['data-fk-skin-art-' + key]=[...['sheet','title','close'].filter(part => s[part]),...(s.title === false ? ['untitled'] : []),...(s.clip === false ? ['noclip'] : []),
+        marks['data-fk-skin-art-' + key]=[...['sheet','title','close','clip','help','turn'].filter(part => s[part]),...(s.title === false ? ['untitled'] : []),...(s.clip === false ? ['noclip'] : []),
             ...(s.latest === false ? ['nolatest'] : []),...(s.ground === false ? ['noground'] : [])].join(' ');
         if (s.sheet) {const [w,h]=size(s.sheet); Object.assign(tokens,{[p + '-sheet']:url(s.sheet),[p + '-sheet-w']:String(w),[p + '-sheet-h']:String(h)});}
         tokens[p + '-dim']=String(s.dim ?? 0);
@@ -779,6 +779,18 @@ function stageSkinArt(document, files, entry = '') {
     if (art.backlog) {
         const b=art.backlog, p='--art-bl';
         screen('backlog',b);
+        // clip (object): the 导出片段 button as the skin's image at its place; on = while the export mode is open.
+        if (b.help) placed(p + '-help',b.help);
+        if (b.clip) {placed(p + '-clip',b.clip); tokens[p + '-clip-on']=url(b.clip.on || b.clip.focus || b.clip.image);}
+        // turn: the current turn's number in its box (theme.css 「art backlog turn」 sets a long number smaller to fit w).
+        if (b.turn) Object.assign(tokens,{[p + '-turn-x']:String(b.turn.x),[p + '-turn-y']:String(b.turn.y),[p + '-turn-w']:String(b.turn.w),[p + '-turn-h']:String(b.turn.h),[p + '-turn-font']:String(b.turn.font),
+            ...(b.turn.ink ? {[p + '-turn-ink']:b.turn.ink} : {})});
+        // decor: placed images over the sheet, each its own loop (backlog-view draws one layer per item, theme.css 「art backlog decor」).
+        (b.decor || []).forEach((item,index) => {
+            const [w,h]=size(item.image,item.scale), q=p + '-decor-' + index;
+            Object.assign(tokens,{[q + '-img']:url(item.image),[q + '-x']:String(item.x),[q + '-y']:String(item.y),[q + '-w']:String(w),[q + '-h']:String(h),
+                ...(item.motion ? {[q + '-period']:item.motion.period + 's',[q + '-delay']:(item.motion.delay || 0) + 's'} : {})});
+        });
         // badges (§18 N26): a line kind's badge image (backlog-view points the badge at its stageSkinBadgeToken)
         for (const [kind,image] of Object.entries(b.badges || {})) tokens[stageSkinBadgeToken(kind)]=url(image);
         const [lx,ly,lw,lh]=b.list;
@@ -1292,8 +1304,10 @@ function stageSkinBacklogLooks(document) {
     const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;
     // C4: the check line draws the skin's mark beside the generic die icon (the stylesheet shows one of them).
     const roll=b?.roll ? true : null;
-    if (!plates && !letter && !avatar && !roll) return looks;
-    return {...looks,...(roll ? {roll} : null),...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
+    // decor: each layer's loop (the view draws one layer per item; the tokens carry its image and place).
+    const decor=b?.decor ? b.decor.map(item => item.motion?.kind || '') : null;
+    if (!plates && !letter && !avatar && !roll && !decor) return looks;
+    return {...looks,...(roll ? {roll} : null),...(decor ? {decor} : null),...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
 }
 
 // The text box's replay control (skin checklist「框内是否有重播按钮」: no speaker
