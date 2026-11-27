@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5961798fba26a0b25879deb2ff0d5f74ffde99cd",
-  "releaseSequence": 2240,
+  "revision": "ec149b5605893f44db9a7231135c31b1b9f6f05c",
+  "releaseSequence": 2241,
   "version": "3.5.0",
   "files": [
     {
@@ -206,8 +206,8 @@
     },
     {
       "path": "android/setup.sh",
-      "sha256": "a0718275fd341020d6fb080388a99d469aca5e9ea4c678a4b3362cb22b4c41e4",
-      "size": 20858
+      "sha256": "5b85f4d26ebb50a40688918642876f09fe8fb8baf9366919597bf9d46d66ee01",
+      "size": 21300
     },
     {
       "path": "android/update.sh",
@@ -226,8 +226,8 @@
     },
     {
       "path": "bin/build-installer-scripts.mjs",
-      "sha256": "1b8199b66b9bfa22cba2b3eb9afa4a3aa33635c4508ba1a3ad1f00190994ecdb",
-      "size": 3706
+      "sha256": "65584c92000776baec623f245c9fb5c47df08b850c63001f3fb04c4330830efd",
+      "size": 4278
     },
     {
       "path": "bin/build-interface-skin-client.mjs",
@@ -291,8 +291,8 @@
     },
     {
       "path": "bin/cli-help.mjs",
-      "sha256": "2ff1de2e482395557d8bc024d235a1ff7def0fcbc0c6c0527d204c3668561794",
-      "size": 8557
+      "sha256": "16b9398a32d9b88c637fa7352b1b2e69806e74e8264e010ccf163a14bc268aca",
+      "size": 8511
     },
     {
       "path": "bin/cli-man.mjs",
@@ -346,13 +346,13 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "9b624580d73fe0dad3ba566b433424d96a6e9e56fe3d8a26219d93be85afa2a0",
-      "size": 32886
+      "sha256": "59b249d48e16343d08bc8a8b278cee6f1b076041981f83928e0986b6b09c0be7",
+      "size": 32878
     },
     {
       "path": "bin/dsh-compatibility.mjs",
-      "sha256": "e0a9863af6e0b86e9d1e3b5174a3d49abf773824f51a321a9ffcc973b44c69dc",
-      "size": 6982
+      "sha256": "f1f29a14388935d59a872296754701ceffc4d7c17104f216f57df58d8cdd57b1",
+      "size": 6657
     },
     {
       "path": "bin/dsh-contract-check.mjs",
@@ -501,8 +501,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "9633d4fbe22b92eca6c0ba32128b5b6665646707e248fd1aef6fef3f2a7da501",
-      "size": 38237
+      "sha256": "a111696b86b92f2cb24b13f91e1539fb534f6fda03179db693eaf856903b1491",
+      "size": 38219
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -671,8 +671,8 @@
     },
     {
       "path": "config/dsh-compatibility.json",
-      "sha256": "bc6d75577faa208b38e6d877e5fafc2525204c6fdaf8f81570473713f30a4278",
-      "size": 809
+      "sha256": "5b84d924ddc66b5a1eaf22d7ec89f3b3e2fa5e5b9e3dec39b07dbc7423d66ba6",
+      "size": 715
     },
     {
       "path": "config/dsh-contracts.json",
@@ -696,18 +696,18 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "adfe939dd19fe38afa9219eb192adf85b81443fc77005b090b86ca7dc570ebff",
-      "size": 130802
+      "sha256": "4e7c6902d1c6fff9a11dab560457babf0ff42fa9a7f8e9f60256f642b11fda2b",
+      "size": 130759
     },
     {
       "path": "install.sh",
-      "sha256": "16e32e8f2f0944647faa945f4811497f86f79865d158f079419bc21ac57af06c",
-      "size": 99361
+      "sha256": "11f10d92fad5f45e1b79b98c7e6b16a3b45a94186b0bd701d266ce5d497c31da",
+      "size": 99482
     },
     {
       "path": "package.json",
-      "sha256": "ee8bcd67f352d2c55531c077304cc2e0c8bea1edc839142ae8dce77071645424",
-      "size": 3412
+      "sha256": "673fcd37093a78491de6352d19f420253e5228d7d5c46eaa93e11d148c32e644",
+      "size": 3411
     },
     {
       "path": "patches/dsh-better-sidebar@0.26.0.patch",
@@ -10016,8 +10016,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "9b63a5bc07d15f13442cfa9e9df8edc8ba656bc90bf5b9d3dd4f2975e5041b0e",
-      "size": 22729
+      "sha256": "47b5c7ecde09fc662c51e3861a17cee80e28b125f730948b23b61ca7831f6254",
+      "size": 22834
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -10420,9 +10420,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "3db5aac9083dcecffce362eee891e593fb24f568",
+    "commit": "d165855a142154171729a93df3dd734cfab15bbc",
     "path": "runtime.zip",
-    "sha256": "fda9033997c775e115e136cb49801204e7be9f8c2221a1396cc3386115e620da",
-    "size": 18349386
+    "sha256": "455b5a1d445d95021b91478b122abd8e38dd3f90a971b5855031b5a45f9a9e17",
+    "size": 18349587
   }
 }
