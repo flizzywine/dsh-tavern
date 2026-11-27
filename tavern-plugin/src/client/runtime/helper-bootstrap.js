@@ -171,6 +171,11 @@
                         const previousEventId = activeHostEventId;
 						activeHostEventId = String(data.eventId || "");
 						try {
+                            if (data.name === "DSH_MVU_PARSE_MESSAGE") {
+                                if (!officialMvuEnabled || !window.Mvu || window.Mvu.__dshBootstrap || typeof window.Mvu.parseMessage !== "function") throw new Error("MVU 解析器尚未就绪");
+                                const [message, baseline] = suppliedArgs;
+                                return [await window.Mvu.parseMessage(message, baseline)];
+                            }
                             // Host-only deterministic edit: never replay MESSAGE_RECEIVED or prose commands.
                             if (data.name === "DSH_VARIABLE_EDIT") {
                                 if (!officialMvuEnabled || !window.Mvu || window.Mvu.__dshBootstrap || typeof window.Mvu.parseMessage !== "function") throw new Error("Official MVU edit runtime is unavailable");

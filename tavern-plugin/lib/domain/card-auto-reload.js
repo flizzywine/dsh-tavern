@@ -6,6 +6,8 @@
 import { prepareTemplateHistory, synchronizeTemplateHistory } from './template-history.js'
 
 export const CARD_RELOAD_BUSY = 'TAVERN_CARD_RELOAD_BUSY'
+const CARD_RELOAD_CONFLICT = 'TAVERN_CARD_RELOAD_CONFLICT'
+const CONFLICT_RETRY_DELAY_MS = 1000
 
 /** Whether a reload status asks for an update this game may take on its own. */
 export function autoReloadable(status) {
@@ -15,14 +17,15 @@ export function autoReloadable(status) {
 
 /**
  * Runs `apply(sessionId, digest)` off the read that noticed the change, once per session at a time.
- * A failure is kept per digest so the same update is not retried on every read; a new edit (another
- * digest) or retry() tries again. Busy games stay queued for the idle watcher.
+ * A permanent failure is kept per digest. Busy games and storage conflicts stay
+ * queued for the idle watcher; a cooldown prevents completion from triggering
+ * an immediate retry against the same burst of saves.
  * `published(sessionId)` runs after each attempt so pages see the final reload state.
  */
-export function createCardAutoReload({ apply, published = () => {}, logger = console, defer = task => setTimeout(task, 0) }) {
+export function createCardAutoReload({ apply, published = () => {}, logger = console, defer = task => setTimeout(task, 0), now = Date.now }) {
   const running = new Set()
   const failures = new Map()
-  const waiting = new Set()
+  const waiting = new Map()
   const revisions = new Map()
 
   function advanceRevision(sessionId) {
@@ -36,8 +39,10 @@ export function createCardAutoReload({ apply, published = () => {}, logger = con
       return false
     }
     if (failures.get(sessionId)?.digest === status.digest) return false
+    const pending = waiting.get(sessionId)
+    if (pending?.digest === status.digest && pending.retryAt > now()) return false
     if (busy) {
-      waiting.add(sessionId)
+      waiting.set(sessionId, { digest: status.digest, retryAt: 0 })
       return false
     }
     waiting.delete(sessionId)
@@ -48,8 +53,10 @@ export function createCardAutoReload({ apply, published = () => {}, logger = con
         await apply(sessionId, status.digest)
         failures.delete(sessionId)
       } catch (error) {
-        if (error?.code === CARD_RELOAD_BUSY) waiting.add(sessionId)
-        else {
+        if ([CARD_RELOAD_BUSY, CARD_RELOAD_CONFLICT].includes(error?.code)) {
+          const retryAt = error.code === CARD_RELOAD_CONFLICT ? now() + CONFLICT_RETRY_DELAY_MS : 0
+          waiting.set(sessionId, { digest: status.digest, retryAt })
+        } else {
           failures.set(sessionId, { digest: status.digest, message: String(error?.message || error) })
           logger.warn('dsh-tavern: 自动重新加载人物卡失败', sessionId, error?.message || error)
         }
@@ -75,11 +82,11 @@ export function createCardAutoReload({ apply, published = () => {}, logger = con
     revision: sessionId => revisions.get(sessionId) || 0 })
 }
 
-export function createPlayCardUpdate({ chats, cards, snapshots, liveUpdate, native, activity, present, published, defer, logger }) {
+export function createPlayCardUpdate({ chats, cards, snapshots, liveUpdate, native, activity, present, published, defer, logger, now = Date.now }) {
   const stamps = new Map()
   const reload = createCardAutoReload({
     apply: (sessionId, digest) => apply(sessionId, digest, true),
-    published, defer, logger
+    published, defer, logger, now
   })
 
   function playable(chat) {
@@ -119,7 +126,7 @@ export function createPlayCardUpdate({ chats, cards, snapshots, liveUpdate, nati
 
   async function apply(sessionId, digest, automatic) {
     if (typeof digest !== 'string' || !digest) throw new Error('请刷新后确认人物卡和世界书更新')
-    const conflict = new Error('游戏状态已变化，未应用更新，请稍后重试')
+    const conflict = Object.assign(new Error('游戏状态已变化，未应用更新，请稍后重试'), { code: CARD_RELOAD_CONFLICT })
     const blocked = Object.assign(new Error('请等待当前生成和后台任务完成后再应用人物卡'), { code: CARD_RELOAD_BUSY })
     for (let attempt = 0; attempt < 3; attempt++) {
       const chat = await chats.forSession(sessionId)
@@ -136,7 +143,7 @@ export function createPlayCardUpdate({ chats, cards, snapshots, liveUpdate, nati
       prepared.tavernHelperLifecycleRevision = (Number(chat.tavernHelperLifecycleRevision) || 0) + 1
       if (automatic) {
         const latest = chat.messages?.findLast(message => message?.role === 'assistant')
-        prepared.cardAutoReload = { at: Date.now(), turn: Number(latest?.turn) || 0 }
+        prepared.cardAutoReload = { at: now(), turn: Number(latest?.turn) || 0 }
       }
       const extensions = await cards.extensions(chat.cardPath, prepared)
       await liveUpdate.project(prepared, card, { projections: [] }, {

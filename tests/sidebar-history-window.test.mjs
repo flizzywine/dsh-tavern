@@ -6,6 +6,26 @@ import { browserReactScript } from './fixtures/browser-react.mjs'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const tavernCss = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+const paperCss = await readFile(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css', import.meta.url), 'utf8')
+
+// DSH 0.2.2 把工作区放在可滚动网格的第 4 行，设置区仍在滚动容器外。
+const hostSidebar = `<!doctype html>
+<style>
+  body { margin: 0; }
+  .host_root { display: flex; flex-direction: column; height: 100vh; width: 320px; }
+  .host_scrollRegion { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  [data-sidebar-scrollport] { display: grid; grid-template-columns: 4px minmax(0, 1fr) 6px; grid-template-rows: 8px max-content 2px max-content; flex: 1; min-height: 0; align-content: start; overflow: hidden auto; }
+  .host_regionArea { grid-area: 4 / 2; display: flex; flex-direction: column; min-height: 0; }
+  .host_footArea { display: flex; flex: none; height: 40px; }
+</style>
+<body class="dsh-tavern-shell-active" data-dream-skin="paper">
+  <aside class="host_root">
+    <div class="host_scrollRegion"><div data-sidebar-scrollport><div class="host_regionArea">
+      <main id="sidebar" data-slot="sidebar.workspaces"></main>
+    </div></div></div>
+    <div class="host_footArea" data-slot="sidebar.settings"><button>设置</button></div>
+  </aside>
+</body>`
 
 // 上百条会话时，手机抽屉展开那一帧不能把整张历史表都排一遍：侧栏只挂第一屏的行，
 // 滚到底部再按屏追加。这里用真实的 client.js 起侧栏，确认挂载的行数被窗口截住、
@@ -20,10 +40,10 @@ const sessions = Array.from({ length: SESSIONS }, (_, index) => ({
   created: Date.now() - index * 60_000,
 }))
 
-test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t => {
+test('侧栏历史独立滚动并按屏追加，版本行固定在设置上方', async t => {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
-  const page = await browser.newPage({ viewport: { width: 420, height: 760 } })
+  const page = await browser.newPage({ viewport: { width: 1280, height: 640 } })
   page.setDefaultTimeout(8000)
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -31,11 +51,9 @@ test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t 
   await page.route('http://tavern.test/**', async route => {
     const url = route.request().url()
     if (!url.includes('/api/dsh-tavern/')) {
-      // 抽屉里的列表有确定高度、到顶就滚；这里给个同样的上限，才看得到窗口行为。
       return route.fulfill({
         contentType: 'text/html',
-        body: '<main id="sidebar"></main><style>' + tavernCss + '</style>'
-          + '<style>.dsh-tavern-sidebar{height:320px;display:flex;flex-direction:column;overflow:hidden}</style>',
+        body: hostSidebar,
       })
     }
     const method = new URL(url).pathname.split('/').at(-1)
@@ -52,6 +70,8 @@ test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t 
   })
 
   await page.goto('http://tavern.test/')
+  await page.addStyleTag({ content: tavernCss })
+  await page.addStyleTag({ content: paperCss })
   await page.addScriptTag({ content: await browserReactScript() })
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
   await page.addScriptTag({ content: clientSource })
@@ -75,6 +95,20 @@ test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t 
     }))
   })
 
+  await page.getByRole('button', { name: '检查更新' }).waitFor()
+  const footerLayout = () => page.evaluate(() => {
+    const footer = document.querySelector('.dsh-tavern-update')
+    const settings = document.querySelector('[data-slot="sidebar.settings"]')
+    const scrollport = document.querySelector('[data-sidebar-scrollport]')
+    return {
+      footerBottom: footer.getBoundingClientRect().bottom,
+      settingsGap: settings.getBoundingClientRect().top - footer.getBoundingClientRect().bottom,
+      outerOverflow: scrollport.scrollHeight - scrollport.clientHeight,
+    }
+  })
+  const shortHistory = await footerLayout()
+  assert.ok(shortHistory.settingsGap >= 0 && shortHistory.settingsGap <= 24, JSON.stringify(shortHistory))
+
   // 卡片模式是平铺列表；游玩模式默认把历史按卡分组收起，那条路径本来就不挂行。
   await page.getByRole('button', { name: '卡片', exact: true }).click()
   await page.locator('.dsh-tavern-side-row').first().waitFor({ state: 'visible' })
@@ -97,6 +131,15 @@ test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t 
   const grown = await page.evaluate(() => document.querySelectorAll('.dsh-tavern-side-row').length)
   assert.ok(grown > first.rows, '滚到底部后按屏追加：' + first.rows + ' -> ' + grown)
   assert.ok(grown < SESSIONS, '追加是一屏一屏来的，不会一次把整张表都挂上：' + grown)
+  const longHistory = await footerLayout()
+  assert.equal(longHistory.footerBottom, shortHistory.footerBottom, '滚动和追加历史时版本行留在原位')
+  assert.ok(longHistory.outerOverflow <= 1, '宿主容器不用跟着历史滚动：' + JSON.stringify(longHistory))
+
+  await page.evaluate(() => document.documentElement.setAttribute('data-windows-titlebar', ''))
+  await page.setViewportSize({ width: 1280, height: 760 })
+  const windowsLayout = await footerLayout()
+  assert.ok(windowsLayout.settingsGap >= 0 && windowsLayout.settingsGap <= 24, JSON.stringify(windowsLayout))
+  assert.ok(windowsLayout.outerOverflow <= 1, JSON.stringify(windowsLayout))
 
   // 后续追加不改变已挂行：第一行仍然是同一条对话（已滚出视口的行受 content-visibility:auto 影响，innerText 为空）。
   assert.equal(await page.locator('.dsh-tavern-side-row').first().textContent().then(text => text.includes('工作台对话')), true)
