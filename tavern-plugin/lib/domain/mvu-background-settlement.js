@@ -407,8 +407,13 @@ function normalizeOperation(raw, index) {
       // nor a number can only mean that text; a broken object, list or number still goes back.
       const bare = operation.valueJson.trim()
       if (error instanceof RangeError || !bare || /^[[{"\d+\-.]/.test(bare)) {
-        // Name the path and the usual cause so the retry fixes this operation, not guesses.
-        throw new Error(label + '（' + normalized.path + '）的 valueJson 不是有效 JSON：' + (error instanceof RangeError ? error.message : '无法解析') + '；文本值须带 JSON 双引号，例如 "城市街道"')
+        // Name the path and the cause so the retry fixes this operation, not guesses. A broken object or list says
+        // where it broke (11-25: three retries sent the same extra closing brace after a quote-only hint).
+        const at = /position (\d+)/.exec(String(error?.message))?.[1]
+        const cause = error instanceof RangeError ? error.message
+          : /^[[{]/.test(bare) ? '第 ' + (at === undefined ? '?' : Number(at) + 1) + ' 个字符处解析失败' + (at === undefined ? '' : '（前后：「' + operation.valueJson.slice(Math.max(0, at - 20), Number(at) + 20) + '」）') + '；对象和列表的 {} [] 要成对，不要多出或漏掉括号，键和文本值都带双引号'
+          : '无法解析；文本值须带 JSON 双引号，例如 "城市街道"'
+        throw new Error(label + '（' + normalized.path + '）的 valueJson 不是有效 JSON：' + cause)
       }
       value = bare
     }
