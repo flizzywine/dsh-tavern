@@ -17914,279 +17914,327 @@ window.__ModuleLoader__.load({
 			return state;
 		}
 
-		function createPlayWorkspaceResolver(options) {
-			for (const method of ["currentWorkspaceId", "resourceRoot", "createWorkspace"]) {
-				if (!options || typeof options[method] !== "function") throw new Error("Play Workspace Resolver 缺少 " + method + " adapter");
-			}
-			return async function () {
-				const currentWorkspaceId = String(options.currentWorkspaceId() || "");
-				const root = await options.resourceRoot(currentWorkspaceId);
-				if (root.workspaceId) return root.workspaceId;
-				const created = await options.createWorkspace({ path: root.path });
-				if (!created || !created.workspaceId) throw new Error("无法创建 DSH Tavern Workspace");
-				return created.workspaceId;
-			};
-		}
+var conversationLifecycleClient = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-		function createSessionListRecoveryModule(options) {
-			for (const method of ["summary", "binding", "refresh", "open"]) {
-				if (!options || typeof options[method] !== "function") throw new Error("Session List Recovery 缺少 " + method + " adapter");
-			}
-			const now = typeof options.now === "function" ? options.now : Date.now;
-			const sleep = typeof options.sleep === "function" ? options.sleep : function (ms) { return new Promise(function (resolve) { window.setTimeout(resolve, ms); }); };
-			// 宿主的 session.list 是本地调用，正常几毫秒就回；8 秒上限意味着任一环卡住时
-			// 用户要实打实等满 8 秒才看到报错。压到 4 秒、阶梯收紧密，卡死时更快暴露，
-			// 正常路径也不会被拉长。
-			const timeoutMs = Math.max(100, Number(options.timeoutMs || 4000));
-			const retryDelays = Array.isArray(options.retryDelays) && options.retryDelays.length ? options.retryDelays : [0, 120, 250, 400, 650, 900, 1200];
-			const isUnknownSession = typeof options.isUnknownSession === "function" ? options.isUnknownSession : function (error) {
-				return /sessions\.(select|retain): unknown session/i.test(String(error && error.message || error || ""));
-			};
-			const active = new Map();
-
-			function ready(sessionId) {
-				return Boolean(options.summary(sessionId) && options.binding(sessionId));
-			}
-
-			async function synchronize(sessionId) {
-				const expiresAt = now() + timeoutMs;
-				let attempt = 0;
-				while (!ready(sessionId) && now() < expiresAt) {
-					try { await options.refresh(); }
-					catch (error) {
-						// An aborted or temporarily failed list request is recoverable here. The
-						// deadline still bounds retries when the DSH service is genuinely down.
-					}
-					if (ready(sessionId)) return;
-					const remaining = expiresAt - now();
-					if (remaining <= 0) break;
-					const delay = Math.max(0, Number(retryDelays[Math.min(attempt, retryDelays.length - 1)]) || 0);
-					attempt += 1;
-					await sleep(Math.min(delay, remaining));
-				}
-				if (ready(sessionId)) return;
-				// 区分宿主列表没有这一行与行已存在但 binding 尚未就绪。
-				const missing = !options.summary(sessionId);
-				// The host also leaves out a save whose old log it could not upgrade. That reason
-				// matters more than "deleted": deleting the history would throw the save away.
-				if (missing && typeof options.explainMissing === "function") {
-					let reason = "";
-					try { reason = await options.explainMissing(sessionId); } catch (_error) {}
-					if (reason) throw new Error(reason);
-				}
-				throw Object.assign(new Error(missing
-					? "DSH 会话 " + sessionId + " 已不在宿主列表中。若刚更新过，请先刷新页面。"
-					: "DSH Session 列表同步超时，请刷新页面后重试：" + sessionId), {
-					code: missing ? "TAVERN_SESSION_NOT_LISTED" : "TAVERN_SESSION_LIST_TIMEOUT"
-				});
-			}
-
-			function wait(sessionId) {
-				if (ready(sessionId)) return Promise.resolve();
-				if (active.has(sessionId)) return active.get(sessionId);
-				const task = synchronize(sessionId).finally(function () { active.delete(sessionId); });
-				active.set(sessionId, task);
-				return task;
-			}
-
-			async function open(sessionId) {
-				try { await options.open(sessionId); return; }
-				catch (error) { if (!isUnknownSession(error)) throw error; }
-				await wait(sessionId);
-				await options.open(sessionId);
-			}
-
-			return Object.freeze({ ready: ready, wait: wait, open: open });
-		}
-
-		// alpha.2 exposes Session creation and preset selection on separate controllers.
-		function createConversationHostAdapter(ctx) {
-			let injectedAgentPresets;
-			if (ctx && typeof ctx.inject === "function") {
-				ctx.inject(["remote.agentPresets"], function (scope) {
-					const service = scope.remote.agentPresets;
-					injectedAgentPresets = service;
-					return function () {
-						if (injectedAgentPresets === service) injectedAgentPresets = undefined;
-					};
-				});
-			}
-			return Object.freeze({
-				workspaceId: function (snapshot, sessionId) {
-					const items = snapshot.items || [];
-					const owner = sessionId && items.find(function (item) { return (item.sessionIds || []).includes(sessionId); });
-					return (owner || items[0] || {}).workspaceId || "";
-				},
-				// uiWorkspace.connectWorkspace may reuse a blank Session that already has a
-				// Tavern opening and a locked preset. New conversations must have their own Session.
-				connectWorkspace: function (workspaceId) { return ctx.sessions.create({ workspaceId: workspaceId }); },
-				forkSession: function (sessionId, atSeq) {
-					if (!ctx.sessions || typeof ctx.sessions.fork !== "function") throw new Error("当前 DSH 版本不支持原生分叉，请升级 DSH 后重试");
-					return ctx.sessions.fork({ sessionId: sessionId, atSeq: atSeq, increaseTitle: true });
-				},
-				ensurePreset: async function (sessionId, request) {
-					// Select before writing the opening; the Session stream publishes preset state.
-					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
-					const agentPreset = "tavern";
-					let agentPresets = injectedAgentPresets;
-					if (!agentPresets) {
-						try {
-							agentPresets = ctx.remote && ctx.remote.agentPresets;
-						} catch (error) {
-							if (!error || !/without inject/.test(String(error.message || error))) throw error;
-						}
-					}
-					if (agentPresets && typeof agentPresets.select === "function") {
-						const result = await agentPresets.select(sessionId, agentPreset);
-						if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
-						return;
-					}
-					// DSHA 1.1 exposes the same host operation on the authenticated
-					// connection API and wraps the result in the request envelope.
-					const legacyAgentPresets = ctx.connection && ctx.connection.api && ctx.connection.api.agentPresets;
-					if (!legacyAgentPresets || typeof legacyAgentPresets.select !== "function") throw new Error("当前 DSHA 版本不支持切换酒馆模式，请升级 DSHA 后重试");
-					const response = await legacyAgentPresets.select({ sessionId: sessionId, agentPreset: agentPreset });
-					const result = response && response.result;
-					if (!result || !result.ok) throw new Error(result && result.error && result.error.message || "无法切换到酒馆模式");
-				}
-			});
-		}
-
-        function createConversationAttemptStore(storage) {
-            const memory = new Map();
-            const prefix = "dsh-tavern-pending-start:";
-            return {
-                get(key) {
-                    if (memory.has(key)) return memory.get(key);
-                    try {
-                        const value = JSON.parse(storage.getItem(prefix + key) || "null");
-                        if (value && typeof value.sessionId === "string" && value.sessionId) return value;
-                    } catch (_) {}
-                },
-                set(key, value) {
-                    memory.set(key, value);
-                    storage.setItem(prefix + key, JSON.stringify(value));
-                },
-                delete(key) { memory.delete(key); storage.removeItem(prefix + key); },
-                complete(sessionId) {
-                    const keys = new Set(memory.keys());
-                    for (let index = 0; index < storage.length; index++) {
-                        const key = storage.key(index);
-                        if (key && key.startsWith(prefix)) keys.add(key.slice(prefix.length));
-                    }
-                    for (const key of keys) if (this.get(key)?.sessionId === sessionId) this.delete(key);
-                }
-            };
+  // tavern-plugin/src/client/runtime/conversation-lifecycle.js
+  var conversation_lifecycle_exports = {};
+  __export(conversation_lifecycle_exports, {
+    createConversationAttemptStore: () => createConversationAttemptStore,
+    createConversationHostAdapter: () => createConversationHostAdapter,
+    createConversationLifecycleModule: () => createConversationLifecycleModule,
+    createConversationPrewarmModule: () => createConversationPrewarmModule,
+    createPlayWorkspaceResolver: () => createPlayWorkspaceResolver,
+    createSessionListRecoveryModule: () => createSessionListRecoveryModule,
+    createStartChatRequest: () => createStartChatRequest
+  });
+  function createPlayWorkspaceResolver(options) {
+    for (const method of ["currentWorkspaceId", "resourceRoot", "createWorkspace"]) {
+      if (!options || typeof options[method] !== "function") throw new Error("Play Workspace Resolver \u7F3A\u5C11 " + method + " adapter");
+    }
+    return async function() {
+      const currentWorkspaceId = String(options.currentWorkspaceId() || "");
+      const root = await options.resourceRoot(currentWorkspaceId);
+      if (root.workspaceId) return root.workspaceId;
+      const created = await options.createWorkspace({ path: root.path });
+      if (!created || !created.workspaceId) throw new Error("\u65E0\u6CD5\u521B\u5EFA DSH Tavern Workspace");
+      return created.workspaceId;
+    };
+  }
+  function createSessionListRecoveryModule(options) {
+    for (const method of ["summary", "binding", "refresh", "open"]) {
+      if (!options || typeof options[method] !== "function") throw new Error("Session List Recovery \u7F3A\u5C11 " + method + " adapter");
+    }
+    const now = typeof options.now === "function" ? options.now : Date.now;
+    const sleep = typeof options.sleep === "function" ? options.sleep : function(ms) {
+      return new Promise(function(resolve) {
+        setTimeout(resolve, ms);
+      });
+    };
+    const timeoutMs = Math.max(100, Number(options.timeoutMs || 4e3));
+    const retryDelays = Array.isArray(options.retryDelays) && options.retryDelays.length ? options.retryDelays : [0, 120, 250, 400, 650, 900, 1200];
+    const isUnknownSession = typeof options.isUnknownSession === "function" ? options.isUnknownSession : function(error) {
+      return /sessions\.(select|retain): unknown session/i.test(String(error && error.message || error || ""));
+    };
+    const active = /* @__PURE__ */ new Map();
+    function ready(sessionId) {
+      return Boolean(options.summary(sessionId) && options.binding(sessionId));
+    }
+    async function synchronize(sessionId) {
+      const expiresAt = now() + timeoutMs;
+      let attempt = 0;
+      while (!ready(sessionId) && now() < expiresAt) {
+        try {
+          await options.refresh();
+        } catch (error) {
         }
-
-        function createConversationLifecycleModule(options) {
-            for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
-                if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle 缺少 " + method + " adapter");
-            }
-            const attempts = options.attempts || new Map();
-            const running = new Map();
-            function start(request) {
-                // Preview tokens are ephemeral; retries after re-opening the picker
-                // must still find the Session belonging to the same user choice.
-                const key = JSON.stringify([request.kind, request.targetMode, request.card && request.card.path,
-                    request.openingId, request.userName, request.requestMode, request.task, request.pending]);
-                if (running.has(key)) return running.get(key);
-                const work = run(request, key).finally(() => running.delete(key));
-                running.set(key, work);
-                return work;
-            }
-            async function run(request, key, replacingAttempt = false) {
-                let phase = "清理当前空白对话";
-                let attempt = attempts.get(key);
-                const resumedAttempt = Boolean(attempt);
-                const timing = options.trace ? options.trace("startGame") : null;
-                const step = (name, work) => timing ? timing.measure(name, work) : work();
-                let successful = false;
-                try {
-                    const existingId = attempt?.sessionId || (!replacingAttempt && request.preparedSessionId) || "";
-                    if (!replacingAttempt) await step("archiveCurrent", () => options.archiveCurrent(existingId));
-                    if (!attempt) {
-                        let sessionId = existingId;
-                        if (!sessionId) {
-                            phase = request.kind === "card" ? "准备卡片工作区" : "准备游玩工作区";
-                            const workspaceId = request.preparedWorkspaceId || await step("resolveWorkspace", () => options.resolveWorkspace(request));
-                            phase = "创建 DSH Session";
-                            sessionId = await step("connectWorkspace", () => options.connectWorkspace(workspaceId));
-                        }
-                        attempt = { sessionId, initialized: false };
-                        attempts.set(key, attempt);
-                    }
-                    const sessionId = attempt.sessionId;
-                    phase = "等待 DSH Session 就绪";
-                    await step("waitForSession", () => options.waitForSession(sessionId));
-                    if (!attempt.initialized) {
-                        if (!attempt.presetReady) {
-                            phase = "切换到酒馆模式";
-                            try {
-                                await step("ensurePreset", () => options.ensurePreset(sessionId, request));
-                            } catch (error) {
-                                const locked = error && error.code === "agent-preset/locked" || /agent-preset\/locked|This session has already started/i.test(String(error && error.message || error || ""));
-                                // Records written before presetReady existed have already passed
-                                // this step when their native opening locked the Session. Only a
-                                // persisted attempt may recover here; a fresh prepared Session must
-                                // still expose a preset mismatch instead of masking it.
-                                if (!resumedAttempt || !locked) throw error;
-                            }
-                            // Native opening events start the Session. If their later Chat
-                            // marker fails, selecting the preset again is rejected as locked;
-                            // persist this boundary so both in-place and reloaded retries resume
-                            // at the idempotent Chat recovery instead.
-                            attempt = Object.assign({}, attempt, { presetReady: true });
-                            attempts.set(key, attempt);
-                        }
-                        phase = request.kind === "card" ? "创建卡片工作台对话" : "写入人物卡开场白";
-                        await step("createChat", () => options.createChat(request, sessionId));
-                        attempt = { sessionId, initialized: true };
-                        attempts.set(key, attempt);
-                    }
-                    phase = "同步并打开 DSH Session";
-                    const pending = Object.assign({}, request.pending || {}, { sessionId, targetMode: request.targetMode });
-                    options.rememberPending(pending);
-                    await step("finishOpen", () => options.finishOpen(pending));
-                    attempts.delete(key);
-                    successful = true;
-                    return { sessionId, pending };
-                } catch (error) {
-                    const failure = error instanceof Error ? error : new Error(String(error?.message || error || "创建对话失败"));
-                    failure.phase = phase;
-                    failure.sessionId = attempt && attempt.sessionId;
-                    // Older servers send only the message for a native session that never became writable.
-                    const unavailable = ["TAVERN_SESSION_NOT_LISTED", "TAVERN_SESSION_LIST_TIMEOUT", "TAVERN_SESSION_NOT_WRITABLE"].includes(error?.code)
-                        || /^无法写入 DSH 会话开场白:/.test(failure.message);
-                    if (attempt && !attempt.initialized && unavailable) {
-                        attempts.delete(key);
-                        if (resumedAttempt && !replacingAttempt) return run(request, key, true);
-                        failure.message = "已清除本次启动记录，可以重试新建对话。" + failure.message;
-                    }
-                    throw failure;
-                } finally { if (timing) timing.finish(successful); }
-            }
-            return { start };
+        if (ready(sessionId)) return;
+        const remaining = expiresAt - now();
+        if (remaining <= 0) break;
+        const delay = Math.max(0, Number(retryDelays[Math.min(attempt, retryDelays.length - 1)]) || 0);
+        attempt += 1;
+        await sleep(Math.min(delay, remaining));
+      }
+      if (ready(sessionId)) return;
+      const missing = !options.summary(sessionId);
+      if (missing && typeof options.explainMissing === "function") {
+        let reason = "";
+        try {
+          reason = await options.explainMissing(sessionId);
+        } catch (_error) {
         }
-
-        // Only workspace preparation is speculative; Sessions belong to confirmed starts.
-        function createConversationPrewarmModule(options) {
-            let active = null;
-            function cancel() { active = null; }
-            function begin(request) {
-                const record = { key: String(request.key || ""), promise: Promise.resolve().then(() => options.resolveWorkspace(request)) };
-                active = record;
-                record.promise.catch(() => {});
-                return record.promise;
-            }
-            async function claim(key) {
-                const record = active;
-                if (!record || record.key !== String(key || "")) return "";
-                active = null;
-                return await record.promise;
-            }
-            return Object.freeze({ begin, claim, cancel });
+        if (reason) throw new Error(reason);
+      }
+      throw Object.assign(new Error(missing ? "DSH \u4F1A\u8BDD " + sessionId + " \u5DF2\u4E0D\u5728\u5BBF\u4E3B\u5217\u8868\u4E2D\u3002\u82E5\u521A\u66F4\u65B0\u8FC7\uFF0C\u8BF7\u5148\u5237\u65B0\u9875\u9762\u3002" : "DSH Session \u5217\u8868\u540C\u6B65\u8D85\u65F6\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5\uFF1A" + sessionId), {
+        code: missing ? "TAVERN_SESSION_NOT_LISTED" : "TAVERN_SESSION_LIST_TIMEOUT"
+      });
+    }
+    function wait(sessionId) {
+      if (ready(sessionId)) return Promise.resolve();
+      if (active.has(sessionId)) return active.get(sessionId);
+      const task = synchronize(sessionId).finally(function() {
+        active.delete(sessionId);
+      });
+      active.set(sessionId, task);
+      return task;
+    }
+    async function open(sessionId) {
+      try {
+        await options.open(sessionId);
+        return;
+      } catch (error) {
+        if (!isUnknownSession(error)) throw error;
+      }
+      await wait(sessionId);
+      await options.open(sessionId);
+    }
+    return Object.freeze({ ready, wait, open });
+  }
+  function createConversationHostAdapter(ctx) {
+    let injectedAgentPresets;
+    if (ctx && typeof ctx.inject === "function") {
+      ctx.inject(["remote.agentPresets"], function(scope) {
+        const service = scope.remote.agentPresets;
+        injectedAgentPresets = service;
+        return function() {
+          if (injectedAgentPresets === service) injectedAgentPresets = void 0;
+        };
+      });
+    }
+    return Object.freeze({
+      workspaceId: function(snapshot, sessionId) {
+        const items = snapshot.items || [];
+        const owner = sessionId && items.find(function(item) {
+          return (item.sessionIds || []).includes(sessionId);
+        });
+        return (owner || items[0] || {}).workspaceId || "";
+      },
+      // uiWorkspace.connectWorkspace may reuse a blank Session that already has a
+      // Tavern opening and a locked preset. New conversations must have their own Session.
+      connectWorkspace: function(workspaceId) {
+        return ctx.sessions.create({ workspaceId });
+      },
+      forkSession: function(sessionId, atSeq) {
+        if (!ctx.sessions || typeof ctx.sessions.fork !== "function") throw new Error("\u5F53\u524D DSH \u7248\u672C\u4E0D\u652F\u6301\u539F\u751F\u5206\u53C9\uFF0C\u8BF7\u5347\u7EA7 DSH \u540E\u91CD\u8BD5");
+        return ctx.sessions.fork({ sessionId, atSeq, increaseTitle: true });
+      },
+      ensurePreset: async function(sessionId, request) {
+        const agentPreset = "tavern";
+        let agentPresets = injectedAgentPresets;
+        if (!agentPresets) {
+          try {
+            agentPresets = ctx.remote && ctx.remote.agentPresets;
+          } catch (error) {
+            if (!error || !/without inject/.test(String(error.message || error))) throw error;
+          }
         }
+        if (agentPresets && typeof agentPresets.select === "function") {
+          const result2 = await agentPresets.select(sessionId, agentPreset);
+          if (!result2.ok) throw new Error(result2.error && result2.error.message || "\u65E0\u6CD5\u5207\u6362\u5230\u9152\u9986\u6A21\u5F0F");
+          return;
+        }
+        const legacyAgentPresets = ctx.connection && ctx.connection.api && ctx.connection.api.agentPresets;
+        if (!legacyAgentPresets || typeof legacyAgentPresets.select !== "function") throw new Error("\u5F53\u524D DSHA \u7248\u672C\u4E0D\u652F\u6301\u5207\u6362\u9152\u9986\u6A21\u5F0F\uFF0C\u8BF7\u5347\u7EA7 DSHA \u540E\u91CD\u8BD5");
+        const response = await legacyAgentPresets.select({ sessionId, agentPreset });
+        const result = response && response.result;
+        if (!result || !result.ok) throw new Error(result && result.error && result.error.message || "\u65E0\u6CD5\u5207\u6362\u5230\u9152\u9986\u6A21\u5F0F");
+      }
+    });
+  }
+  function createConversationAttemptStore(storage) {
+    const memory = /* @__PURE__ */ new Map();
+    const prefix = "dsh-tavern-pending-start:";
+    return {
+      get(key) {
+        if (memory.has(key)) return memory.get(key);
+        try {
+          const value = JSON.parse(storage.getItem(prefix + key) || "null");
+          if (value && typeof value.sessionId === "string" && value.sessionId) return value;
+        } catch (_) {
+        }
+      },
+      set(key, value) {
+        memory.set(key, value);
+        storage.setItem(prefix + key, JSON.stringify(value));
+      },
+      delete(key) {
+        memory.delete(key);
+        storage.removeItem(prefix + key);
+      },
+      complete(sessionId) {
+        const keys = new Set(memory.keys());
+        for (let index = 0; index < storage.length; index++) {
+          const key = storage.key(index);
+          if (key && key.startsWith(prefix)) keys.add(key.slice(prefix.length));
+        }
+        for (const key of keys) if (this.get(key)?.sessionId === sessionId) this.delete(key);
+      }
+    };
+  }
+  function createConversationLifecycleModule(options) {
+    for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
+      if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle \u7F3A\u5C11 " + method + " adapter");
+    }
+    const attempts = options.attempts || /* @__PURE__ */ new Map();
+    const running = /* @__PURE__ */ new Map();
+    function start(request) {
+      const key = JSON.stringify([
+        request.kind,
+        request.targetMode,
+        request.card && request.card.path,
+        request.openingId,
+        request.userName,
+        request.requestMode,
+        request.task,
+        request.pending
+      ]);
+      if (running.has(key)) return running.get(key);
+      const work = run(request, key).finally(() => running.delete(key));
+      running.set(key, work);
+      return work;
+    }
+    async function run(request, key, replacingAttempt = false) {
+      let phase = "\u6E05\u7406\u5F53\u524D\u7A7A\u767D\u5BF9\u8BDD";
+      let attempt = attempts.get(key);
+      const resumedAttempt = Boolean(attempt);
+      const timing = options.trace ? options.trace("startGame") : null;
+      const step = (name, work) => timing ? timing.measure(name, work) : work();
+      let successful = false;
+      try {
+        const existingId = attempt?.sessionId || !replacingAttempt && request.preparedSessionId || "";
+        if (!replacingAttempt) await step("archiveCurrent", () => options.archiveCurrent(existingId));
+        if (!attempt) {
+          let sessionId2 = existingId;
+          if (!sessionId2) {
+            phase = request.kind === "card" ? "\u51C6\u5907\u5361\u7247\u5DE5\u4F5C\u533A" : "\u51C6\u5907\u6E38\u73A9\u5DE5\u4F5C\u533A";
+            const workspaceId = request.preparedWorkspaceId || await step("resolveWorkspace", () => options.resolveWorkspace(request));
+            phase = "\u521B\u5EFA DSH Session";
+            sessionId2 = await step("connectWorkspace", () => options.connectWorkspace(workspaceId));
+          }
+          attempt = { sessionId: sessionId2, initialized: false };
+          attempts.set(key, attempt);
+        }
+        const sessionId = attempt.sessionId;
+        phase = "\u7B49\u5F85 DSH Session \u5C31\u7EEA";
+        await step("waitForSession", () => options.waitForSession(sessionId));
+        if (!attempt.initialized) {
+          if (!attempt.presetReady) {
+            phase = "\u5207\u6362\u5230\u9152\u9986\u6A21\u5F0F";
+            try {
+              await step("ensurePreset", () => options.ensurePreset(sessionId, request));
+            } catch (error) {
+              const locked = error && error.code === "agent-preset/locked" || /agent-preset\/locked|This session has already started/i.test(String(error && error.message || error || ""));
+              if (!resumedAttempt || !locked) throw error;
+            }
+            attempt = Object.assign({}, attempt, { presetReady: true });
+            attempts.set(key, attempt);
+          }
+          phase = request.kind === "card" ? "\u521B\u5EFA\u5361\u7247\u5DE5\u4F5C\u53F0\u5BF9\u8BDD" : "\u5199\u5165\u4EBA\u7269\u5361\u5F00\u573A\u767D";
+          await step("createChat", () => options.createChat(request, sessionId));
+          attempt = { sessionId, initialized: true };
+          attempts.set(key, attempt);
+        }
+        phase = "\u540C\u6B65\u5E76\u6253\u5F00 DSH Session";
+        const pending = Object.assign({}, request.pending || {}, { sessionId, targetMode: request.targetMode });
+        options.rememberPending(pending);
+        await step("finishOpen", () => options.finishOpen(pending));
+        attempts.delete(key);
+        successful = true;
+        return { sessionId, pending };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error?.message || error || "\u521B\u5EFA\u5BF9\u8BDD\u5931\u8D25"));
+        failure.phase = phase;
+        failure.sessionId = attempt && attempt.sessionId;
+        const unavailable = ["TAVERN_SESSION_NOT_LISTED", "TAVERN_SESSION_LIST_TIMEOUT", "TAVERN_SESSION_NOT_WRITABLE"].includes(error?.code) || /^无法写入 DSH 会话开场白:/.test(failure.message);
+        if (attempt && !attempt.initialized && unavailable) {
+          attempts.delete(key);
+          if (resumedAttempt && !replacingAttempt) return run(request, key, true);
+          failure.message = "\u5DF2\u6E05\u9664\u672C\u6B21\u542F\u52A8\u8BB0\u5F55\uFF0C\u53EF\u4EE5\u91CD\u8BD5\u65B0\u5EFA\u5BF9\u8BDD\u3002" + failure.message;
+        }
+        throw failure;
+      } finally {
+        if (timing) timing.finish(successful);
+      }
+    }
+    return { start };
+  }
+  function createConversationPrewarmModule(options) {
+    let active = null;
+    function cancel() {
+      active = null;
+    }
+    function begin(request) {
+      const record = { key: String(request.key || ""), promise: Promise.resolve().then(() => options.resolveWorkspace(request)) };
+      active = record;
+      record.promise.catch(() => {
+      });
+      return record.promise;
+    }
+    async function claim(key) {
+      const record = active;
+      if (!record || record.key !== String(key || "")) return "";
+      active = null;
+      return await record.promise;
+    }
+    return Object.freeze({ begin, claim, cancel });
+  }
+  function createStartChatRequest({ call, seedView }) {
+    return async function(request, sessionId) {
+      const result = await call("startChat", {
+        path: request.card && request.card.path ? request.card.path : "",
+        sessionId,
+        mode: request.targetMode,
+        cardTask: request.task || "",
+        openingId: request.openingId || "",
+        preparationId: request.preparationId || "",
+        userName: request.userName || (request.targetMode === "card" ? "\u4F60" : ""),
+        requestMode: "dsh"
+      });
+      if (result?.view) seedView?.(sessionId, result.view);
+      return result;
+    };
+  }
+  return __toCommonJS(conversation_lifecycle_exports);
+})();
+        const { createPlayWorkspaceResolver, createSessionListRecoveryModule, createConversationHostAdapter,
+            createConversationAttemptStore, createConversationLifecycleModule, createConversationPrewarmModule,
+            createStartChatRequest } = conversationLifecycleClient;
 
 // 设置 › 高级 › 流式显示思维链（tavern-settings.json 的 reasoningStreamOnly）。
 // 两处读者：
@@ -50519,22 +50567,9 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				connectWorkspace: function (targetWorkspaceId) { return props.conversationHost.connectWorkspace(targetWorkspaceId); },
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
-				createChat: async function (request, sessionId) {
-					const result = await call("startChat", {
-						path: request.card && request.card.path ? request.card.path : "",
-						sessionId: sessionId,
-						mode: request.targetMode,
-						cardTask: request.task || "",
-						openingId: request.openingId || "",
-						preparationId: request.preparationId || "",
-						userName: request.userName || (request.targetMode === "card" ? "你" : ""),
-						requestMode: "dsh"
-					});
-					// startChat already returned the new chat's complete first view. The
-					// conversation consumes it on first subscribe instead of projecting it twice.
-					if (result && result.view && typeof liveTavernView.seed === "function") liveTavernView.seed(sessionId, result.view);
-					return result;
-				},
+				createChat: createStartChatRequest({
+					call, seedView: (sessionId, view) => liveTavernView.seed?.(sessionId, view)
+				}),
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
 			});
