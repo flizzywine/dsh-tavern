@@ -692,6 +692,19 @@ async function cardFrameAssetBlob(sessionId, args) {
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
 					}).finally(settleOpeningCall);
 				} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
+					if (data.method === "parseMvuMessage") {
+						const revision = Number(helperContext?.lifecycleRevision || 0);
+						Promise.resolve().then(function () {
+							if (sourceDocument !== visible || !current() || typeof parseTavernMessageMvu !== "function") throw new Error("MVU 解析器尚未就绪");
+							if (data.args?.lifecycleRevision !== revision) throw new Error("会话已变化，请重新读取变量");
+							return parseTavernMessageMvu(requestProps.sessionId, data.args?.message, data.args?.baseline, revision);
+						}).then(function (result) {
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
+						}, function (error) {
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
+						});
+						return;
+					}
 					const allowedMethods = new Set(["generateTavernHelper", "generateTavernHelperRaw", "stopTavernHelperGeneration", "stopAllTavernHelperGeneration", "createTavernHelperMessages", "updateTavernHelperPrompts", "updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "patchTavernHelperWorldbook"]);
 					if (data.method === "switchSessionOpening") {
 						if (!current()) return;

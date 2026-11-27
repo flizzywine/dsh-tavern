@@ -329,6 +329,10 @@
 			}
 			return Object.freeze({
 				sync: sync, dispose: dispose,
+				parseMvuMessage: function (message, baseline, lifecycleRevision) {
+					if (!runtime) throw new Error("人物卡脚本尚未运行");
+					return runtime.parseMvuMessage(message, baseline, lifecycleRevision);
+				},
                 setForeground: function (value) { const changed = foreground !== value; foreground = value; if (runtime && runtime.setForeground) runtime.setForeground(value); if (changed && lease) void claimWork(); },
 				retryMvuLoad: function () { return Boolean(runtime && active && runtime.retryMvuLoad()); },
 				triggerButton: function (scriptId, name) {
@@ -354,6 +358,7 @@
 
 		// @include modules/session-resource-retention.js
 		const tavernSessionRetention = createTavernSessionRetention({ window: window });
+		let parseTavernMessageMvu;
 
 		function createTavernScriptSessionOwner(options) {
 			const hostWindow = options.window || window;
@@ -510,10 +515,18 @@
 				if (!target) return Promise.reject(new Error("人物卡脚本尚未运行"));
 				return target.execution.triggerButton(scriptId, name);
 			}
+			async function parseMvuMessage(sessionId, message, baseline, lifecycleRevision) {
+				const target = current;
+				if (target?.sessionId !== sessionId || tavernMainSessionId(sessions) !== sessionId) throw new Error("会话已变化，请重新读取变量");
+				const parsed = await target.execution.parseMvuMessage(message, baseline, lifecycleRevision);
+				if (current !== target || tavernMainSessionId(sessions) !== sessionId) throw new Error("会话已变化，请重新读取变量");
+				return parsed;
+			}
 			return Object.freeze({
 				start: function () {
 					if (started) return;
 					started = true;
+					parseTavernMessageMvu = parseMvuMessage;
 					hostWindow.__dshTavernTriggerScriptButton = triggerButton;
 					hostWindow.addEventListener("pagehide", suspend);
 					hostWindow.addEventListener("pageshow", resume);
@@ -521,6 +534,7 @@
 				},
 				dispose: function () {
 					started = false;
+					if (parseTavernMessageMvu === parseMvuMessage) parseTavernMessageMvu = undefined;
 					if (hostWindow.__dshTavernTriggerScriptButton === triggerButton) delete hostWindow.__dshTavernTriggerScriptButton;
 					hostWindow.removeEventListener("pagehide", suspend);
 					hostWindow.removeEventListener("pageshow", resume);

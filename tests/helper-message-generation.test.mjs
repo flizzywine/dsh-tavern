@@ -160,6 +160,21 @@ test('message iframe exposes the live chat identity to opening scripts', t => {
   assert.equal(window.SillyTavern.getCurrentChatId(), 'game-b')
 })
 
+test('message iframe returns parsed MVU separately from variable and message writes', async t => {
+  const h = harness(t), bridge = serializedBridge(h.host, 'mvu-parse', { messages: [], lifecycleRevision: 4 })
+  const base = { stat_data: { hp: 5 }, schema: {} }
+  const parsing = bridge.window.Mvu.parseMessage("_.set('hp', 3)", base)
+  assert.equal(bridge.sent.length, 1)
+  const request = bridge.sent[0]
+  assert.equal(request.method, 'parseMvuMessage')
+  assert.deepEqual(request.args, { message: "_.set('hp', 3)", baseline: base, lifecycleRevision: 4 })
+  const parsed = { stat_data: { hp: 3 }, schema: {} }
+  bridge.receive({ type: 'dsh-tavern-helper-response', requestId: request.requestId, ok: true, result: parsed })
+  assert.deepEqual(await parsing, parsed)
+  assert.equal(base.stat_data.hp, 5)
+  assert.equal(bridge.sent.length, 1)
+})
+
 test('serialized bridge reports hook removal and a failed injection as a failed flush acknowledgement', async t => {
   const h = harness(t), bridge = serializedBridge(h.host, 'bridge-failure')
   const name = bridge.window.tavern_events.GENERATION_AFTER_COMMANDS
