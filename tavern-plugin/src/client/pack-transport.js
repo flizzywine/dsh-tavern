@@ -168,7 +168,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
     // list views read listPackSummaries (a few KB); a pack's full document is read per pack
     // and kept by revision, so reopening 舞台设置 / 素材库 asks only for packs that changed. Every snapshot that passes through
     // (reads and mutation results) refreshes its entry; the change feed drops an entry whose revision moved. Bounded LRU.
-    const details = new Map(), DETAILS_MAX = 16;
+    const details = new Map(), reading = new Map(), DETAILS_MAX = 16;
     function remember(snapshot) {
         const id = snapshot?.manifest?.id;
         if (typeof id !== 'string' || typeof snapshot.revision !== 'string') return snapshot;
@@ -255,8 +255,13 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
         'getStageSetupStatus','mergeStageSetupPack'];
     const service = {apiVersion:2, capabilities:['packs'], subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         releaseLease(ticket) { return control('releaseLease',{ticket}).catch(() => {}); },
-        // The pack's full document at `revision` (a summary's): the kept copy when it is that revision, else one read.
-        async packDetail({packId, revision}) { const known = details.get(packId); if (known && known.revision === revision) { remember(known); return known; } return call('getPackSnapshot',{packId}); }};
+        // The pack's full document at `revision` (a summary's): the kept copy when it is that revision, else one read, which
+        // every reader asking meanwhile shares (舞台设置's sections ask for the same packs as it draws).
+        async packDetail({packId, revision}) {
+            const known = details.get(packId); if (known && known.revision === revision) { remember(known); return known; }
+            const key = packId + '@' + revision, pending = reading.get(key); if (pending) return pending;
+            const read = call('getPackSnapshot',{packId}).finally(() => reading.delete(key)); reading.set(key, read); return read;
+        }};
     for (const method of methods) service[method] = args => call(method,args);
     function acceptFeed(feed) {
         sequence = feed.sequence;

@@ -135,9 +135,21 @@ function stagePrompts(sessionId) {
         resetDialogue: () => resetDialogueInjection(sessionId)
     };
 }
+// The game's card as its session view names it (view.card): the page needs only the path to start reading, so it never
+// waits for getDialogueBubbles (the chat, the bubble config and the foreground preview; the 提示词 section reads that
+// itself). null while the view is still on its way; '' for a session without a card.
+function useSessionCardField(sessionId, field) {
+    const subscribe = React.useCallback(notify => sessionId ? liveTavernView.subscribe(sessionId, notify, [['card']]) : () => {}, [sessionId]);
+    const read = React.useCallback(() => {
+        if (!sessionId) return '';
+        const state = liveTavernView.getSnapshot(sessionId);
+        return state?.view ? String(state.view.card?.[field] || '') : state?.phase === 'unavailable' ? '' : null;
+    }, [sessionId, field]);
+    return React.useSyncExternalStore(subscribe, read, read);
+}
 function TavernStageTab(props) {
-    const sessionId=props.scope?.sessionId || '',data=useBubbles(sessionId,true),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
-    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:data?.cardPath,cardName:data?.cardName,loading:!data,prompts});
+    const sessionId=props.scope?.sessionId || '',cardPath=useSessionCardField(sessionId,'path'),cardName=useSessionCardField(sessionId,'name'),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
+    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:cardPath||undefined,cardName:cardName||undefined,loading:cardPath===null,prompts});
 }
 // One provider for the library tab body: client apply offers it at startup (so `dsh-asset-library`
 // never waits for a play session), and the launcher below offers it again when the host starts there.
