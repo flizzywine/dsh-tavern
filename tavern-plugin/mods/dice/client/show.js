@@ -1,7 +1,8 @@
 // The stage performance a card's rules ask for on an outcome (outcomes[].show, check-engine.js CHECK_SHOWS; the record
 // carries show: {effect, label}). One effect so far, `converge` (Triangle Agency's 三重升华): the picture
 // is show-art.js (a canvas painted whole for any moment), its sound show-sound.js
-// (synthesized in code, no audio file), both on one timeline (SHOW_T); this file is the player.
+// (procedural 16-beat skeleton mixed with the packaged harmonic beds, with pure-code fallback), both on one timeline
+// (SHOW_T); this file is the player.
 //
 // Once only, like the dice throw (throw.js): a record plays when it first appears in the chat snapshot while this stage
 // is mounted, the reply runs and the reader follows live; the records already there when the stage mounts (reload,
@@ -26,6 +27,32 @@ function showKeyRecords(key) {
         try { const record = JSON.parse(text); if (record && typeof record === "object") records.push(Object.assign({ callId }, record)); } catch (_) { /* not a record */ }
     }
     return records;
+}
+
+const showSoundBedCache = new Map();
+function loadShowSoundBed(name) {
+    const file = SHOW_SOUND_BEDS[name];
+    if (!file || typeof fetch !== "function") return Promise.resolve(null);
+    if (!showSoundBedCache.has(name)) {
+        const task = fetch(SHOW_SOUND_ASSET_BASE + file).then(res => {
+            const type = res.headers?.get?.("content-type") || "";
+            return res.ok && !/text\/html/i.test(type) ? res.arrayBuffer() : null;
+        }).catch(() => null);
+        showSoundBedCache.set(name, task);
+    }
+    return showSoundBedCache.get(name);
+}
+async function decodeShowSoundBed(name, rate) {
+    const raw = await loadShowSoundBed(name);
+    if (!raw || !raw.byteLength) return null;
+    const Offline = typeof OfflineAudioContext !== "undefined" ? OfflineAudioContext : (typeof webkitOfflineAudioContext !== "undefined" ? webkitOfflineAudioContext : null);
+    if (!Offline) return null;
+    try {
+        const decoded = await new Offline(2, 1, rate).decodeAudioData(raw.slice(0));
+        const left = new Float32Array(decoded.getChannelData(0));
+        const right = new Float32Array(decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left);
+        return { left, right, rate: decoded.sampleRate };
+    } catch (_) { return null; }
 }
 
 // The show's sound for one performance: the stems rendered in a worker, each started on the mixer at its cue on the
@@ -77,15 +104,22 @@ function showSoundPlay(layout, calm, now) {
         if (!audible) { if (route) close(false); if (stopped) end(); }
         else if (!route && !stopped) { open(); settle(); }
     }
-    const source = ["const SHOW_SOUND_RATE=" + SHOW_SOUND_RATE, "const SHOW_SOUND_ROOT=" + SHOW_SOUND_ROOT, "const SHOW_SOUND_GAIN=" + SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundStem,
-        "onmessage=({data})=>{for(const name of data.stems){const pcm=showSoundStem(name,data.T,data.cast,data.rate);postMessage({name,left:pcm.left,right:pcm.right},[pcm.left.buffer,pcm.right.buffer])}}"].join(";\n");
+    const source = ["const SHOW_SOUND_RATE=" + SHOW_SOUND_RATE, "const SHOW_SOUND_ROOT=" + SHOW_SOUND_ROOT, "const SHOW_SOUND_GAIN=" + SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundMixBed, showSoundStem,
+        "onmessage=({data})=>{for(const job of data.jobs){const pcm=showSoundStem(job.name,data.T,data.cast,data.rate,job.bed||null);postMessage({name:job.name,left:pcm.left,right:pcm.right},[pcm.left.buffer,pcm.right.buffer])}}"].join(";\n");
     const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" })), worker = new Worker(url);
     worker.onmessage = ({ data }) => {
         stems.set(data.name, data);
         if (route) join(cues.find(cue => cue.stem === data.name));
         settle();
     };
-    worker.postMessage({ stems: cues.map(cue => cue.stem), T: SHOW_T, cast: { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length }, rate: SHOW_SOUND_RATE });
+    const cast = { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length };
+    const post = (jobs, transfer = []) => { if (!over) worker.postMessage({ jobs, T: SHOW_T, cast, rate: SHOW_SOUND_RATE }, transfer); };
+    if (calm) {
+        decodeShowSoundBed("calm", SHOW_SOUND_RATE).then(bed => post([{ name: "calm", bed }], bed ? [bed.left.buffer, bed.right.buffer] : []));
+    } else {
+        post([{ name: "open", bed: null }]);
+        decodeShowSoundBed("bloom", SHOW_SOUND_RATE).then(bed => post([{ name: "bloom", bed }, { name: "exit", bed: null }], bed ? [bed.left.buffer, bed.right.buffer] : []));
+    }
     off = forkForeground.subscribeAudio(hear);
     return {
         // The picture is over: a cut silences what sounds; else it rings out, and a show unheard so far stays so.
