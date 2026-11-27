@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0db7dc66c927775f72b60f044b8400abad550ba8",
-  "releaseSequence": 2230,
+  "revision": "512df940c77b5401bc89607978ac1d1736d34e54",
+  "releaseSequence": 2231,
   "version": "3.5.0",
   "files": [
     {
@@ -166,8 +166,8 @@
     },
     {
       "path": "android/native/latest.json",
-      "sha256": "6b431618140a8bba5424bd222f5954ec43f4498165daa0449ef9fde5fc1caf5d",
-      "size": 636
+      "sha256": "10b3de54b97113ff4ac1fa016ed3c5041bb66ca11f257edd5e9acf47c0312a34",
+      "size": 536
     },
     {
       "path": "android/native/make-icons.py",
@@ -201,8 +201,8 @@
     },
     {
       "path": "android/native/release.sh",
-      "sha256": "ac8d85daf9b3c950c66bba7082c8516d556f78183ffea1dd4abe3b82e3cbf5eb",
-      "size": 10252
+      "sha256": "4b02cf0136b2e9ce0928602424543badc2fad29b3ff4135ef0315b9300d6d4e5",
+      "size": 10465
     },
     {
       "path": "android/native/seed-static-cache.mjs",
@@ -596,8 +596,8 @@
     },
     {
       "path": "bin/settings-models-endpoints-patch.mjs",
-      "sha256": "dc918c1dbbdbc20709d1929994b25fa7db65412223f1c5f06974eadf8111b38b",
-      "size": 4251
+      "sha256": "e3e11341f5fefaffb7ea39516b5d7cc0b2b97dddb8b74a14c55775b71099e8f6",
+      "size": 4305
     },
     {
       "path": "bin/staged-app-install.mjs",
@@ -4576,8 +4576,8 @@
     },
     {
       "path": "tavern-plugin/lib/host/tools.js",
-      "sha256": "493c3473fa84914da21a6e7982e51dec7a173cb03893232334cf4cef7176f37e",
-      "size": 3944
+      "sha256": "322b6012f5ecb6815a58c195427d4bb9bc978324810c680fb66c05e54ac91d23",
+      "size": 4873
     },
     {
       "path": "tavern-plugin/lib/http-file.js",
@@ -10446,9 +10446,9 @@
     }
   ],
   "archive": {
-    "commit": "7d3d12e6d728a0485ac40fab293a957e2854de5b",
+    "commit": "2be4cb028bf09d699b0a55747e05c00387462ce3",
     "path": "runtime.zip",
-    "sha256": "75c0ce104e100ad4b5dd9cd86ec1e135624f6046f2f64b304a17c15db32cf3b8",
-    "size": 18367197
+    "sha256": "dd8e9911d838b846166d06440cd7cf4ebb13811e5c8bbe208ecb5bc36a647c33",
+    "size": 18367534
   }
 }
