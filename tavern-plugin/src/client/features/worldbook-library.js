@@ -19,6 +19,7 @@
 			return groups;
 		}
 		// @include-domain worldbook-mvu-entry.js
+		// @include-domain worldbook-layout-reorder.js
 		const WORLD_BOOK_BACKGROUND_HELP = "只交给后台变量更新任务，不发给正文模型";
 		const WORLD_BOOK_ENTRY_GROUPS = [
 			{ key: "constant", title: "常驻", help: "每轮都进入上下文，不用匹配触发词。" },
@@ -151,6 +152,7 @@
 
 		function createWorldBookLibraryFeatureModule() {
 		// @include features/worldbook-detail.js
+		// @include features/worldbook-layout.js
 		function WorldBookLibraryTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			// 世界书库列表（库文件 + 全局生效标记）与会话无关，只有「本卡」跟着本局的人物卡。把上一次结果放在 window 上跨面板实例复用：
@@ -166,6 +168,10 @@
 			const [catalogWarning, setCatalogWarning] = React.useState("");
 			const [record, setRecord] = React.useState(null);
 			const [associations, setAssociations] = React.useState(null);
+			const [layoutOpen, setLayoutOpen] = React.useState(false);
+			const [layoutSnapshot, setLayoutSnapshot] = React.useState(null);
+			const [initialEntryRef, setInitialEntryRef] = React.useState("");
+			const [returnToLayout, setReturnToLayout] = React.useState(false);
 			const [loading, setLoading] = React.useState(!initialCatalog);
 			const [recordLoading, setRecordLoading] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
@@ -209,9 +215,12 @@
 				refreshModule.current.request();
 				return refreshModule.current.whenIdle();
 			}
-			function load(source) {
+			function load(source, entryRef, fromLayout) {
 				setRecordStale(false);
-				if (!source) { setRecord(null); setAssociations(null); setSelectedCardPath(""); return Promise.resolve(); }
+				setInitialEntryRef(entryRef || "");
+				setReturnToLayout(Boolean(fromLayout));
+				if (source) setLayoutOpen(false);
+				if (!source) { setRecord(null); setAssociations(null); return Promise.resolve(); }
 				setRecordLoading(true); setError("");
 				// Entries paint as soon as the book is read: the association scan walks the whole
 				// card library for the binding panel below, so it must not hold the book open.
@@ -243,15 +252,23 @@
 					return relations;
 				});
 			}
+			function refreshLayoutSummary() {
+				const sessionId = sessionRef.current;
+				return rpcWithTimeout("getWorldBookPromptLayout", {}, sessionId).then(function (result) {
+					if (result && result.summary) setLayoutSnapshot(result);
+					return result;
+				}, function () { return null; });
+			}
 			// An open book must follow external edits too, not only the catalog.
 			function refreshAll() {
 				const listed = refresh();
-				if (!record) return listed;
-				if (draftDirty.current) { setRecordStale(true); return listed; }
+				const summaryTask = refreshLayoutSummary();
+				if (!record) return Promise.all([listed, summaryTask]);
+				if (draftDirty.current) { setRecordStale(true); return Promise.all([listed, summaryTask]); }
 				const source = record.source;
 				// 书没改就只回一个空壳：切会话、重开面板不再把整本文档取回来再解析一遍。
 				const ifRevision = record.revision === undefined ? null : record.revision;
-				return Promise.all([listed, rpcWithTimeout("getWorldBook", { source: source, ifRevision: ifRevision }, props.scope.sessionId).then(function (result) {
+				return Promise.all([listed, summaryTask, rpcWithTimeout("getWorldBook", { source: source, ifRevision: ifRevision }, props.scope.sessionId).then(function (result) {
 					if (result && result.unchanged === true) return;
 					setRecord(function (current) { return current && JSON.stringify(current.source) === JSON.stringify(source) && !draftDirty.current ? result : current; });
 				}, function () {})]);
@@ -259,7 +276,11 @@
 			useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["worldbooks", "cards"], "worldbooks"); }, refreshAll, props.scope.sessionId);
 			React.useEffect(function () { return function () { refreshModule.current.dispose(); }; }, []);
 			React.useEffect(function () { if (requestedSource) load(requestedSource); }, [JSON.stringify(requestedSource)]);
-			function clear() { setRecord(null); setAssociations(null); if (props.ctx && props.tab) props.ctx.betterSidebar.updateTab(props.tab.id, { meta: null }); }
+			function clear() {
+				setRecord(null); setAssociations(null); setInitialEntryRef("");
+				if (returnToLayout) { setReturnToLayout(false); setLayoutOpen(true); }
+				if (props.ctx && props.tab) props.ctx.betterSidebar.updateTab(props.tab.id, { meta: null });
+			}
 			function changeSortMode(value) {
 				const next = normalizeWorldBookSort(value);
 				setSortMode(next);
@@ -310,13 +331,23 @@
 			if (recordLoading) return h("div", { className: "fork-tab-scroll dsh-wbd-detail-scroll" }, h("div", { className: "ap-ui dsh-wbd-detail" }, h(PanelLoading, { shape: "fields", label: "正在读取世界书…" })));
 			if (record) {
 				const bookPath = record.source.kind === "card" ? record.source.cardPath : record.source.path;
-				return h(WorldBookDetail, { record: record, sessionId: props.scope.sessionId, onBack: clear, stale: recordStale, error: error, busy: busy || bindingBusy,
-					onReload: function () { draftDirty.current = false; return load(record.source); }, onDirty: function (value) { draftDirty.current = value; if (!value) setRecordStale(false); },
-					onSaved: function (result) { setRecord(result); refresh(); },
+				return h(WorldBookDetail, { record: record, sessionId: props.scope.sessionId, initialOpenRef: initialEntryRef, onBack: clear, stale: recordStale, error: error, busy: busy || bindingBusy,
+					onReload: function () { draftDirty.current = false; return load(record.source, initialEntryRef, returnToLayout); }, onDirty: function (value) { draftDirty.current = value; if (!value) setRecordStale(false); },
+					onSaved: function (result) { setRecord(result); refresh(); refreshLayoutSummary(); },
 					globalEnabled: record.globalEnabled === true, onToggleGlobal: toggleGlobal,
 					associations: associations, bindingBusy: bindingBusy, onBindCard: bindCard, onUnbindCard: unbindCard, onOpenCard: props.openCard,
 					onExport: exportFile, onRename: record.source.kind === "standalone" ? rename : null, onDelete: function () { remove(record.source, record.view.displayName); },
 					onMention: sessionMode === "card" ? function () { props.appendMention("worldbook", bookPath, record.view.displayName); } : null });
+			}
+			if (layoutOpen) {
+				return h(WorldBookPromptLayoutPage, {
+					sessionId: props.scope.sessionId,
+					visible: props.visible,
+					initialLayout: layoutSnapshot,
+					onLayoutLoaded: setLayoutSnapshot,
+					onBack: function () { setLayoutOpen(false); refresh(); refreshLayoutSummary(); },
+					onOpenBookEntry: function (bookSource, entryRef) { load(bookSource, entryRef, true); }
+				});
 			}
 			// One flat list like 舞台素材: 全局 → 本卡 → 关闭 bands, each row with the shared 全局 / 本卡 / 关闭 state tag.
 			async function setBookState(row, next) {
@@ -363,8 +394,19 @@
 				: h("ul", { className: "ap-pack-list dsh-tavern-wblib-list", "aria-label": "世界书" }, shown.map(function (row) {
 					return h(WorldBookLibraryRow, { key: row.id, row: row, scope: scope, busy: busy, mention: sessionMode === "card", onOpen: function () { load(row.source); }, onMention: function () { props.appendMention("worldbook", row.resourcePath, row.name); }, onCopy: function () { copyBook(row); }, onExport: function () { exportBook(row); }, onDelete: function () { remove(row.source, row.name); } });
 				}));
+			const layoutSum = layoutSnapshot && layoutSnapshot.summary ? layoutSnapshot.summary : null;
+			const layoutBtnLabel = layoutSum
+				? "常驻排布 · " + layoutSum.totalCount + " 条 · " + wblFmtTokens(layoutSum.totalTokens)
+				: "常驻排布";
 			return h("div", { className: "fork-tab-scroll dsh-tavern-wblib" }, h("div", { className: "ap-ui ap-library" },
-				h("header", { className: "ap-head" }, h("h2", null, "世界书库", h(WorldBookRecallGuide))),
+				h("header", { className: "ap-head dsh-tavern-wblib-head" },
+					h("h2", null, "世界书库", h(WorldBookRecallGuide)),
+					h("button", {
+						type: "button",
+						className: "dsh-wbl-entry-btn",
+						title: "可视化查看并调整常驻与固定通道条目的实际注入顺序",
+						onClick: function () { setLayoutOpen(true); }
+					}, h(WblIcon, { name: "bars" }), h("span", null, layoutBtnLabel))),
 				h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } }),
 				h("div", { className: "ap-pack-toolbar" },
 					h(packUi.PackSearchBox, { label: "搜索世界书", placeholder: "搜索世界书或人物卡", value: searchQuery, onChange: setSearchQuery }),

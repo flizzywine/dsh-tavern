@@ -1,4 +1,5 @@
 import { mergeWorldBooks } from './worldbook-merge.js'
+import { buildWorldBookPromptLayout } from './worldbook-prompt-layout.js'
 import { exportCharacterBook, exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument, worldBookDisplayName } from './worldbook-resource.js'
 import { freezeJsonProjection, createJsonProjectionCache } from './immutable-json-projection.js'
 
@@ -451,6 +452,64 @@ export function createWorldBookLibrary(options = {}) {
 
   async function bound(cardPath, card, chat) { return await resolveBound(cardPath, card, chat) }
 
+  /**
+   * 按与 `resolveBound` 一致的绑定+全局书顺序计算常驻条目排布视图。
+   * 未打开游玩对话或未绑卡时，仅计算全局生效的世界书；命中开局快照的对话额外标记 `openingSnapshot`。
+   */
+  async function promptLayout(cardPath, card, chat) {
+    const openingSnapshot = chat?.openingWorldbookSnapshot?.version === 1
+    const blankWorkspace = !str(cardPath) || (chat?.mode === 'card' && str(cardPath) === '')
+    const normalizedCardPath = blankWorkspace ? '' : normalizePath(cardPath, 'card')
+    const cache = new Map()
+    function read(locator) {
+      const source = sourceOf(locator)
+      const key = JSON.stringify(source)
+      if (!cache.has(key)) {
+        cache.set(key, readSource(source,
+          source.kind === 'card' && source.cardPath === normalizedCardPath ? card : undefined, false))
+      }
+      return cache.get(key)
+    }
+    let localSources = []
+    let resolvedCardName = str(card?.name || chat?.cardName)
+    if (!blankWorkspace) {
+      card ??= await cards.read(normalizedCardPath).catch(() => undefined)
+      if (card !== undefined) {
+        resolvedCardName = str(card.name || resolvedCardName)
+        const current = await binding(normalizedCardPath, { card, read })
+        const rawLocal = current.kind === 'multiple'
+          ? current.books.filter(book => book.available !== false).map(book => book.source)
+          : (current.source && current.available !== false ? [current.source] : [])
+        localSources = rawLocal
+      }
+    }
+    const globals = await globalSources()
+    const globalKeys = new Set(globals.map(item => 'standalone:' + sourceOf(item).path))
+    const sources = [], identities = new Set()
+    const primaryKey = localSources.length ? JSON.stringify(sourceOf(localSources[0])) : ''
+    for (const locator of localSources.concat(globals)) {
+      const source = sourceOf(locator), identity = JSON.stringify(source)
+      if (!identities.has(identity)) { identities.add(identity); sources.push(source) }
+    }
+    const records = []
+    for (const source of sources) {
+      try {
+        const record = await read(source)
+        const key = JSON.stringify(source)
+        const isGlobal = source.kind === 'standalone' && globalKeys.has('standalone:' + source.path)
+        records.push({ ...record, isGlobal, isPrimary: Boolean(primaryKey && key === primaryKey) })
+      } catch {
+        // 忽略单个损坏或已删除文件，避免阻断其余世界书排布查看。
+      }
+    }
+    return buildWorldBookPromptLayout({
+      records,
+      globalSourceKeys: globalKeys,
+      cardName: resolvedCardName,
+      openingSnapshot
+    })
+  }
+
   async function templateSnapshot(cardPath, card, chat) {
     const record = await resolveBound(cardPath, card, chat, true)
     if (!record) return emptyTemplateSnapshot
@@ -588,5 +647,5 @@ export function createWorldBookLibrary(options = {}) {
     return { removed: source.cardPath, kind: 'embedded' }
   }
 
-  return Object.freeze({ catalog, get, revision, setGlobal, binding, associations, bound, templateSnapshot, bind, setBindings, unbind, import: importBook, update: serializeMutation(update), replaceNative: serializeMutation(replaceNative), export: exportBook, characterBookForCard, remove: serializeMutation(remove) })
+  return Object.freeze({ catalog, get, revision, setGlobal, binding, associations, bound, promptLayout, templateSnapshot, bind, setBindings, unbind, import: importBook, update: serializeMutation(update), replaceNative: serializeMutation(replaceNative), export: exportBook, characterBookForCard, remove: serializeMutation(remove) })
 }

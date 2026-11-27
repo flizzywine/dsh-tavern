@@ -131,7 +131,11 @@
 			const [error, setError] = usePersistentError("世界书编辑");
 			const [query, setQuery] = React.useState(""), deferredQuery = React.useDeferredValue(query);
 			const [filter, setFilter] = React.useState("all");
-			const [openRefs, setOpenRefs] = React.useState(function () { return new Set(); });
+			const [openRefs, setOpenRefs] = React.useState(function () { return props.initialOpenRef ? new Set([props.initialOpenRef]) : new Set(); });
+			React.useEffect(function () {
+				if (!props.initialOpenRef) return;
+				setOpenRefs(function (current) { return current.has(props.initialOpenRef) ? current : new Set(current).add(props.initialOpenRef); });
+			}, [props.initialOpenRef]);
 			const [renaming, setRenaming] = React.useState(false);
 			// Writes run one after another. `nextView` (an entry or the name / 说明) is a lean write: the server answers with the
 			// revision and the page keeps its own copy; without it (add, delete) the whole book comes back.

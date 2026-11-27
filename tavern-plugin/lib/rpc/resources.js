@@ -81,6 +81,26 @@ export function createResourceHandlers(deps) {
       }
       return worldBookForClient(record)
     },
+    async getWorldBookPromptLayout(args) {
+      const sessionId = str(args && args.sessionId)
+      const chat = sessionId
+        ? await chatHeaderForSession(sessionId, ['cardPath', 'cardName', 'mode', 'openingWorldbookSnapshot']).catch(() => null)
+        : null
+      return await worldBooks.promptLayout(str(chat && chat.cardPath), undefined, chat)
+    },
+    async getWorldBookEntryContent(args) {
+      const source = args && args.source
+      const ref = str(args && args.ref)
+      if (!source || !ref) throw new Error('缺少世界书来源或条目引用')
+      const record = await worldBooks.get(source)
+      const entry = (record && record.view && record.view.entries || []).find(item => item.ref === ref)
+      if (!entry) throw new Error('世界书条目不存在: ' + ref)
+      return {
+        ref: entry.ref,
+        title: str(entry.comment || entry.title) || '未命名条目',
+        content: str(entry.content)
+      }
+    },
     async getWorldBookBinding(args) {
       return { binding: await worldBooks.binding(args && args.cardPath) }
     },
