@@ -1,5 +1,6 @@
 import {createTemplateHistoryPipeClient} from './template-history-pipe.js'
 import { readFile } from 'node:fs/promises'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { estimateWorldBookTokens } from './worldbook-activation.js'
 
@@ -7,12 +8,21 @@ import { estimateWorldBookTokens } from './worldbook-activation.js'
 // jsdom supplies browser APIs; it is not the process isolation boundary.
 let session, dom, sequence = 0
 const pending = new Map()
+const readOnlyProjection = new AsyncLocalStorage()
 const send = message => { if (process.connected) process.send(message) }
 const rpc = (method, args) => {
   // Upstream schedules token statistics after returning its operation receipt.
   // This pure estimate needs no session lease: calculate it here, using the
   // same estimator as the host, without admitting expired state-changing RPCs.
   if (method === 'countFullTemplateTokens') return Promise.resolve({ tokens: estimateWorldBookTokens(args.text), estimator: 'unicode-estimate' })
+  if (readOnlyProjection.getStore() && method !== 'getFullPromptTemplateState' && method !== 'getFullTemplateWorldbook') {
+    // Acknowledge changes within the worker so setvar/autosave can feed the
+    // next controller. Only the projection's text and local scopes are returned.
+    if (method === 'saveFullPromptTemplateGlobals') return Promise.resolve({ updated: true, variables: args.variables })
+    if (method === 'saveFullPromptTemplateSettings') return Promise.resolve({ updated: true, settings: args.settings })
+    if (method === 'saveFullPromptTemplateState') return Promise.resolve({ updated: true, statePatch: [] })
+    return Promise.reject(new Error('独立生成的世界书模板只能读取会话数据'))
+  }
   return new Promise((resolve, reject) => {
     const id = ++sequence
     pending.set(id, { resolve, reject })
@@ -65,7 +75,7 @@ process.on('message', async message => {
   try {
     let result
     if (message.type === 'initialize') await initialize(message.sessionId, message.readOnly)
-    else if (message.type === 'project') result = await session.project(message.operation, message.input)
+    else if (message.type === 'project') result = await readOnlyProjection.run(message.readOnlyProjection === true, () => session.project(message.operation, message.input))
     else if (message.type === 'synchronize') result = await session.synchronize()
     else throw new Error('Unknown server template operation')
     send({ type: 'result', id: message.id, result })

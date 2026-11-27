@@ -227,7 +227,9 @@ export async function projectWorldBookTemplates(input = {}) {
   const templates = controllers.filter(entry => isWorldBookTemplateEntry(entry) && !input.renderCache?.has(entry.ref))
   // Plain entries only affect the host macro state below, not template scopes.
   // Keep their output interleaved in the original order after the batch returns.
-  const useBatch = templates.length > 0 && typeof runtime.renderProjections === 'function' && !input.renderCache?.size
+  // Batched worker receipts omit per-entry scopes. A caller replaying cached
+  // scope changes during activation needs full receipts from the first pass.
+  const useBatch = templates.length > 0 && typeof runtime.renderProjections === 'function' && !input.renderCache?.size && !input.preserveCachedScopes
   const batch = useBatch
     ? await runtime.renderProjections(templates.map(entry => ({ template: templateBody(entry.content), randomRef: entry.ref })),
       { ...templateContext, scopes, randomSeed: input.randomSeed }) : null

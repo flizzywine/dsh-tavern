@@ -120,7 +120,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     record.initialization = request(record, { type: 'initialize', sessionId, readOnly }).then(() => { record.ready = true })
     return record
   }
-  async function invoke(sessionId, operation, input, transient = false) {
+  async function invoke(sessionId, operation, input, transient = false, readOnlyProjection = false) {
     if (disposed || !sessionId) throw new Error('服务端提示词模板会话不可用')
     // Match the former JSON transport: host-only callbacks (notably random)
     // stay in the caller; randomSeed/randomRef carry deterministic evaluation.
@@ -139,7 +139,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
         record.busy = true; clearTimeout(record.idle)
         await record.initialization
         const result = operation === 'connect' ? undefined
-          : await request(record, operation === 'synchronize' ? { type: 'synchronize' } : { type: 'project', operation, input })
+          : await request(record, operation === 'synchronize' ? { type: 'synchronize' } : { type: 'project', operation, input, readOnlyProjection })
         if (disposed || generation !== generations.get(sessionId)) throw new Error('提示词模板任务已取消')
         job.phase = 'completed'; job.completedAt = Date.now()
         await save(sessionId, job)
@@ -164,16 +164,16 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     try { return await pending } finally { if (tails.get(sessionId) === pending) tails.delete(sessionId) }
   }
   return {
-    forSession: sessionId => ({
+    forSession: (sessionId, { readOnlyProjection = false } = {}) => ({
       historyContext: 'session',
       connect: () => invoke(sessionId, 'connect', {}, true),
       renderInput: (text, context = {}) => invoke(sessionId, 'input', { text, context }),
       prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }),
-      prepareWorldbookProjection: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true),
+      prepareWorldbookProjection: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true, readOnlyProjection),
       command: text => invoke(sessionId, 'command', { text }),
       render: (template, context = {}) => invoke(sessionId, 'render', { template, context }),
-      renderProjection: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true),
-      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true),
+      renderProjection: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true, readOnlyProjection),
+      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true, readOnlyProjection),
       renderMessages: (messages, context = {}) => invoke(sessionId, 'messages', { messages, context }),
       projectRequest: request => invoke(sessionId, 'request', { request }),
       projectRequestProjection: request => invoke(sessionId, 'request', { request }, true),

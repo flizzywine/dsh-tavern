@@ -13,7 +13,7 @@ function str(value) {
 
 export function createCardOpeningRuntime({
   readCard, worldBooks, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
-  helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics
+  helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime
 }) {
   const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance,
     // the card's extensions with its remote script assets pinned, as getCardOpenings reads them (openingSetup included)
@@ -28,7 +28,10 @@ export function createCardOpeningRuntime({
     const activeSnapshot = config.preset_name && config.preset_name !== 'in_use'
       ? await helperGenerationPreset('in_use', context.presetSnapshot) : presetSnapshot
     context.signal?.throwIfAborted()
-    return generateHelper(config, { ...context, presetSnapshot, presetRegexScripts: activeSnapshot?.regexScripts || [], callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) })
+    return generateHelper(config, { ...context, presetSnapshot, presetRegexScripts: activeSnapshot?.regexScripts || [],
+      loadWorldbookTemplates: async () => ({ runtime: fullTemplateRuntime.forSession(context.chat.sessionId, { readOnlyProjection: true }),
+        globalVariables: context.chat.macroState?.global, settings: context.templateSettings }),
+      callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) })
   }
   async function getCardOpenings(cardPath, userName, previewTransport) {
     const startedAt = performance.now(), stages = {}

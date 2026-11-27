@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 export function createTemplateHandlers(deps) {
   const { agentRegistry, callModel, chatForSession, chatHeaderForSession, chatPersistence, commands, ctx, fullTemplateRuntime,
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, openingPreparation, pagesInFront,
-    projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readSessionMap, sessionViews,
+    projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readPromptTemplateGlobalVariables, readSessionMap, sessionViews,
     str, tavernScriptHostAdapter, updateChat, worldBooks } = deps
   const handlers = {
     async generateTavernHelper(args, method) {
@@ -33,7 +33,13 @@ export function createTemplateHandlers(deps) {
         const worldBook = await worldBooks.bound(chat.cardPath, card, chat)
         const extensions = await readCardExtensions(chat.cardPath, chat)
         signal.throwIfAborted()
-        return { text: await generateHelper(config, { ...context, chat, card, worldBook, presetSnapshot, extensions,
+        return { text: await generateHelper(config, { ...context, chat, card, worldBook, presetSnapshot, extensions, signal,
+          loadWorldbookTemplates: async () => {
+            const [globalVariables, { settings }] = await Promise.all([
+              readPromptTemplateGlobalVariables(), tavernScriptHostAdapter.readGlobalPromptTemplateSettings()
+            ])
+            return { runtime: fullTemplateRuntime.forSession(chat.sessionId, { readOnlyProjection: true }), globalVariables, settings }
+          },
           presetRegexScripts: chat.runtimePresetSnapshot?.regexScripts || [], characterVariables: extensions?.variables || {} }) }
       }, args?.generationToken)
     },
@@ -137,6 +143,7 @@ export function createTemplateHandlers(deps) {
       return { pipe: str(result.result?.text) }
     },
     async getFullTemplateWorldbook(args) {
+      if (args.sessionId?.startsWith('opening:')) return openingPreparation.readTemplateWorldbook(args.sessionId.slice(8), args.name)
       return await tavernScriptHostAdapter.getWorldbook(args.sessionId, args.name, true)
     },
     async replaceFullTemplateWorldbook(args) {

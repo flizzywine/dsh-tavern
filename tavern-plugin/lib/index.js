@@ -1290,7 +1290,7 @@ export async function apply(ctx) {
   }
   const { openingPreparation, getCardOpenings } = createCardOpeningRuntime({
     readCard, worldBooks, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
-    helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics
+    helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime
   })
   ctx.effect(() => () => openingPreparation.dispose())
   function presentUserPreferenceProfile(value) {
@@ -3803,7 +3803,7 @@ export async function apply(ctx) {
     createTemplateHandlers({
       agentRegistry, callModel, chatForSession, chatHeaderForSession, chatPersistence, commands, ctx,
       fullTemplateRuntime, helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, openingPreparation,
-      pagesInFront, projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readSessionMap,
+      pagesInFront, projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readPromptTemplateGlobalVariables, readSessionMap,
       sessionViews, str, tavernScriptHostAdapter, updateChat, worldBooks,
       get serverScripts() { return serverScripts },
     }),
