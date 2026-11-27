@@ -1,6 +1,6 @@
 // Stage widget placement, reading projection, phone settings and avatar preparation.
 const stageRandomId = typeof randomId === 'function' ? randomId : require('../../../dsh-presentation-protocol/src/random-id.cjs').randomId;
-function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
+function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap,useModOptions}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
 const {character:bubbleCharacter,actor:stageActorCharacter,face:bubbleCardFace}=characters || {};
 // The handheld source device (a stage feature's sourceDevice, features.cjs), or null: its widget is laid out and adjusted as a phone.

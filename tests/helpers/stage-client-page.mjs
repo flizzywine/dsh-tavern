@@ -132,7 +132,7 @@ export function stageHostScript() {
     configFields:{HelpTip,Segmented:Nothing,Slider:Nothing,ResetButton:Nothing,InlineField:Nothing,sounds,classify:()=>null},
     phoneLayout:{storage:null,width:()=>innerWidth,ResetButton:Nothing,sections:[]},
     sourceWidgets:{storage:null,foreground,rpc,sounds,fillInput:noop,signals:{subscribe:off},characters:{character:()=>null,mood:()=>null,moods:()=>[],actor:()=>null,face:()=>null},avatarCache:null,
-      phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,
+      phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,useModOptions:()=>null,
       sandbox:{stopSfx:noop,scroll:noop,theme:()=>null}},
     presentation:{foreground,titleTiming:STAGE_EFFECTS.title,matchMedia,getComputedStyle,ResizeObserver,MutationObserver},
     // the core's face picture (pack-playback.cjs PackImage, real); layered sprite faces stay inert offline
