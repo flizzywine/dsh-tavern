@@ -15,7 +15,16 @@ export function createMaintenanceHandlers(deps) {
     mvuDiagnostics, pluginApi, preparedSaveSessions, readChat, readChatCard, readSessionMap,
     readTavernSettings, saveUpgrade, sessionPatch, sessionStateForSession, sessionStore, str,
     worldbookRecallLog } = deps
+  let storageConversion = null
   const handlers = {
+    // 设置 › 高级 › 现有存档的格式（实验）：手动把全部存档转成 Format 3，或转回 Format 2。一次只跑一批。
+    async convertConversationStorage(args) {
+      const format = args?.format
+      if (format !== 2 && format !== 3) throw new Error('目标存档格式只能是 2 或 3')
+      if (storageConversion) throw new Error('存档格式转换正在进行，请等它完成')
+      storageConversion = deps.chatJournalStore.convertStorage(format)
+      try { return await storageConversion } finally { storageConversion = null }
+    },
     async getSaveUpgrade(args, method) {
       const chatId = (await readSessionMap())[str(args?.sessionId)]
       if (!chatId) throw new Error('找不到当前存档')

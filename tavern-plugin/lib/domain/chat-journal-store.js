@@ -3,6 +3,7 @@ import { createChatStorageMigration } from './chat-storage-migration.js'
 import {projectTavernHelperContext,hydrateTavernHelperMessages} from './tavern-helper-context.js'
 import { createNativeConversationStorage } from './native-conversation-storage.js'
 import { createLegacyCompatibleStorage } from './legacy-compatible-storage.js'
+import { exportConversationToFormat2, inspectConversationFormat, migrateConversationToSqlite } from './conversation-storage-format.js'
 import { createSessionMessageIndex } from './session-message-index.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
@@ -799,5 +800,49 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, close: chatId => native.close(chatId), closeAll: () => native.closeAll(), detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
+  // Explicit storage format conversion of native saves: 3 moves Format 1/2 saves into one
+  // SQLite file, 2 moves Format 3 saves back. Each save is verified byte-for-byte before
+  // its head switches; only then is its previous layout removed, so a save that fails
+  // keeps exactly its old files and the batch goes on with the next one.
+  async function convertFormat(chatId, target) {
+    return await serializeNativeMaintenance(chatId, async () => {
+      await flushMaintenance()
+      return await serialize(chatId, async () => {
+        const dir = layout(chatId).root
+        const current = await inspectConversationFormat({ root: chatsRoot, chatId })
+        if (current.status === 'missing') return { chatId, status: 'skipped', reason: 'not-native' }
+        if (target === 3 ? current.format === 3 : current.format !== 3) return { chatId, status: 'skipped', reason: 'already' }
+        native.close(chatId)
+        forgetState(chatId)
+        if (target === 3) {
+          const result = await migrateConversationToSqlite({ root: chatsRoot, chatId, keepBackup: false })
+          await rm(path.join(dir, 'blocks'), { recursive: true, force: true })
+          return { chatId, status: 'converted', format: 3, blocks: result.blocks }
+        }
+        const result = await exportConversationToFormat2({ root: chatsRoot, chatId, inPlace: true, keepSqliteBackup: false })
+        for (const suffix of ['', '-wal', '-shm']) await rm(path.join(dir, 'chat.sqlite' + suffix), { force: true })
+        return { chatId, status: 'converted', format: 2, blocks: result.blocks }
+      })
+    })
+  }
+  async function convertStorage(target, { onProgress } = {}) {
+    if (target !== 2 && target !== 3) throw new Error('Unsupported conversation storage format')
+    let names = []
+    try { names = (await readdir(chatsRoot, { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith('.')).map(entry => entry.name) }
+    catch (error) { if (error?.code !== 'ENOENT') throw error }
+    const results = []
+    for (const chatId of names) {
+      try { results.push(await convertFormat(chatId, target)) }
+      catch (error) {
+        logger.warn?.('dsh-tavern: 存档 ' + chatId + ' 格式转换失败，保持原样：' + (error?.message || error))
+        results.push({ chatId, status: 'failed', error: String(error?.message || error) })
+      }
+      onProgress?.(results.length, names.length)
+    }
+    const count = status => results.filter(result => result.status === status).length
+    return { format: target, total: names.length, converted: count('converted'), skipped: count('skipped'),
+      failed: results.filter(result => result.status === 'failed') }
+  }
+
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, convertStorage, close: chatId => native.close(chatId), closeAll: () => native.closeAll(), detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
 }

@@ -125,6 +125,48 @@ test('new saves default to Format 2; the switch only changes saves created while
   assert.equal((await fresh.read('off-1')).messages.length, 2)
 })
 
+test('manual batch conversion moves every native save to Format 3 and back, verified, skipping failures', async t => {
+  const root = await tempDir(t, 'sqlite-convert-all-')
+  const chats = join(root, 'chats')
+  const store = createChatJournalStore({ dataRoot: root, newConversations: true })
+  const persistence = createChatPersistence({ store })
+  for (const id of ['a', 'b']) {
+    await persistence.write({ id, sessionId: 's-' + id, mode: 'story', messages: [sampleRow(0), sampleRow(1)] })
+    await persistence.patch(id, 1, [{ op: 'splice', path: ['messages'], index: 2, deleteCount: 0, items: [sampleRow(2, id)] }])
+  }
+  // A damaged save: its head names a block that is not there.
+  await persistence.write({ id: 'broken', sessionId: 's-broken', mode: 'story', messages: [sampleRow(0)] })
+  const brokenHead = JSON.stringify({ format: 2, headId: 'f'.repeat(64) })
+  await writeFile(join(chats, 'broken', 'head.json'), brokenHead)
+  const snapshot = async id => ({ current: canonicalHash(await createChatJournalStore({ dataRoot: root }).read(id)),
+    first: canonicalHash(await createChatJournalStore({ dataRoot: root }).readRevision(id, 1)) })
+  const before = { a: await snapshot('a'), b: await snapshot('b') }
+
+  const toSqlite = await store.convertStorage(3)
+  assert.equal(toSqlite.converted, 2)
+  assert.deepEqual(toSqlite.failed.map(item => item.chatId), ['broken'])
+  assert.equal(await readFile(join(chats, 'broken', 'head.json'), 'utf8'), brokenHead, 'a failed save keeps its files')
+  for (const id of ['a', 'b']) {
+    assert.deepEqual((await readdir(join(chats, id))).sort(), ['chat.sqlite', 'head.json'])
+    assert.deepEqual(await snapshot(id), before[id])
+  }
+  assert.equal((await store.convertStorage(3)).converted, 0, 'already converted saves are skipped')
+
+  // The same running store keeps writing the converted save, then everything goes back.
+  await persistence.patch('a', 2, [{ op: 'set', path: ['messages', 0, 'text'], value: '转换后继续写' }])
+  const afterWrite = await snapshot('a')
+  const back = await store.convertStorage(2)
+  assert.equal(back.converted, 2)
+  for (const id of ['a', 'b']) {
+    assert.deepEqual((await readdir(join(chats, id))).sort(), ['blocks', 'head.json'])
+    assert.equal((await inspectConversationFormat({ root: chats, chatId: id })).format, 2)
+  }
+  assert.deepEqual(await snapshot('a'), afterWrite)
+  assert.deepEqual(await snapshot('b'), before.b)
+  await persistence.patch('b', 2, [{ op: 'set', path: ['messages', 0, 'text'], value: '转回后继续写' }])
+  assert.equal((await createChatJournalStore({ dataRoot: root }).read('b')).messages[0].text, '转回后继续写')
+})
+
 test('a block written before creation fixes the new save backend even if the switch flips', async t => {
   const root = await tempDir(t, 'sqlite-optin-pending-')
   let format = 2

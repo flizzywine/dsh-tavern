@@ -409,7 +409,7 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.disableEnterSend !== 'boolean') throw new Error('关闭回车键发送消息设置必须是布尔值')
     next.disableEnterSend = input.disableEnterSend
   }
-  // 设置 › 高级 › 单文件存档（实验）：默认关闭；只决定之后新建的存档用 Format 3（SQLite）还是 Format 2。
+  // 设置 › 高级 › 新存档使用单文件格式（实验）：默认关闭；只决定之后新建的存档用 Format 3（SQLite）还是 Format 2。
   if (Object.hasOwn(input, 'experimentalSqliteStorage')) {
     if (typeof input.experimentalSqliteStorage !== 'boolean') throw new Error('单文件存档设置必须是布尔值')
     next.experimentalSqliteStorage = input.experimentalSqliteStorage
@@ -555,7 +555,7 @@ export function presentTavernSettings(document, defaults) {
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // 设置 › 高级 › 关闭回车键发送消息：默认关闭。
     disableEnterSend: object(document).disableEnterSend === true,
-    // 设置 › 高级 › 单文件存档（实验）：默认关闭，新存档仍用 Format 2。
+    // 设置 › 高级 › 新存档使用单文件格式（实验）：默认关闭，新存档仍用 Format 2。
     experimentalSqliteStorage: object(document).experimentalSqliteStorage === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
