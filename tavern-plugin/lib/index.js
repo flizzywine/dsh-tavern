@@ -40,7 +40,8 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
-import { DISABLED_FILE, runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, reloadUpdatedCardPlugins, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
+import { DISABLED_FILE, runningUserPlugins, loaderOrigin, userPluginPaths } from './domain/user-plugins.js'
+import { createCardPluginRuntime } from './domain/card-plugin-runtime.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
@@ -495,46 +496,11 @@ export async function apply(ctx) {
   })
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
-  const cardPluginJournal = path.join(dataRoot, 'card-plugin-update.journal.json')
-  let cardPluginTransactionActive = false, cardPluginTransactions = Promise.resolve()
-  const cardPluginUpdatePending = () => cardPluginTransactionActive || existsSync(cardPluginJournal)
-  // Folders in <data>/plugins become profile patch entries, so both plugin halves load without editing Tavern.
-  // The entries DSH started with: a later sync that moves one (managed mods republished below) restarts it from its new
-  // folder through the loader, or the old release's code would run against the new release's files until a restart.
-  const loadedUserPlugins = await readPatchedUserPlugins({ dataRoot })
   const fileResources = createFileResourceStore({ dataRoot })
-  const reloadUserPlugin = loaderReload(ctx.get('loader'), ctx.fiber)
-  function queueCardPluginWork(work) {
-    const next = cardPluginTransactions.catch(() => {}).then(() => work())
-    cardPluginTransactions = next
-    return next
-  }
-  const syncPlugins = beforePatch => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, beforePatch })
-  function commitCardPluginTransaction(write, after) {
-    return queueCardPluginWork(async () => {
-      cardPluginTransactionActive = true
-      let committed
-      try { committed = await write() } finally { cardPluginTransactionActive = false }
-      return after(committed)
-    })
-  }
-  async function syncCommittedCardPlugins(names) {
-    let runtime = {reloaded: [], restartRequired: names}
-    try {
-      await syncPlugins(async result => {
-        runtime = await reloadUpdatedCardPlugins({result, names, loaded: loadedUserPlugins, reload: reloadUserPlugin})
-      })
-    } catch (error) {
-      console.warn('dsh-tavern: 同步已更新的人物卡插件失败', error?.message || error)
-    }
-    return runtime
-  }
-  try {
-    const result = await syncPlugins()
-    await reconcileUserPluginsAtStartup({ result, loaded: loadedUserPlugins, reload: reloadUserPlugin })
-  } catch (error) { console.warn('dsh-tavern: 同步用户插件失败', error?.message || error) }
-  ctx.effect(() => watchUserPlugins({ dataRoot, loaded: loadedUserPlugins, reload: reloadUserPlugin,
-    sync: () => queueCardPluginWork(syncPlugins) }))
+  const cardPluginRuntime = await createCardPluginRuntime({
+    dataRoot, cardPaths: () => fileResources.list('card'), loader: ctx.get('loader'), fiber: ctx.fiber,
+  })
+  ctx.effect(cardPluginRuntime.watch)
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
@@ -1411,10 +1377,10 @@ export async function apply(ctx) {
   const pluginDataStore = createPluginDataStore({ dataRoot })
   const userPluginInstaller = createUserPluginInstaller({
     dataRoot, cardPaths: () => fileResources.list('card'),
-    sync: () => queueCardPluginWork(syncPlugins),
+    sync: cardPluginRuntime.sync,
   })
   const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
-    journalPath: cardPluginJournal })
+    journalPath: cardPluginRuntime.journalPath })
   const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxAgeMs: 10 * 60 * 1000 })
   ctx.effect(() => {
     const timer = setInterval(() => { void cardPluginUploads.sweep().catch(() => {}) }, 60 * 1000)
@@ -1423,15 +1389,15 @@ export async function apply(ctx) {
   })
   const cardPluginUpdates = createCardPluginUpdates({ cardPlugins: {
     ...cardPlugins,
-    updateBoundPlugin: input => commitCardPluginTransaction(() => cardPlugins.updateBoundPlugin(input), async result => {
+    updateBoundPlugin: input => cardPluginRuntime.commit(() => cardPlugins.updateBoundPlugin(input), async (result, reloadPlugins) => {
       if (!result.plugin.enabled || !result.restartRequired && runningUserPlugins.get(result.plugin.name)?.sha256 === result.plugin.sha256) return result
-      const runtime = await syncCommittedCardPlugins([result.plugin.name])
+      const runtime = await reloadPlugins([result.plugin.name])
       return {...result, reloaded:runtime.reloaded.length > 0, restartRequired:runtime.restartRequired.length > 0}
     }),
-    recoverBoundPlugin: callbacks => commitCardPluginTransaction(() => cardPlugins.recoverBoundPlugin(callbacks), async result => {
+    recoverBoundPlugin: callbacks => cardPluginRuntime.commit(() => cardPlugins.recoverBoundPlugin(callbacks), async (result, reloadPlugins) => {
       if (result.recovered) {
         const {plugins = []} = await castAssets.read(result.cardPath)
-        await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+        await reloadPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
       }
       return result
     })
@@ -1486,21 +1452,21 @@ export async function apply(ctx) {
     withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'), mediaStore,
     syncBubbles: path => dialogueBubbles.sync(worldBooks, path)
   })
-  const replaceCard = (cardPath, input) => commitCardPluginTransaction(async () => {
+  const replaceCard = (cardPath, input) => cardPluginRuntime.commit(async () => {
     const before = (await castAssets.read(normalizeResourcePath(cardPath, 'card'))).plugins || []
     const card = await replaceCardFiles(cardPath, input)
     const after = (await castAssets.read(card.path)).plugins || []
     return {card, before, after}
-  }, async ({card, before, after}) => {
+  }, async ({card, before, after}, reloadPlugins) => {
     if (!before.length && !after.length) return card
     const existing = new Map(before.filter(plugin => plugin.enabled === true).map(plugin => [plugin.name, plugin.sha256]))
     const changed = after.filter(plugin => plugin.enabled === true && (existing.get(plugin.name) !== plugin.sha256
       || runningUserPlugins.get(plugin.name)?.sha256 !== plugin.sha256))
-    return {...card, pluginRuntime:await syncCommittedCardPlugins(changed.map(plugin => plugin.name))}
+    return {...card, pluginRuntime:await reloadPlugins(changed.map(plugin => plugin.name))}
   })
-  const revertCardUpdate = updateId => commitCardPluginTransaction(() => revertCardFiles(updateId), async result => {
+  const revertCardUpdate = updateId => cardPluginRuntime.commit(() => revertCardFiles(updateId), async (result, reloadPlugins) => {
     const {plugins = []} = await castAssets.read(result.path)
-    await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+    await reloadPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
     return result
   })
   async function listCards() {
@@ -4701,10 +4667,10 @@ export async function apply(ctx) {
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = createStageSwitch(stageRuntime)
   // A card update the program stopped in the middle of (killed, power lost) is put back as it was before.
-  void commitCardPluginTransaction(() => recoverCardUpdates(), async restored => {
+  void cardPluginRuntime.commit(() => recoverCardUpdates(), async (restored, reloadPlugins) => {
     for (const cardPath of restored) {
       const {plugins = []} = await castAssets.read(cardPath)
-      await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+      await reloadPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
     }
     if (restored.length) console.warn('dsh-tavern: 恢复了中断的人物卡更新：' + restored.join('、'))
     return restored
