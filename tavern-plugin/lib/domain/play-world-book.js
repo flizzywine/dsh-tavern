@@ -5,6 +5,16 @@ import { withPluginWorldbookEntries } from './plugin-worldbook.js'
 import { inspectWorldBookDocument } from './worldbook-resource.js'
 import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
 import { projectMvuNpcRegistration } from './mvu-npc-registration.js'
+import { isIdentityOnlyConstant, withIdentityNames } from './worldbook-entry-classification.js'
+
+// A constant that only names the player or the card reads as plain text with this game's names: it is a static
+// constant in the fixed prefix every turn, and a rename changes that prefix once (the next request reads the new name).
+function withGameNames(record, chat, card) {
+  const entries = record?.view?.entries
+  if (!entries?.some(isIdentityOnlyConstant)) return record
+  const names = { user: chat?.macroState?.userName || '你', char: String(card?.name ?? chat?.cardName ?? '') }
+  return { ...record, view: { ...record.view, entries: entries.map(entry => isIdentityOnlyConstant(entry) ? withIdentityNames(entry, names) : entry) } }
+}
 
 // The world book a game plays with, as the background and recall read it.
 export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, readOnlyTemplateRuntime, globalVariables = async () => ({}) }) {
@@ -44,9 +54,9 @@ export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, rea
   // What recall, world book search and screening read: the bound book plus plugin entries (tavern.worldbookEntries).
   async function playWorldBook(chat, card) {
     const record = await worldBooks.bound(chat.cardPath, card, chat)
-    if (!chat?.sessionId) return record
+    if (!chat?.sessionId) return withGameNames(record, chat, card)
     const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
-    return withPluginWorldbookEntries(record, await poolEntries({ gameId: chat.sessionId, turn }))
+    return withGameNames(withPluginWorldbookEntries(record, await poolEntries({ gameId: chat.sessionId, turn })), chat, card)
   }
 
   return { playWorldBook, worldBookScanDepth, mvuUpdateRules }
