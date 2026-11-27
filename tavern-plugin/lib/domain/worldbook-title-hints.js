@@ -1,4 +1,4 @@
-import { activateWorldBook, promptOrder } from './worldbook-activation.js'
+import { activateWorldBook, estimateWorldBookTokens, promptOrder } from './worldbook-activation.js'
 import { isStaticWorldbookSkillEntry } from './worldbook-entry-classification.js'
 import { worldbookEntryTitle } from './worldbook-entry-title.js'
 import { promptSection } from './prompt-section.js'
@@ -7,6 +7,8 @@ import { GREP_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from './fore
 import { readLorebookReceipt } from './worldbook-files.js'
 
 const RECENT_STORY_ROUNDS = 10
+const TITLE_HINT_TOKEN_BUDGET = 256
+const TITLE_HINT_LABEL = '可能用到的世界书条目：'
 
 function parseJson(value) {
   if (typeof value !== 'string') return value
@@ -80,8 +82,18 @@ export function worldbookTitleHints(input) {
 }
 
 export function formatWorldbookTitleHints(entries) {
-  const titles = [...new Set(entries.map(worldbookEntryTitle))]
-  if (!titles.length) return ''
-  const shown = titles.slice(0, 3).map(title => title.slice(0, 80))
-  return promptSection('lorebook_title_hints', '可能用到的世界书条目：' + shown.join('、'))
+  const seen = new Set()
+  const shown = []
+  let remaining = TITLE_HINT_TOKEN_BUDGET - estimateWorldBookTokens(promptSection('lorebook_title_hints', TITLE_HINT_LABEL))
+  for (const entry of entries) {
+    const title = [...worldbookEntryTitle(entry)].slice(0, 80).join('')
+    if (seen.has(title)) continue
+    const cost = estimateWorldBookTokens((shown.length ? '、' : '') + title)
+    if (cost > remaining) continue
+    shown.push(title)
+    seen.add(title)
+    remaining -= cost
+    if (remaining === 0) break
+  }
+  return shown.length ? promptSection('lorebook_title_hints', TITLE_HINT_LABEL + shown.join('、')) : ''
 }

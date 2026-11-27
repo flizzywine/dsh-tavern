@@ -5,7 +5,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createWorldbookFiles } from '../tavern-plugin/lib/domain/worldbook-files.js'
-import { recentWorldbookLookups, worldbookTitleHints } from '../tavern-plugin/lib/domain/worldbook-title-hints.js'
+import { formatWorldbookTitleHints, recentWorldbookLookups, worldbookTitleHints } from '../tavern-plugin/lib/domain/worldbook-title-hints.js'
+import { estimateWorldBookTokens } from '../tavern-plugin/lib/domain/worldbook-activation.js'
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'worldbook-files-'))
@@ -111,12 +112,22 @@ test('按标题、别名或正文关键词读取；同名条目按候选 ID 区�
   assert.equal(nextPage.nextOffset, null)
 })
 
-test('标题提醒用一行列出至多三个近期未读的静态匹配项', () => {
+test('标题提醒按召回顺序列出预算内的近期未读静态匹配项，可超过三条', () => {
   const entries = ['薛姨妈', '史太君', '王夫人', '贾琏', '凤姐'].map((title, index) => ({
     ref: title, title, enabled: true, order: 100 + index, primaryKeys: [title], content: title + '正文'
   }))
   const input = { worldBook: { view: { entries } }, chat: { messages: [] },
     turn: 15, userText: entries.map(entry => entry.title).join(' '), recentlyReadRefs: ['史太君'] }
-  assert.equal(worldbookTitleHints(input), '<lorebook_title_hints>\n可能用到的世界书条目：薛姨妈、王夫人、贾琏\n</lorebook_title_hints>')
+  assert.equal(worldbookTitleHints(input), '<lorebook_title_hints>\n可能用到的世界书条目：薛姨妈、王夫人、贾琏、凤姐\n</lorebook_title_hints>')
   assert.equal(worldbookTitleHints({ ...input, userText: '史太君' }), '')
+})
+
+test('长标题按提示预算取舍，给放得下的后续短标题留机会', () => {
+  const entries = Array.from({ length: 20 }, (_, i) => ({ title: i + '长'.repeat(79) }))
+  const hints = formatWorldbookTitleHints([...entries, { title: '短标题' }, entries[0]])
+  assert.ok(estimateWorldBookTokens(hints) <= 256)
+  assert.ok(hints.includes(entries[0].title + '、' + entries[1].title))
+  assert.ok(!hints.includes(entries.at(-1).title))
+  assert.match(hints, /、短标题\n/)
+  assert.equal(hints.split(entries[0].title).length, 2)
 })
