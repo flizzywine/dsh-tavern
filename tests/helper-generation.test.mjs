@@ -64,6 +64,22 @@ test('generate rejects unsupported or malformed inputs before calling the model'
   assert.ok((await compileHelperGenerate({ user_input: 'hello', overrides: { char_description: 'rendered state' } }, context)).some(message => message.content === 'rendered state'))
 })
 
+test('generate preserves literal EJS in conversation text, examples, overrides and injections', async () => {
+  const context = generationContext()
+  context.card.mes_example = 'Example `<%= example %>`'
+  context.history = [{ role: 'assistant', text: 'History `<%= history %>`' }]
+  const config = { user_input: 'Explain `<%= input %>`',
+    overrides: { char_description: 'Override `<%= description %>`', world_info_before: 'World `<%= book %>`' },
+    injects: [{ role: 'system', position: 'in_chat', content: 'Injection `<%= prompt %>`' }] }
+  const messages = await compileHelperGenerate(config, context)
+  assert.deepEqual(messages.filter(message => message.content.includes('<%')).map(message => message.content), [
+    'World `<%= book %>`', 'Override `<%= description %>`', 'Example `<%= example %>`',
+    'History `<%= history %>`', 'Explain `<%= input %>`', 'Injection `<%= prompt %>`'
+  ])
+  context.presetSnapshot.compatibilityPreset.entries[0].content = '<%= activePreset %>'
+  await assert.rejects(compileHelperGenerate(config, context), /未渲染的 EJS（custom）/)
+})
+
 test('Helper generation projects bound EJS, preserves positions and follows activations without writing state', async t => {
   const fixture = generationContext()
   const chat = { ...fixture.chat, sessionId: 'story', cardPath: 'cards/hero.json' }
@@ -74,6 +90,7 @@ test('Helper generation projects bound EJS, preserves positions and follows acti
     { constant: true, order: 100, position: 1, content: 'After <%= getvar("route", { scope: "global" }) %>' },
     { enabled: false, order: 70, position: 4, depth: 0, role: 2, content: 'Depth <%= getvar("route", { scope: "global" }) %>' },
     { primaryKeys: ['dragon'], order: 60, position: 1, content: 'Keyword <%= 2 + 3 %>' },
+    { primaryKeys: ['literal'], order: 50, position: 1, content: 'Escaped <%%= example %>' },
   ].map((entry, uid) => ({ enabled: true, ...entry, sourceUid: uid, ref: `entry:${uid}`, title: `Lore ${uid}` }))
   const worldBook = { view: { displayName: 'book', entries } }
   const snapshot = {
@@ -114,6 +131,9 @@ test('Helper generation projects bound EJS, preserves positions and follows acti
   assert.ok(messages.every(([, text]) => !text.includes('Depth local')))
   await generate('generateTavernHelperRaw', { ordered_prompts: ['user_input'] })
   assert.deepEqual(messages, [['user', 'dragon']])
+
+  await generate('generateTavernHelper', { user_input: 'literal' })
+  assert.ok(messages.some(([, text]) => text.includes('Escaped <%= example %>')))
 
   entries[2].content = '<%= throw %>'
   await assert.rejects(generate('generateTavernHelper'), /Lore 2（entry:2，syntax-error）/)
