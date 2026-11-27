@@ -9,7 +9,15 @@ import { unansweredTailIndex } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 import { frameUserInput } from './agent-input-frame.js'
 
-export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成：调用 tavern_generate_body（参数为 {}），工具会取得完整材料、生成并提交正文。正文由插件写，所以你不写正文，也不调用 submit_story（历史中的调用只是旧正文的记录）。成功后本轮结束，不要转述或补充回复。调用失败就停下，不换用其他生成方式，也不重试。</output_method>'
+export const BODY_GENERATION_PROMPT = [
+  '<output_method>',
+  '本轮由你为正文插件备料，正文由插件生成并提交。插件会收到已注入的世界书正文和本轮已完成的世界书查询结果。',
+  '先判断玩家这一步的结果是否受世界书设定约束，例如进出地点、使用物品或参与仪式。若缺少会影响结果的设定，用本轮可用的世界书工具查阅相关原文。只找到标题或候选时，继续读取原文。等查询结果返回后，再调用生成工具。',
+  '前几轮的查询结果只供前台定位。如果正文仍需要其中的设定，而本轮没有注入相关原文，本轮要重新查阅。',
+  '已有资料足够或本轮无关时，可以直接生成。工具未开放或查找后仍没有相关资料时，用已有材料生成。',
+  '备料完成后调用 tavern_generate_body（参数为 {}）。你不写正文，也不调用 submit_story（历史中的调用只是旧正文的记录）。成功后本轮结束，不要转述或补充回复。调用失败就停下，不换用其他生成方式，也不重试。',
+  '</output_method>'
+].join('\n')
 const routeMismatch = Symbol('body-generation-route-mismatch')
 const error = (message, stage) => Object.assign(new Error(message), {
   code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage, [routeMismatch]: stage === 'route' } : {}) })
@@ -156,7 +164,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
     },
     tool: {
       name: STORY_GENERATE_TOOL_NAME,
-      description: '仅在本局启用插件生成时调用，由已选插件生成并提交本轮完整正文。无需参数；成功后结束本轮。未启用时不要调用，应直接撰写正文。',
+      description: '仅在本局启用插件生成时调用，由已选插件生成并提交本轮完整正文。需要补查世界书时，等相关查询完成后再调用。无需参数；成功后结束本轮。未启用时不要调用，应直接撰写正文。',
       parameters: {},
       output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } },
       isConcurrencySafe() { return false },

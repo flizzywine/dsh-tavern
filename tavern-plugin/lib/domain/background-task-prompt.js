@@ -2,6 +2,7 @@
 import { promptSection } from './prompt-section.js'
 import { prependSystemInstruction } from './system-append.js'
 import { managedPromptText } from './mod-system-prompt-adapter.js'
+import { liveContextUpdate } from './card-system-prompt.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -22,7 +23,10 @@ export const PROMPT_PROSE = Object.freeze({
   p020: "Card instructions:\n",
   p021: "Use the current Guide and any regeneration guidance below to shape the directions, pacing and wording of the next-turn choices. Where they conflict, follow the current regeneration guidance within the story, script and choice-format rules. Earlier candidate requests, Guides and submitted choices do not carry forward.",
   p022: "There is no active Guide for this request.",
-  p023: "Start from the end of the latest story. The Guide, regeneration guidance and upcoming script describe possible future developments. If they ask for a reveal, arrival or scene change, offer it as something that can happen next, starting from the current scene. Do not assume it already happened, change the starting state, or narrate the requested outcome as story history."
+  p023: "Start from the end of the latest story. The Guide, regeneration guidance and upcoming script describe possible future developments. If they ask for a reveal, arrival or scene change, offer it as something that can happen next, starting from the current scene. Do not assume it already happened, change the starting state, or narrate the requested outcome as story history.",
+  p024: "This replaces all earlier dynamic lorebook snapshots in this session. Use only the latest snapshot.",
+  p025: "There is no current dynamic lorebook snapshot.",
+  p026: "The last full lorebook_current_snapshot above remains in effect for this task. Use its contents as the current dynamic lorebook snapshot."
 })
 
 function str(value) {
@@ -80,9 +84,19 @@ export function backgroundSystemPrompt({ input, sections, persona, systemAppend 
   return prependSystemInstruction(assembly, systemAppend).sections.map(section => section.text).join('\n\n')
 }
 
-export function backgroundTaskPrompt({ input, messages = input.messages, turnContext = input.turnContext, foregroundReads, worldbook, systemUpdate, pluginText }) {
+export function backgroundWorldbookUpdate(session, snapshots) {
+  const text = str(snapshots).trim()
+  const previous = liveContextUpdate(session, 'backgroundWorldbookSnapshot')
+  if (text === (previous?.text ?? '')) {
+    return previous ? { rendered: promptSection('lorebook_snapshot_reference', text ? PROMPT_PROSE.p026 : PROMPT_PROSE.p025) } : null
+  }
+  const rendered = promptSection('lorebook_current_snapshot', PROMPT_PROSE.p024 + '\n' + (text || PROMPT_PROSE.p025))
+  return { rendered, snapshot: { schemaVersion: 1, text, rendered } }
+}
+
+export function backgroundTaskPrompt({ input, messages = input.messages, turnContext = input.turnContext, foregroundReads, worldbook, worldbookUpdate, systemUpdate, pluginText }) {
   const contributions = input.task === 'stage-director' ? undefined : input.modPrompts
-  return [foregroundReads, worldbook?.rendered, systemUpdate?.rendered,
+  return [worldbookUpdate?.rendered, foregroundReads, worldbook?.rendered, systemUpdate?.rendered,
     managedPromptText(contributions, 'background', 'rules.after-core'),
     managedPromptText(contributions, 'background', 'catalogue'),
     backgroundPrompt(messages, turnContext, input.task, input.system, input), pluginText,

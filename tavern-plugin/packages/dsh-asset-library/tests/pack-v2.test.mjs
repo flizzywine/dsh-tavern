@@ -9,6 +9,7 @@ import { createAssetPackService } from '../src/pack-v2/service.js'
 import { createAssetPackService as createBuiltAssetPackService } from '../lib/pack-v2/service.js'
 import { checkedPath } from '../src/pack-v2/storage.js'
 import { sealPack, jsonBytes } from '../src/pack-v2/validation.js'
+import skinContract from '../src/shared/stage-skin.cjs'
 import { writeZip } from '../src/zip.js'
 import { syntheticPack, png, digest, PACK_ID, FIGURE_ID, OTHER_PACK_ID } from '../../../../tests/fixtures/asset-packs/pack.mjs'
 
@@ -30,6 +31,32 @@ async function install(service, root, pack) {
 }
 const rejected = code => error => { assert.equal(error.code,code); return true }
 const snap = result => result.snapshot
+
+test('a skin performance page round-trips as revision-bound HTML bytes', async t => {
+  const {service,root} = await fixture(t, {}, createBuiltAssetPackService)
+  const original = await syntheticPack(), pack = {manifest:structuredClone(original.manifest),files:new Map(original.files)}
+  const bundleKey = 'report-skin', assetKey = 'report'
+  const skin = {...structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic), id:bundleKey, label:'Report', assets:{[assetKey]:'pages/report.html'}}
+  const document = Buffer.from('<!doctype html><p>Scene report</p>')
+  pack.manifest.assets.push({kind:'skins',id:bundleKey,name:'Report',recall:{mode:'constant',keywords:['report']},directorNote:'',bundleKey,entry:'skin.json'})
+  pack.manifest.bundles[bundleKey]={kind:'skin',entry:'skin.json',contentHash:'0'.repeat(64)}
+  pack.files.set(`bundles/${bundleKey}/skin.json`,jsonBytes(skin))
+  const file = `bundles/${bundleKey}/pages/report.html`
+  pack.files.set(file,document)
+  await sealPack(pack.manifest,pack.files,original)
+  const current = snap(await install(service,root,pack))
+  const ref = {packId:PACK_ID,kind:'skins',assetId:bundleKey}
+  const loaded = await service.readSkinAsset({ref,assetKey,expectedRevision:current.revision})
+  assert.equal(loaded.mime,'text/html')
+  assert.deepEqual(Buffer.from(loaded.bytes),document)
+  await assert.rejects(service.readSkinAsset({ref,assetKey:'unlisted',expectedRevision:current.revision}), rejected('ASSET_UNAVAILABLE'))
+  await assert.rejects(service.readSkinAsset({ref,assetKey,expectedRevision:current.revision + '-stale'}), rejected('ASSET_UNAVAILABLE'))
+
+  pack.files.set(file,Uint8Array.of(0x3c,0xff,0x3e))
+  await sealPack(pack.manifest,pack.files,original)
+  const bytes = await zip(root,pack)
+  await assert.rejects(service.inspectImport({bytes}), /not UTF-8 HTML/)
+})
 
 test('v2 is path-free, exports a complete byte-verified pack and preserves sprite state trees', async t => {
   const {service,root} = await fixture(t), pack = await syntheticPack()
@@ -182,6 +209,15 @@ test('figure CRUD is CAS protected, voice-only works, and retired outfit/asset I
   const old = await syntheticPack()
   await assert.rejects(service.patchPack({packId:PACK_ID,expectedRevision:current.revision,patch:{assets:old.manifest.assets}}),rejected('DUPLICATE_ID'))
   assert.deepEqual(await service.getPackSnapshot({packId:PACK_ID}),current)
+})
+
+for (const [implementation, createService] of [['source',createAssetPackService],['runtime',createBuiltAssetPackService]]) test('figure height can be saved before the first outfit (' + implementation + ')', async t => {
+  const {service,root} = await fixture(t,{},createService)
+  const current = snap(await install(service,root))
+  const created = await service.createFigure({packId:PACK_ID,expectedRevision:current.revision,figure:{schemaVersion:1,name:'New figure',enabled:true,heightCm:165,outfits:[]}})
+  const stored = await service.getPackSnapshot({packId:PACK_ID})
+  assert.equal(stored.figures[created.figureId].heightCm,165)
+  assert.deepEqual(stored.figures[created.figureId].outfits,[])
 })
 
 for (const [implementation, createService] of [['source',createAssetPackService],['runtime',createBuiltAssetPackService]]) test('patchFigure outfit removal trims only exclusive sprite/media and replays noop (' + implementation + ')', async t => {

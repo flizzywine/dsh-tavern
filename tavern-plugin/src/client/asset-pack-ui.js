@@ -1201,7 +1201,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const uploadBackground=(assetId,file)=>putThen(file,'background',(s,hash)=>({assets:s.manifest.assets.map(a=>{if(a.kind!=='backgrounds'||a.id!==assetId)return a;const next={...a,media:hash};delete next.pendingMedia;return next;})}));
     const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged,savePictureFile});
     // the generation dialog's 「设为本包默认」 — the pack's default style preset.
-    const saveStyle=style=>enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{genStyle:style}}));
+    // 画风 (asset-pack-style-ui.js): the head's tag, the lines of the 生图 tab / a background / a CG, 「按用途分别设」.
+    // 「设为本包默认」 of the generation dialog sets the pack's layer that decides this use (its own, else 「全部」).
+    const genStyle=usePackGenStyle({binding,pack,enqueue});
+    const saveStyle=(style,use)=>enqueue(c=>{const layer=use&&genStyle.menu?.pack?.value?.[use]!==undefined?use:'all';
+      return binding.service.patchPack({packId,expectedRevision:c.revision,patch:{genStyle:genStyleWith(c.manifest.genStyle,layer,style)}});});
     // a model folder / ZIP dropped on the pack window: a new figure (named after the folder) whose 默认 outfit the import
     // sheet fills — the figure stays when the sheet is closed, like any other new entry.
     const [modelImport,setModelImport]=React.useState(null);
@@ -1416,6 +1420,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       onPacksChanged?.();return true;});
     const head=h('header',{className:'ap-pack-head'+(back?' has-back':'')},back&&h(SubpageBack,{parent:back.label,onBack:()=>{close();back.open();}}),
       pack?h(PackTitle,{name,shown:title,onRename:rename}):h('h2',null,title),
+      pack&&h(PackGenStyleTag),
       h('span',{className:'ap-pack-head-tools'},menu,h(IconButton,{icon:'close',label:'关闭',onClick:close})));
     // in 多选 a click toggles the row; Shift+click sets the rows between the
     // last clicked one and this one (in the shown order) to that row's state.
@@ -1497,7 +1502,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,fixed:modelImport.fixed,onClose:()=>setModelImport(null),onImport:importModelHere}),
       pack&&automaticReview&&h(AutomaticWriteReview,{binding,packId,onClose:()=>setAutomaticReview(false),onChanged:automaticChanged}),
       pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}),
-      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}),moveAsk&&h(MoveConfirm,{move:moveAsk,onClose:()=>setMoveAsk(null)}));
+      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}),moveAsk&&h(MoveConfirm,{move:moveAsk,onClose:()=>setMoveAsk(null)}),
+      pack&&h(PackGenStyleUses));
   }
   // 素材包 ⋯ › 标签图标. An 物品 without its own picture shows the icon of its deepest
   // tag from the same pack (assetTags.icon); the icons travel with the pack. The strip is one chip per icon (picture · tag)
@@ -1594,6 +1600,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[kind==='cg'?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
   // @include asset-pack-widgets.js
   // @include widget-settings-ui.js
+  // @include asset-pack-style-ui.js
   // @include asset-pack-entry-ui.js
   // @include asset-pack-cg-ui.js
   // @include asset-pack-figure-ui.js
@@ -1618,7 +1625,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
     const names={useFigureLook, GenLookFields, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
-      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
+      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar, GenStyleLine, genStyleFromText};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
       // whether the stage pages are bound (a React external store; re-renders the caller on bind / unbind).
@@ -1643,7 +1650,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // Modal, Button, IconButton: the house dialog for the host's own dialogs too (人物卡更新, card-update-dialog.js).
   // SwitchRow, Popover, MenuItem, HintLine, Glyph: the panel rows and menus 本局设置 shares (conversation-settings.js).
   // LampMenu, WindowedItems: the 世界书 page's entry lamps and its long entry lists.
-  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,LampMenu,WindowedItems,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,SortMenu,PackSearchBox,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  const api=stageExposed({App,Home,StageSection,CardGenStyleRow,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,LampMenu,WindowedItems,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,SortMenu,PackSearchBox,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

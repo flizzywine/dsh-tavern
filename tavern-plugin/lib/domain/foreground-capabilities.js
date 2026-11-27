@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines} from './dialogue-bubbles.js'
+import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines,importedBubbleFormat} from './dialogue-bubbles.js'
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
@@ -199,12 +199,26 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     assertCurrent()
     return text ? [...parts,{key:'capability-update',name:'前台能力追加说明',owners:'全局',text,tokens:estimateDirectorTokens(text)}] : parts
   }
+  async function projectBook(chat,book,entries) {
+    const projected=replace(book,entries)
+    if(entries.some(entry=>entry.ref==='foreground-capabilities:format'))return projected
+    // A worldbook imported on its own can carry the format but not the source card's bubble settings.
+    const imported=(book?.view?.entries || []).filter(entry=>importedBubbleFormat(entry,chat.cardPath))
+    if(!imported.length)return projected
+    const rendered=await render(chat,{view:{entries:imported}})
+    assertCurrent()
+    const texts=new Map(rendered.renderedEntries.map(entry=>[entry.ref,entry.text]))
+    projected.view.entries.push(...imported.filter(entry=>texts.has(entry.ref)).map(entry=>({
+      ...entry,content:texts.get(entry.ref),foregroundCapability:true
+    })))
+    return projected
+  }
   async function projectActive(chat,book,{persist=true,userText=''}={}) {
     if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return book
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
-    if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return replace(book,accepted.get(key).entries)}
+    if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return await projectBook(chat,book,accepted.get(key).entries)}
     if(!pending.has(key))pending.set(key,(async()=>{
       // A snapshot from before the unit state (version 1) is captured again once, without rewriting old rounds.
       const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.state
@@ -221,7 +235,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
       const snapshot=await pending.get(key)
       assertCurrent()
       chat.foregroundCapabilities=structuredClone(snapshot)
-      return replace(book,chat.foregroundCapabilities.entries)
+      return await projectBook(chat,book,chat.foregroundCapabilities.entries)
     } finally {pending.delete(key)}
   }
   async function project(chat,book,options) {

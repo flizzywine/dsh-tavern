@@ -854,7 +854,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         basedOnRevision: bodyOperation.basedOn.revision, turn: storyTurn } }
       // An unanswered tail already holds the player's row: the round adds the
       // reply it never produced, and nothing is replaced or replayed.
-      const merged = failedTail ? { chat: { ...draft, messages: [...structuredClone(originalChat.messages), row] } }
+      const failedTailMessages = failedTail ? structuredClone(originalChat.messages) : null
+      if (failedTailMessages && inputIndex >= 0 && failedTailMessages[inputIndex]?.placeholder === true) {
+        delete failedTailMessages[inputIndex].placeholder
+      }
+      const merged = failedTail ? { chat: { ...draft, messages: [...failedTailMessages, row] } }
         : replaceLastRound({ originalChat, regeneratedChat: draft, replacement: row, assistantIndex: oldAssistantIndex, inputIndex })
       if (!failedTail && targetMessageUid) merged.chat.messages[oldAssistantIndex].messageUid = targetMessageUid
       const completed = storyTimeline.complete({ chat: merged.chat, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
@@ -916,7 +920,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
             }
           }
         : appending
-          ? { kind: 'append-round', storyTurn, native: appendAnchor }
+          ? { kind: 'append-round', storyTurn, native: appendAnchor, operationId }
           : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
             message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
               source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)

@@ -16,7 +16,7 @@
         "name": { "type": "string" },
         "em": { "const": 1000 },
         "fillRule": { "const": "evenodd" },
-        "privateUse": { "type": "boolean" },
+        "privateUse": {},
         "rights": { "type": "string" },
         "source": { "type": "string" },
         "uncertain": { "type": "object", "additionalProperties": { "type": "string" } },

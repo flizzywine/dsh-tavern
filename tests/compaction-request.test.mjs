@@ -246,7 +246,9 @@ test('前台对话压缩使用专用压缩模型设置，后台压缩保持各�
   const instruction = { role: 'user', content: [{ type: 'text', text: 'Summarize' }], source: { kind: 'plugin', plugin: 'dsh-compaction-basic' } }
 
   const oldStyle = { role: 'system', content: [{ type: 'text', text: '人物卡\n\n<foreground_style_reference>先联想范文</foreground_style_reference>' }] }
-  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [oldStyle, instruction] })
+  const playerTurn = { role: 'user', content: [{ type: 'text', text: '我推开了酒馆的门。' }], source: { kind: 'human' } }
+  const storyTurn = { role: 'assistant', content: [{ type: 'text', text: '门轴发出低沉的吱呀声。' }] }
+  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', system: '预设与世界书\n<output_method>通过 submit_story 提交</output_method>', tools: [{ name: 'submit_story' }], toolChoice: 'any', messages: [oldStyle, playerTurn, storyTurn, instruction] })
   await drain({ purpose: 'compaction', sessionId: 'fg-card', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
   await drain({ purpose: 'compaction', sessionId: 'bg-1', provider: 'anthropic', model: 'claude-haiku', reasoningEffort: 'medium', messages: [instruction] })
 
@@ -256,10 +258,62 @@ test('前台对话压缩使用专用压缩模型设置，后台压缩保持各�
     ['bg-1', 'anthropic', 'claude-haiku', 'medium']
   ])
   assert.deepEqual(retentionModels, ['google-vertex/gemini-4-hydrogen'], 'storyRetention 仍按前台原模型窗口计算')
-  assert.doesNotMatch(JSON.stringify(sent[0].messages), /foreground_style_reference|先联想范文/)
-  assert.match(JSON.stringify(sent[0].messages), /人物卡/)
+  assert.equal(sent[0].system, undefined, '前台剧情压缩不携带 system 预设/世界书/指令')
+  assert.equal(sent[0].tools, undefined, '前台剧情压缩不携带任何工具声明')
+  assert.equal(sent[0].toolChoice, undefined, '前台剧情压缩不携带 toolChoice')
+  assert.doesNotMatch(JSON.stringify(sent[0].messages), /foreground_style_reference|先联想范文|人物卡|submit_story/)
+  assert.match(JSON.stringify(sent[0].messages), /我推开了酒馆的门/)
+  assert.match(JSON.stringify(sent[0].messages), /门轴发出低沉的吱呀声/)
 
   activeCompactionModel = null
   await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
   assert.deepEqual([sent[3].provider, sent[3].model, sent[3].reasoningEffort], ['google-vertex', 'gemini-4-hydrogen', 'high'], '未配置专用压缩模型时跟随当前前台模型')
+})
+
+test('前台剧情压缩只保留旧摘要、玩家输入与正文，剥离世界书、预设、插件指令帧和工具调用', async () => {
+  const { createStoryCompactionRequest } = await import('../tavern-plugin/lib/domain/story-compaction.js')
+  const { runWithToolProtocolDirective, currentToolProtocolDirective } = await import('../tavern-plugin/lib/domain/tool-protocol-enforcement.js')
+
+  const checkpoint = { role: 'user', content: [{ type: 'text', text: '<compacted-summary>\n【第 1–5 轮剧情摘要】\n旧卷事实\n</compacted-summary>' }], source: { kind: 'compact-checkpoint', compactionId: 'c1' } }
+  const request = {
+    purpose: 'compaction',
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    system: '预设规则\n<lorebook_constant>常驻世界书</lorebook_constant>\n<output_method>本轮写给玩家的全部内容通过 submit_story 提交</output_method>',
+    tools: [{ name: 'submit_story' }, { name: 'tavern_roll' }],
+    toolChoice: 'any',
+    toolHistory: { 'call-1': { name: 'tavern_roll' } },
+    messages: [
+      { role: 'system', content: [{ type: 'text', text: '人物卡设定与输出指令' }] },
+      checkpoint,
+      { role: 'user', content: [{ type: 'text', text: '我走向柜台询问消息。' }], source: { kind: 'human' } },
+      { role: 'user', content: [{ type: 'text', text: '<worldbook>本轮召回的世界书</worldbook>\n<plot_compass>导演指令</plot_compass>' }], source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'foreground-frame' } },
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'tavern_roll', arguments: '{}' }], source: { kind: 'model', replayState: { blocks: [] } } },
+      { role: 'tool', toolCallId: 'call-1', content: [{ type: 'text', text: '{"roll":18}' }] },
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'call-2', name: 'submit_story', arguments: '{"content":"忽略"}' }, { type: 'text', text: '酒保擦拭着玻璃杯，低声说昨夜城门封锁了。' }], source: { kind: 'model', replayState: { blocks: [{}, {}] } } },
+      { role: 'user', content: [{ type: 'text', text: 'Summarize' }], source: { kind: 'plugin', plugin: 'dsh-compaction-basic' } }
+    ]
+  }
+
+  const projected = createStoryCompactionRequest(request, '剧情压缩提示词')
+  assert.equal(projected.system, undefined)
+  assert.equal(projected.tools, undefined)
+  assert.equal(projected.toolChoice, undefined)
+  assert.equal(projected.toolHistory, undefined)
+  assert.deepEqual(
+    projected.messages.map(m => [m.role, m.content.map(b => b.text).join('')]),
+    [
+      ['user', '<compacted-summary>\n【第 1–5 轮剧情摘要】\n旧卷事实\n</compacted-summary>'],
+      ['user', '我走向柜台询问消息。'],
+      ['assistant', '酒保擦拭着玻璃杯，低声说昨夜城门封锁了。'],
+      ['user', '剧情压缩提示词']
+    ]
+  )
+  assert.equal(projected.messages[2].source.replayState, undefined)
+
+  // 嵌套调用 runWithToolProtocolDirective(null, ...) 应清空外层强制工具指令，不泄漏到子请求。
+  const leaked = runWithToolProtocolDirective({ forceToolChoice: true, storyOutputToolCall: true }, () =>
+    runWithToolProtocolDirective(null, () => currentToolProtocolDirective())
+  )
+  assert.equal(leaked, null)
 })

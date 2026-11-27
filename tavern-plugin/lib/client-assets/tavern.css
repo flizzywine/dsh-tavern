@@ -539,16 +539,11 @@ body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"],
 body.dsh-tavern-picker-open #auto-message-notification-container { visibility: hidden !important; }
 .dsh-tavern-greeting-nav { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
 .dsh-tavern-greeting-count { color: var(--dsw-alias-label-secondary); text-align: center; font-size: 12px; }
-.dsh-tavern-player-name { display: grid; grid-template-columns: auto minmax(180px, 320px); gap: 10px; align-items: center; margin: 10px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.dsh-tavern-player-name input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); font: inherit; outline: none; }
-.dsh-tavern-player-name input:focus { border-color: var(--dsh-tavern-accent); }
-.dsh-tavern-player-name-help { margin: -3px 0 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; }
 @media (max-width: 640px) {
   .dsh-tavern-mobile-import { place-items: start center; padding-top: 12px; }
   .dsh-tavern-picker-overlay { align-items: stretch; padding: 12px; }
   .dsh-tavern-card-picker { width: 100%; max-height: none; padding: 14px; border-radius: 14px; }
   .dsh-tavern-greeting-preview { max-height: 60vh; }
-  .dsh-tavern-player-name { grid-template-columns: 1fr; gap: 5px; }
   .dsh-tavern-preset-status { display: none; }
 }
 .dsh-tavern-picker-group { margin-top: 10px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
@@ -6163,7 +6158,7 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 .ap-ui button.ap-icon-button.dsh-card-more { margin-left: auto; }
 .ap-ui .dsh-card-name { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; font-size: var(--fork-fs-title); font-weight: 600; line-height: 1.35; }
 .dsh-card-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(104px, 28%, 168px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
+.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(120px, 30%, 192px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
 .dsh-card-cover-wrap { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--fork-radius-lg); box-shadow: 0 6px 20px color-mix(in srgb, #000 28%, transparent), 0 0 0 1px var(--fork-hairline); }
 .ap-ui button.dsh-card-cover, .dsh-card-cover { display: block; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--fork-accent) 12%, var(--fork-surface)); cursor: zoom-in; }
 .dsh-card-cover > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
@@ -6229,7 +6224,7 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
 @container (max-width: 560px) {
   .ap-ui.dsh-card-detail { padding: 0 12px 24px; }
   .dsh-card-banner { left: -12px; right: -12px; height: 150px; }
-  .dsh-card-hero { grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
+  .dsh-card-hero { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
   .dsh-card-fold-row, .ap-ui.dsh-card-detail button.dsh-card-fold-head { min-height: 40px; }
 }
 

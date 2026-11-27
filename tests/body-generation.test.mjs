@@ -10,14 +10,15 @@ const copy = structuredClone
 const gate = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 function fixture(generate = async () => ({ text: '插件完整正文' }), options = {}) {
   const timeline = createStoryTimeline()
+  const userText = options.userText ?? '继续'
   const before = { id: 'chat', sessionId: 'session', _storageRevision: 1, mode: 'story',
     messages: [{ role: 'assistant', greeting: true, turn: 1, projectionText: '完整开场', text: '压缩占位', variables: [{ hp: 10 }] }],
     cardContextSnapshot: '已解析人物设定', macroState: { userName: '玩家' }, variables: { hp: 10 }, posture: '起点' }
-  const begun = timeline.apply({ chat: before, intent: { kind: 'body.begin', turn: 2, userText: '继续' } })
+  const begun = timeline.apply({ chat: before, intent: { kind: 'body.begin', turn: 2, userText } })
   const operation = begun.chat.timeline.operations[begun.value.operationId]
   const route = { mode: 'plugin-tool-call', provider: 'fixture:body' }
   const frame = { kind: 'foreground', chatId: 'chat', branchId: operation.basedOn.branchId, basedOnRevision: operation.basedOn.revision,
-    turn: 2, operationId: operation.id, userInput: { sourceText: '继续', projectedText: '【输入】继续' },
+    turn: 2, operationId: operation.id, userInput: { sourceText: userText, projectedText: '【输入】' + userText },
     contributions: [{ slot: 'writingRules', text: '本轮规则' }], source: { ...captureBodyRegenerationSource({ chat: begun.chat, card: { name: '角色' } }), bodyGeneration: route } }
   let state = { ...begun.chat, foregroundFrames: { [operation.id]: frame } }, calls = 0, conclusions = 0, allowed = true
   let settings = { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'fixture:body' }
@@ -39,11 +40,17 @@ function fixture(generate = async () => ({ text: '插件完整正文' }), option
       return value
     } }
 }
-function receipt(session, value, { error = false, name = 'tavern_generate_body' } = {}) {
-  session.events.push({ type: 'assistant/message', data: { turn: 2, step: 1, message: { id: 'm', role: 'assistant', source: { kind: 'model' },
-    content: [{ type: 'tool-call', id: 'c', name, arguments: '{}' }] } } },
-    { type: 'tool/call', data: { turn: 2, callId: 'c', name, arguments: '{}' } },
-    { type: 'tool/result', data: { turn: 2, message: { role: 'tool', toolCallId: 'c', isError: error, content: [{ type: 'text', text: value }] } } })
+function recordToolResult(session, name, args, value, { turn = 2, error = false } = {}) {
+  const callId = 'call-' + session.events.length
+  const argumentsText = JSON.stringify(args)
+  session.events.push({ type: 'assistant/message', data: { turn, step: 1, message: { id: 'message-' + callId, role: 'assistant', source: { kind: 'model' },
+    content: [{ type: 'tool-call', id: callId, name, arguments: argumentsText }] } } },
+    { type: 'tool/call', data: { turn, callId, name, arguments: argumentsText } },
+    { type: 'tool/result', data: { turn, message: { role: 'tool', toolCallId: callId, isError: error, content: [{ type: 'text', text: value }] } } })
+}
+
+function receipt(session, value, options) {
+  recordToolResult(session, 'tavern_generate_body', {}, value, options)
   return storySubmissionForTurn(session, 2)
 }
 
@@ -89,6 +96,44 @@ test('current turn exports complete history and frozen state; successful duplica
   const tampered = fixture(); const bad = JSON.parse(value); bad.text = '截断或篡改'
   assert.equal(receipt(tampered.session, JSON.stringify(bad)), null)
   assert.equal(receipt(fixture().session, value, { error: true }), null)
+})
+
+test('前台补查静态世界书后，正文插件收到本轮查到的通行条件', async () => {
+  let observed
+  const f = fixture(async ({ materials }) => { observed = materials; return { text: '守卫放行' } },
+    { userText: '我拿着通行证去北门过关' })
+  const title = '北门通行规则'
+  const oldRule = '北门旧规要求出示蓝印。'
+  const rule = '北门只接受当日加盖银印的通行证。'
+  f.mutate(chat => {
+    Object.values(chat.foregroundFrames)[0].contributions.push({ slot: 'worldbookTitleHints', text: title })
+  })
+  const previous = { events: [{ type: 'turn/start', data: { turn: 1 } }] }
+  recordToolResult(previous, 'read_lorebook', { keyword: title }, oldRule, { turn: 1 })
+  f.session.events.unshift(...previous.events, { type: 'turn/end', data: { turn: 1 } })
+  recordToolResult(f.session, 'grep_lorebook', { query: '北门' }, title)
+  recordToolResult(f.session, 'read_lorebook', { keyword: title }, rule)
+
+  await f.controller.validateResult(f.session, 2, receipt(f.session, await f.run()))
+  const worldbook = observed.context.find(item => item.id === 'worldbook').text
+  assert.ok(worldbook.includes(`<lookup tool="read_lorebook">\n${rule}\n</lookup>`))
+  assert.ok(worldbook.includes('<lorebook_lookups>'))
+  assert.ok(!worldbook.includes(oldRule))
+  assert.equal(f.calls, 1)
+})
+
+test('已注入足够世界书正文时，前台可以直接交给插件生成', async () => {
+  let observed
+  const f = fixture(async ({ materials }) => { observed = materials; return { text: '守卫放行' } },
+    { userText: '我拿着通行证去北门过关' })
+  const rule = '北门只接受当日加盖银印的通行证。'
+  f.mutate(chat => {
+    Object.values(chat.foregroundFrames)[0].contributions.push({ slot: 'activeWorldbook', text: rule })
+  })
+
+  await f.controller.validateResult(f.session, 2, receipt(f.session, await f.run()))
+  assert.equal(observed.context.find(item => item.id === 'worldbook').text, rule)
+  assert.equal(f.calls, 1)
 })
 
 test('concurrent tool dispatches share one provider invocation', async () => {

@@ -18,7 +18,7 @@ test('the card summary marks a card whose initial entry page starts each game', 
   assert.equal(summary({ ...pages([handbook]), alternate_greetings: [] }).entryStart, true, 'an empty alternate list is still one greeting')
 })
 
-test('cards the 游戏准备 still serves are not marked', () => {
+test('only cards whose initial entry page starts the game are marked', () => {
   assert.equal(summary({}).entryStart, false, 'no pages')
   assert.equal(summary(pages([title])).entryStart, false, 'no initial page')
   assert.equal(summary({ ...pages([handbook]), alternate_greetings: ['另一段开场。'] }).entryStart, false, 'several greetings')
@@ -59,8 +59,8 @@ test('with the stage off the game starts in text mode at its greeting, still wit
   assert.deepEqual(await sidebar('broken').open(card), [['create', null, null, null]])
 })
 
-test('other cards keep the 游戏准备', async () => {
-  assert.deepEqual(await sidebar(true).open({ path: 'cards/plain.json', hasOpeningForm: false }), ['游戏准备'])
+test('plain cards start in the conversation and only cards with an opening form use 游戏准备', async () => {
+  assert.deepEqual(await sidebar(true).open(summary({ alternate_greetings: ['另一段开场。'] })), [['create', null, null, null]])
   assert.deepEqual(await sidebar(true).open({ path: 'cards/form.json', hasOpeningForm: true }), ['游戏准备'])
   assert.deepEqual(await sidebar(false).open({ path: 'cards/page.json', hasOpeningForm: true, openingPage: 'opening' }), ['游戏准备'])
 })

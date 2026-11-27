@@ -8,7 +8,7 @@ import { CARD_SYSTEM_PROMPT_SECTION, cardSystemPromptSnapshot, cardSystemPromptS
 import { projectCandidateScriptContext } from './domain/candidate-script-context.js'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { prependSystemInstruction } from './domain/system-append.js'
-import { backgroundSystemPrompt, backgroundTaskPrompt, usesSharedBackgroundContext, directorTaskTools, assertDirectorToolSurface } from './domain/background-task-prompt.js'
+import { backgroundSystemPrompt, backgroundTaskPrompt, backgroundWorldbookUpdate, usesSharedBackgroundContext, directorTaskTools, assertDirectorToolSurface } from './domain/background-task-prompt.js'
 import { markTavernSectionsLiteral } from './domain/literal-sections.js'
 import { rewindBackgroundSurface } from './domain/background-surface.js'
 import { appendSessionEvent, ensureSessionSystemHead, releaseOpeningTurn, sessionEvents } from './domain/session-events.js'
@@ -580,15 +580,17 @@ export function createBackgroundAgentTask(options) {
         if (input.task === 'polish' || input.ownPrefix === true) ensureSessionSystemHead(agent.session)
         releaseOpeningTurn(agent.session, agent)
       }
-      const projectsWorldbook = sharedContext
-      const worldbook = projectsWorldbook && typeof options.resolveCurrentWorldbook === 'function'
+      const worldbook = sharedContext && typeof options.resolveCurrentWorldbook === 'function'
         ? await options.resolveCurrentWorldbook(input) : undefined
-      if (projectsWorldbook) state.currentWorldbook = worldbook && typeof worldbook === 'object' ? worldbook.prefixContext : worldbook
-      const turnWorldbookSource = worldbook
-      const turnWorldbook = turnWorldbookSource && typeof turnWorldbookSource === 'object' ? str(turnWorldbookSource.foregroundContext).trim() : ''
+      if (sharedContext) state.currentWorldbook = worldbook && typeof worldbook === 'object'
+        ? worldbook.staticPrefix ?? worldbook.prefixContext : worldbook
+      const turnWorldbook = str(worldbook?.foregroundContext).trim()
       const eventStart = sessionEvents(agent.session).length
       const scriptContext = projectCandidateScriptContext(agent.session, input)
-      const snapshot = turnWorldbookSource && typeof turnWorldbookSource === 'object'
+      // Append authoritative changes so prior requests keep a reusable system and history prefix.
+      const worldbookUpdate = sharedContext ? backgroundWorldbookUpdate(agent.session, worldbook?.snapshots) : null
+      const worldbookRecord = worldbookUpdate?.snapshot
+      const snapshot = turnWorldbook
         ? worldbookSnapshot(agent.session, [{ ref: 'background:worldbook', text: turnWorldbook }]) : null
       const systemUpdate = input.task === 'candidate' && typeof input.systemPromptText === 'string'
         ? cardSystemPromptSnapshot(agent.session, input.systemPromptText) : null
@@ -600,7 +602,7 @@ export function createBackgroundAgentTask(options) {
       const candidateText = candidateNotes.length ? promptSection('plugin_task', promptSection('plugin_choice_requirements', candidateNotes.map(note => note.text).join('\n\n'))) : ''
       const ownTaskText = input.task === 'polish' || input.ownPrefix === true
       const taskText = ownTaskText ? (typeof input.taskText === 'function' ? input.taskText() : input.taskText)
-        : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, systemUpdate,
+        : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, worldbookUpdate, systemUpdate,
           pluginText: [settlementText, candidateText].filter(Boolean).join('\n\n') })
       if (!sharedContext && !ownTaskText) {
         for (const message of input.messages || []) agent.followup({ ...message, id: randomUUID(), source: message.source || { kind: 'plugin:dsh-tavern' } })
@@ -609,7 +611,9 @@ export function createBackgroundAgentTask(options) {
         role: 'user',
         content: [{ type: 'text', text: taskText }],
         source: { kind: 'plugin:dsh-tavern', ...(input.writingPreparation ? { form: 'writing-preparation-task' } : {}),
-          ...(systemUpdate ? { trace: cardSystemPromptSource(systemUpdate) } : {}), ...(snapshot ? { worldbookSnapshot: snapshot } : {}), ...(scriptContext?.body ? {
+          ...(systemUpdate || worldbookRecord ? { trace: { ...cardSystemPromptSource(systemUpdate),
+            ...(worldbookRecord ? { backgroundWorldbookSnapshot: worldbookRecord } : {}) } } : {}),
+          ...(snapshot ? { worldbookSnapshot: snapshot } : {}), ...(scriptContext?.body ? {
           candidateScriptWindow: { version: 1, start: taskText.indexOf(scriptContext.body), length: scriptContext.body.length, digest: scriptContext.digest }
         } : {}) }
       })

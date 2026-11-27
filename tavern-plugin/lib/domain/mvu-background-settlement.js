@@ -371,14 +371,14 @@ function stripHtmlFences(value) {
 }
 
 /** Extract only confirmed story prose from one final foreground response. */
-export function extractMvuStoryText(value) {
+export function extractMvuStoryText(value, { allowEmpty = false } = {}) {
   let text = stripMvuRuntimeBlocks(value)
   text = stripTaggedBlock(text, 'visual_cards')
   text = stripHtmlFences(text)
   text = text.replace(/<StatusPlaceHolderImpl\s*\/?>/gi, '')
   text = text.replace(/<StatusPlaceholder\s*\/?>/gi, '')
   text = text.replace(/(?:[ \t]*\r?\n){3,}/g, '\n\n').trim()
-  if (text === '') throw new Error('本轮最终回复剔除控制协议后没有可用于变量结算的剧情正文')
+  if (!text && !allowEmpty) throw new Error('本轮最终回复剔除控制协议后没有可用于变量结算的剧情正文')
   return text
 }
 

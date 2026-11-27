@@ -579,7 +579,11 @@ export function unansweredTailIndex(chat) {
   // follows it. An imported row is history the save keeps loose on purpose, so
   // it must not turn into a round; a native flag is not required, because a turn
   // that failed before landing its body may never have been stamped.
-  if (message.role !== 'user' || message.placeholder === true || message.greeting === true) return -1
+  // appendUser also persists a placeholder before Session acceptance; a prepared
+  // running turn already appends an assistant placeholder after it, so a tail
+  // user row with placeholder=true is an unanswered input that failed before
+  // prepare/discard and must not be skipped by regeneration.
+  if (message.role !== 'user' || message.greeting === true) return -1
   if (typeof message.source?.kind === 'string' && message.source.kind === 'import') return -1
   return index
 }
@@ -887,11 +891,93 @@ export function regenerationProjection(replacement, data, operationId) {
  * after regenerating. Give it a transcript copy, then shadow the range including
  * that copy — the same shape the fold writes for a live submission.
  */
+function collapseAppendedRegenerationInput(session, projection) {
+  if (projection.native === null) return null
+  const anchor = { ...projection.native }
+  const inputSeq = Number(anchor.input)
+  if (!Number.isSafeInteger(inputSeq) || inputSeq < 0) return { nativeAnchor: anchor }
+  const events = sessionEvents(session)
+  const nodes = Array.isArray(session?.surface?.nodes) ? session.surface.nodes.map(Number) : []
+  const baseId = 'tavern-regen-append-input:' + (projection.operationId || `${projection.storyTurn || 0}:${inputSeq}`)
+  const rIdx = nodes.indexOf(inputSeq)
+  if (rIdx < 0) {
+    const existing = events.find(event => event?.type === 'user/message' && event.data?.id === baseId)
+    if (existing && nodes.includes(Number(existing.seq))) anchor.input = Number(existing.seq)
+    return { nativeAnchor: anchor }
+  }
+  const regenEvent = eventAt(events, inputSeq)
+  if (!regenEvent || regenEvent.type !== 'user/message' || inputKind(regenEvent.data) !== 'regenerate') {
+    return { nativeAnchor: anchor }
+  }
+  let pIdx = -1
+  for (let index = rIdx - 1; index >= 0; index -= 1) {
+    const ev = eventAt(events, nodes[index])
+    if (isCompactionCheckpoint(ev)) break
+    if (ev?.type === 'assistant/message' && modelSourceOf(ev) !== null && !isRollbackAssistantTombstone(ev, events)) break
+    if (ev?.type === 'user/message' && inputKind(ev.data) === 'player') pIdx = index
+  }
+  const replySeq = Number(anchor.reply)
+  const replyIdx = Number.isSafeInteger(replySeq) ? nodes.indexOf(replySeq) : -1
+  const tailEvents = (replyIdx > rIdx ? nodes.slice(rIdx + 1, replyIdx) : nodes.slice(rIdx + 1))
+    .map(seq => eventAt(events, seq))
+  const isRetainedUpdate = (ev, field) => ev?.type === 'user/message' &&
+    isProducerSource(ev.data?.source, 'dsh-tavern') && ev.data.source.trace?.[field]?.schemaVersion === 1
+  try {
+    if (pIdx >= 0) {
+      const playerEvent = eventAt(events, nodes[pIdx])
+      const keepIndices = new Set()
+      for (const field of ['writingRulesSnapshot', 'playerIdentity']) {
+        if (tailEvents.some(ev => isRetainedUpdate(ev, field))) continue
+        for (let index = rIdx - 1; index > pIdx; index -= 1) {
+          if (isRetainedUpdate(eventAt(events, nodes[index]), field)) {
+            keepIndices.add(index)
+            break
+          }
+        }
+      }
+      if (keepIndices.size === 0) {
+        const replaced = replaceSessionSurface(session, 'user/message', {
+          ...structuredClone(playerEvent.data),
+          id: baseId
+        }, { start: nodes[pIdx], end: nodes[rIdx], sourceEventSeqs: nodes.slice(pIdx, rIdx + 1) })
+        const seq = typeof replaced === 'number' ? replaced : Number(replaced?.seq)
+        if (Number.isSafeInteger(seq)) anchor.input = seq
+      } else {
+        const runs = []
+        for (let index = pIdx + 1; index <= rIdx; index += 1) {
+          if (keepIndices.has(index)) { if (runs.at(-1)?.length) runs.push([]); continue }
+          if (!runs.length) runs.push([])
+          runs.at(-1).push(nodes[index])
+        }
+        runs.filter(run => run.length).forEach((run, runIndex) => {
+          replaceSessionSurface(session, 'user/message', {
+            id: baseId + ':cleanup:' + runIndex,
+            role: 'user',
+            content: [],
+            source: { kind: 'plugin:dsh-tavern-regeneration-abort' }
+          }, { start: run[0], end: run.at(-1), sourceEventSeqs: run })
+        })
+        anchor.input = nodes[pIdx]
+      }
+    } else {
+      const replaced = replaceSessionSurface(session, 'user/message', {
+        ...structuredClone(regenEvent.data),
+        id: baseId,
+        source: { kind: 'user' }
+      }, { start: inputSeq, end: inputSeq, sourceEventSeqs: [inputSeq] })
+      const seq = typeof replaced === 'number' ? replaced : Number(replaced?.seq)
+      if (Number.isSafeInteger(seq)) anchor.input = seq
+    }
+  } catch { /* 宿主不支持替换时保持原锚点，由请求期投影兜底折叠 */ }
+  return { nativeAnchor: anchor }
+}
+
 export function applyRegenerationProjection(session, projection) {
-  // An answered tail streams its own reply into the log; there is no projection
-  // to write, only the anchors that name the rows it already produced.
+  // An answered tail streams its own reply into the log; fold the retry carrier
+  // back into the round's player input so later requests never keep stale
+  // plugin:dsh-tavern-regen markers on the surface.
   if (projection.kind === 'append-round' && projection.native !== undefined) {
-    return projection.native === null ? null : { nativeAnchor: projection.native }
+    return collapseAppendedRegenerationInput(session, projection)
   }
   if (projection.kind === 'append-round') return applyIndependentRoundProjection(session, projection)
   const events = sessionEvents(session)

@@ -441,6 +441,20 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
   assert.ok(none.sections.some(section => section.name === 'tavern:no-foreground-tools'))
 })
 
+test('插件正文生成提示要求按需补齐本轮世界书原文再交接', async () => {
+  const names = ['read_lorebook', 'grep_lorebook', 'tavern_generate_body']
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'story', resolvePreset: async () => null,
+    visibleTools: async () => names, controlledToolNames: new Set(names)
+  })
+  const assembly = await strategy.assembleSystemPrompt({ tools: names.map(name => ({ name })) },
+    { chat: { mode: 'story' }, sessionId: 'native' })
+  const prompt = assembly.sections.find(section => section.name === 'tavern:plugin-body-generation').text
+  assert.match(prompt, /只找到标题或候选时，继续读取原文。等查询结果返回后，再调用生成工具/)
+  assert.match(prompt, /前几轮的查询结果只供前台定位。.*本轮要重新查阅/)
+  assert.match(prompt, /已有资料足够或本轮无关时，可以直接生成/)
+})
+
 test('后台请求投影保留前段与后段预设，不因前台优化而丢弃 front', async () => {
   const { createForegroundOrchestrationStrategies } = await import('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js')
   const stagedRequests = new Map([[

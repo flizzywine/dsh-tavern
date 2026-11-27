@@ -24,7 +24,7 @@ const VOICE_ERRORS={ENOENT:'找不到配音所需的本地文件或程序，请�
   QWEN_MODEL_NOT_FOUND:'当前服务上次合成无法访问此模型（404），请核对模型开通状态与区域',QWEN_VOICE_UNSUPPORTED:'上次合成返回此模型不支持该音色，请重新选择音色',
   MISSING_REFERENCE:'这个差分没有参考录音，「默认」里也没有',PREVIEW_CONFIRMATION_REQUIRED:'付费确认已过期，请重新试听',PAID_PREVIEW_DISABLED:'这个服务不能免费试听',
   FISH_AUTH_FAILED:'Fish Audio API Key 无效',FISH_BILLING_REQUIRED:'Fish Audio 额度不足：去充值，或换回免费模型',FISH_RATE_LIMITED:'Fish Audio 请求太频繁，请稍后再试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请稍后再试',
-  VOICE_NOT_FOUND:'找不到这个声音',VOICE_VARIANT_IN_USE:'还有别的人物在用这个预设，先给他们换一个预设',SHARED_VOICE_CONFIRMATION_REQUIRED:'这个声音还有别的人物在用，请重新确认',
+  VOICE_NOT_FOUND:'找不到这个声音',VOICE_UNSET:'还没选声音',VOICE_VARIANT_IN_USE:'还有别的人物在用这个预设，先给他们换一个预设',SHARED_VOICE_CONFIRMATION_REQUIRED:'这个声音还有别的人物在用，请重新确认',
   REFERENCE_LIMIT_EXCEEDED:'参考音频超过了服务的限制',LIMIT_EXCEEDED:'素材包空间不够了',QUEUE_FULL:'试听太多，请稍后再试',TIMEOUT:'试听超时，请稍后再试',AUDIO_GONE:'试听音频已失效，请重新试听',
   ABORTED:'试听请求已中断，请重新试听；若反复发生，请重新载入声音页。',REQUEST_TIMEOUT:'声音页面请求超时，请重新载入页面；若仍失败，请检查语音服务连接。',
   REVISION_CONFLICT:'内容已被修改，请重新载入',INVALID_INPUT:'内容不符合格式，没有保存',REQUEST_FAILED:'请求失败，请稍后再试',FORBIDDEN:'没有权限'};
@@ -37,11 +37,11 @@ function voiceErrorText(e){const code=voiceCode(e);
 const VOICE_SERVICE_CODES=new Set(['SERVICE_REQUIRED','CREDENTIALS_REQUIRED','FISH_AUTH_FAILED','FISH_BILLING_REQUIRED','SERVICE_OFFLINE','INVALID_PATH','INVALID_CONFIG','PORT_OCCUPIED','PROCESS_EXITED','SERVICE_START_FAILED','TTS_DISABLED','QWEN_MODEL_NOT_FOUND']);
 // every 配音来源 can be chosen before it is set up; what a chosen source still
 // lacks, in plain words for screen readers only (R25: on screen the page shows it — an amber radio, the
-// empty field highlighted, 试听 off; the host answers MISSING_REFERENCE / VOICE_NOT_FOUND for it).
+// empty field highlighted, 试听 off; the host answers MISSING_REFERENCE / VOICE_UNSET for it).
 const VOICE_UNSET_TEXT={'reference-list':'还没有参考音频','voice-id':'还没选声音',preset:'还没选在线声音'};
 // 浏览器朗读 without a voiceName is the system default voice: set up, never unset.
 const voiceSourceUnset=s=>s&&(s.kind==='reference-list'?!s.references.length:s.kind==='voice-id'?!s.voiceId:s.provider!=='browser'&&!s.voiceName)?VOICE_UNSET_TEXT[s.kind]:'';
-const VOICE_EDIT_CODES=new Set(['MISSING_REFERENCE','LANGUAGE_UNSUPPORTED','QWEN_VOICE_UNSUPPORTED','VOICE_NOT_FOUND']);
+const VOICE_EDIT_CODES=new Set(['MISSING_REFERENCE','LANGUAGE_UNSUPPORTED','QWEN_VOICE_UNSUPPORTED','VOICE_NOT_FOUND','VOICE_UNSET']);
 const providerName=kind=>VOICE_PROVIDERS[kind]||'语音服务';
 // The one line that says why a voice is silent (⚠ chips, the 声音 property's tooltip).
 // A Latin service name gets spaces around it inside a Chinese sentence (缺少 Fish Audio API Key / 我的 MiniMax API Key 无效).
@@ -844,9 +844,9 @@ function VoiceParams({binding,kind,defs,params,setParams,voiceName}) {
 }
 // The voice list of a service: tools (search · 配音语言) on top, the rows, one picked (`picked.key`; before any pick here the
 // voice's own, `current`). `rows` [{key, name, meta, end, spec, play, voice, languages}].
-function VoiceAddList({tools,rows,picked,current,onPick,empty,label}) {
+function VoiceAddList({tools,rows,picked,current,onPick,empty,label,loading}) {
   return h(React.Fragment,null,h('div',{className:'ap-vx-pane-tools'},tools),
-    rows===null?h(VoiceLoading,{count:4}):rows.length?h('ul',{className:'ap-vx-rows ap-vx-pane-list','aria-label':label},rows.map(r=>{
+    rows===null?(loading||h(VoiceLoading,{count:4})):rows.length?h('ul',{className:'ap-vx-rows ap-vx-pane-list','aria-label':label},rows.map(r=>{
       const on=picked?picked.key===r.key:current!==undefined&&r.voice===current;
       return h(VoiceListRow,{key:r.key,name:r.name,meta:r.meta,end:r.end,picked:on,play:r.play,onPick:()=>onPick(picked?.key===r.key?null:{key:r.key,spec:r.spec,name:r.name,languages:r.languages})});})):empty);
 }
@@ -880,7 +880,8 @@ function FishSortMenu({sort,onSort}) {
     content:close=>FISH_SORTS.map(([value,text])=>h('button',{key:value||'used',type:'button',role:'menuitemradio','aria-checked':sort===value,className:'ap-menu-item',onClick:()=>{close();if(sort!==value)onSort(value);}},h('span',null,'按'+text),sort===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
 }
 // Fish Audio 声音库: the popular voices in the chosen language (zh / ja; the others list both), typing filters them; Enter asks
-// Fish by name, a pasted voice ID is looked up. ▶ plays a voice's official sample (no synthesis) unless parameters are set:
+// Fish by name. A complete Fish ID is looked up after a short pause, independently of library filters.
+// ▶ plays a voice's official sample (no synthesis) unless parameters are set:
 // then the picked voice is synthesised with them (the paid-preview gate asks first). `current`: the voice an edited voice
 // speaks with — it stays listed.
 function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,picked,current,onPick,withParams,params}) {
@@ -890,13 +891,25 @@ function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,pi
   const sifted=tags.length>0||!!sort;
   const remote=useVoiceLoad(()=>sifted&&binding.tts?.call?voiceTts(binding).call('searchFishVoices',{serviceId:service.id,query:asked,tags,...(sort?{sort}:{}),...(lang?{language:lang}:{}),page:1}):null,[binding,service.id,lang,sifted,tags.join(','),sort,asked],{keep:true});
   const recommended=useVoiceLoad(()=>binding.tts?.call?voiceTts(binding).call('listRecommendedFishVoices',{...(lang?{language:lang}:{}),serviceId:service.id,...(current?{selectedVoiceId:current}:{})}):null,[binding,service.id,lang,current],{keep:true});
-  const q=query.trim(),idLike=/^[A-Za-z0-9_-]{24,160}$/.test(q)&&!/\s/.test(q),needle=voiceNeedle(q);
+  const q=query.trim(),id=/^[a-f0-9]{32}$/i.test(q)?q.toLowerCase():'',needle=voiceNeedle(q);
+  const [lookupId,setLookupId]=React.useState('');
+  React.useEffect(()=>{
+    setLookupId('');
+    if(!id)return;
+    const timer=setTimeout(()=>setLookupId(id),300);
+    return()=>clearTimeout(timer);
+  },[id]);
+  const exact=useVoiceLoad(async()=>{
+    if(!id||lookupId!==id)return null;
+    try{return {id,voices:[await voiceTts(binding).call('validateFishVoice',{serviceId:service.id,voiceId:id})]};}
+    catch(e){if(voiceCode(e)!=='VOICE_NOT_FOUND')throw e;return {id,voices:[]};}
+  },[binding,service.id,id,lookupId]);
   async function find(){
-    if(sifted&&!idLike){setAsked(q);return;}
+    if(sifted){setAsked(q);return;}
     if(!q||busy)return;setBusy(true);setError('');
     try{
-      if(idLike){try{setFound({query:q,voices:[await voiceTts(binding).call('validateFishVoice',{serviceId:service.id,voiceId:q})]});}catch(e){if(voiceCode(e)!=='VOICE_NOT_FOUND')throw e;setFound({query:q,voices:[],missing:true});}}
-      else{const r=await voiceTts(binding).call('searchFishVoices',{serviceId:service.id,query:q,...(lang?{language:lang}:{}),page:1});setFound({query:q,voices:r.voices||[]});}
+      const r=await voiceTts(binding).call('searchFishVoices',{serviceId:service.id,query:q,...(lang?{language:lang}:{}),page:1});
+      setFound({query:q,voices:r.voices||[]});
     }catch(e){setError(voiceErrorText(e));}finally{setBusy(false);}
   }
   const tuned=Object.keys(params).length>0;
@@ -905,19 +918,21 @@ function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,pi
     const play=h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+name+'」',onClick:()=>v.sampleUrl&&!(tuned&&on)?preview.playSample(key,{serviceId:service.id,voiceId:v.voiceId},{request:candidate(withParams(spec)),label:name}):preview.play(key,candidate(withParams(spec)),{label:name})});
     return {key,name,spec,play,voice:v.voiceId,languages:v.languages,meta:[VOICE_GENDER_SHORT[v.gender],...(v.toneTags||[]).slice(0,3)].filter(Boolean).join(' · '),end:heat&&h('span',{className:'ap-vx-heat'},heat+' ♥')};};
   const answer=found&&found.query===q?found:null;
-  const list=answer?answer.voices:sifted?(remote.value?remote.value.voices||[]:null):recommended.value?(recommended.value.voices||[]).filter(v=>voiceMatches(needle,[v.name,...(v.toneTags||[]),VOICE_GENDERS[v.gender]])):null;
+  const exactError=id&&lookupId===id&&exact.error;
+  const list=id?(lookupId===id&&exact.value?.id===id?exact.value.voices:exactError?[]:null):answer?answer.voices:sifted?(remote.value?remote.value.voices||[]:null):recommended.value?(recommended.value.voices||[]).filter(v=>voiceMatches(needle,[v.name,...(v.toneTags||[]),VOICE_GENDERS[v.gender]])):null;
   const tools=h(React.Fragment,null,
-    h(PackSearchBox,{label:'搜索 Fish 声音',value:query,placeholder:'搜名字或标签，或粘贴声音编号',onChange:v=>{setQuery(v);setError('');},onKeyDown:voiceSearchKeys(query,()=>setQuery(''),q?find:null)}),
-    busy&&h(Spinner,{key:'find'}),
+    h(PackSearchBox,{label:'搜索 Fish 声音',value:query,placeholder:'搜名字或标签，或粘贴声音编号',onChange:v=>{setQuery(v);setError('');},onKeyDown:voiceSearchKeys(query,()=>setQuery(''),q&&!id?find:null)}),
+    !id&&busy&&h(Spinner,{key:'find'}),
     h(VoiceLangFilter,{value:lang,onPick:setLang}),
     h(FishFilterMenu,{tags,onChange:setTags}),
     h(FishSortMenu,{sort,onSort:setSort}));
   return h(React.Fragment,null,
-    error&&h(VoiceLoadError,{error}),
-    recommended.error&&!recommended.value&&!sifted&&h(VoiceLoadError,{error:recommended.error,retry:recommended.reload}),
-    remote.error&&sifted&&h(VoiceLoadError,{error:remote.error,retry:remote.reload}),
+    !id&&error&&h(VoiceLoadError,{error}),
+    !id&&recommended.error&&!recommended.value&&!sifted&&h(VoiceLoadError,{error:recommended.error,retry:recommended.reload}),
+    !id&&remote.error&&sifted&&h(VoiceLoadError,{error:remote.error,retry:remote.reload}),
     h(VoiceAddList,{label:'Fish 声音',tools,rows:list&&list.map(row),picked,current,onPick,
-      empty:answer?.missing?h(EmptyState,{compact:true,text:'没有找到这个编号'}):sifted&&tags.length?h(EmptyState,{compact:true,noun:'声音',filter:tags.map(x=>fishTagName.get(x)).join('·'),query:asked,onClear:()=>{setTags([]);setAsked('');}}):q?h(EmptyState,{compact:true,noun:'声音',query:q,plain:true,onClear:()=>setQuery('')}):h(EmptyState,{compact:true,noun:'声音'})}));
+      loading:id?h('p',{role:'status'},'正在按编号查找…'):null,
+      empty:id?(exactError?h(VoiceLoadError,{error:exactError,retry:exact.reload}):h(EmptyState,{compact:true,text:'没有这个编号的声音',query:q,onClear:()=>setQuery('')})):sifted&&tags.length?h(EmptyState,{compact:true,noun:'声音',filter:tags.map(x=>fishTagName.get(x)).join('·'),query:asked,onClear:()=>{setTags([]);setAsked('');}}):q?h(EmptyState,{compact:true,noun:'声音',query:q,plain:true,onClear:()=>setQuery('')}):h(EmptyState,{compact:true,noun:'声音'})}));
 }
 // Any other service (and 浏览器朗读): its voices in the chosen language, typing filters. Its 模型 list goes up to the dialog
 // (`onModels`), which holds the one chosen (`model`). A service that lists no voices (a custom endpoint) takes the voice —

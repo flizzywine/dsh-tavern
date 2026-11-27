@@ -115,6 +115,13 @@ function stageSkinPanelTokens(document,fonts,theme,builtin=false,lead=false) {
         '--gal-ui-hud-hover':hover,'--gal-ui-hud-selected':selected,'--gal-ui-hud-line':border,
         // hud.plate (§18 N13): the top bar chips' own opaque ground and ink
         ...(document.hud?.plate ? {'--fk-hud-plate-bg':document.hud.plate.bg,'--fk-hud-plate-fg':document.hud.plate.fg} : {}),
+        // toast (toasts.cjs): the card pages' toasts' own colours and shape; each one omitted keeps the panel's (theme.css «stage toasts»)
+        ...(document.toast?.paint ? {'--fk-toast-bg':document.toast.paint.bg,'--fk-toast-fg':document.toast.paint.fg,
+            ...(document.toast.paint.accent ? {'--fk-toast-accent':document.toast.paint.accent} : {}),...(document.toast.paint.border ? {'--fk-toast-line':document.toast.paint.border} : {})} : {}),
+        ...(document.toast?.shape?.radius !== undefined ? {'--fk-toast-radius':document.toast.shape.radius+'px'} : {}),
+        ...(document.toast?.shape?.borderWidth !== undefined ? {'--fk-toast-edge':document.toast.shape.borderWidth+'px'} : {}),
+        ...(document.toast?.text?.size ? {'--fk-toast-size':document.toast.text.size+'px'} : {}),
+        ...(document.toast?.text?.weight ? {'--fk-toast-weight':String(document.toast.text.weight)} : {}),
         // scrollbars: each opted-in surface's thumb, track and width (theme.css «stage scrollbars»)
         ...Object.fromEntries(Object.entries(document.scrollbars || {}).flatMap(([surface,bar]) => [['--fk-sb-' + surface + '-thumb',bar.thumb],
             ['--fk-sb-' + surface + '-track',bar.track || 'transparent'],['--fk-sb-' + surface + '-w',(bar.width ?? 6) + 'px']]))};
@@ -143,6 +150,9 @@ function stageSkinMarks(document) {
     if (document.textbox.motion) marks['data-fk-skin-box-motion']='';
     if (document.nameplate.motion) marks['data-fk-skin-name-motion']='';
     if (document.hud?.plate) marks['data-fk-skin-hud-plate']='';
+    // toast: where the card pages' toasts stand, how they arrive, their shadow and info mark (theme.css «stage toasts»)
+    for (const key of ['place','enter','mark']) if (document.toast?.[key]) marks['data-fk-toast-' + key]=document.toast[key];
+    if (document.toast?.shape?.shadow) marks['data-fk-toast-shadow']=document.toast.shape.shadow;
     // scrollbars: the surfaces that show a styled scrollbar; every other one shows none (theme.css «stage scrollbars»).
     if (document.scrollbars) marks['data-fk-scrollbars']=Object.keys(document.scrollbars).join(' ');
     // textStyle.wrap: phrase = the reading text breaks between phrases (theme.css「stage typewriter」).
@@ -351,6 +361,7 @@ function stageSkinArt(document, files, entry = '') {
     const names=[...Object.values(art.textbox?.images || {}),...Object.values(art.textbox?.tint?.masks || {}),...Object.values(art.choices?.images || {}),...[art.choices?.tint,art.choices?.tool?.image,art.choices?.tool?.tint,art.choices?.tool?.send,art.choices?.focus?.image,art.choices?.focus?.alt,art.choices?.hover?.image,art.choices?.hover?.alt,...(art.choices?.tool?.button ? [art.choices.tool.button.normal,art.choices.tool.button.hover,art.choices.tool.button.disabled] : [])].filter(Boolean),...(art.textbox?.lamp ? [art.textbox.lamp.image] : []),...[stageSkinImage(art.textbox?.next),art.nameplate?.image].filter(Boolean),...Object.values(art.buttons || {}).flatMap(button => [button.image,button.on,button.disabled,button.tint,button.narrow?.image,button.narrow?.on].filter(Boolean)),
         ...(art.nameplate?.band ? [art.nameplate.band.image] : []),...Object.values(art.cast || {}).flatMap(entry => [entry.box,entry.plate,entry.band?.image].filter(Boolean)),...(art.decor || []).map(item => item.image),
         ...stageSkinContract.stageSkinScreenFiles(art),...(art.portrait?.frame ? [art.portrait.frame.image,art.portrait.frame.glass,art.portrait.frame.back,art.portrait.frame.speaking,art.portrait.frame.tint].filter(Boolean) : []),...(art.portrait?.placeholder?.image ? [art.portrait.placeholder.image] : []),...(art.item ? [art.item.frame,art.item.gain?.toast?.image].filter(Boolean) : []),
+        ...(art.toast ? [...Object.values(art.toast.plates),...Object.values(art.toast.marks || {})] : []),
         ...Object.values(document.modes || {}).flatMap(mode => Object.values(mode.buttons || {}).flatMap(button => [button.image,button.on,button.disabled,button.tint].filter(Boolean)))];
     if (!names.length && !art.portrait && !art.faceChip && !art.narration && !art.shape || names.some(name => !file(name)?.url || !file(name).image)) return null;
     // An element's `scale` (design px per image px, or [x, y]; the original's sprite scale) sizes its images; 1 = natural size.
@@ -359,6 +370,17 @@ function stageSkinArt(document, files, entry = '') {
     // without it a box narrows to fit (the image over 96% of the stage width) and buttons alone follow the stage height.
     const marks={}, box=art.textbox, wide=art.screenWidth || (box ? size(box.images.plain,box.scale)[0] / (box.fit || .96) : 1e6);
     const tokens={'--art-screen':String(art.screen),'--art-screen-w':String(Math.round(wide * 1000) / 1000)};
+    // toast (art.toast): the card pages' toasts on the skin's plates, each type's falling back to info, and its marks (theme.css «stage toasts»)
+    if (art.toast) {
+        const [t,r,b,l]=art.toast.slice;
+        marks['data-fk-toast-art']=art.toast.marks ? 'marks' : '';
+        Object.assign(tokens,{'--fk-toast-st':String(t),'--fk-toast-sr':String(r),'--fk-toast-sb':String(b),'--fk-toast-sl':String(l)});
+        for (const type of ['info','success','warning','error']) {
+            tokens['--fk-toast-plate-' + type]=url(art.toast.plates[type] || art.toast.plates.info);
+            if (art.toast.marks) tokens['--fk-toast-mark-' + type]=url(art.toast.marks[type]);
+        }
+        if (art.toast.mark) Object.assign(tokens,{'--fk-toast-mark-x':art.toast.mark[0] + 'px','--fk-toast-mark-h':art.toast.mark[1] + 'px'});
+    }
     if (box) {
         const [w,h]=size(box.images.plain,box.scale), [x,y,bw,bh]=box.body, [left,right,middle]=box.text, cue=Array.isArray(box.cue) ? box.cue : [0,0,0];
         marks['data-fk-skin-art']='box';
@@ -744,8 +766,10 @@ function stageSkinArt(document, files, entry = '') {
     const screen=(key,s) => {
         const p='--art-' + key;
         // untitled: title false (an original log screen with no title; theme.css 「art screens」 keeps only its accessible name);
-        // noclip: clip false (no 导出片段 button beside the close)
-        marks['data-fk-skin-art-' + key]=[...['sheet','title','close'].filter(part => s[part]),...(s.title === false ? ['untitled'] : []),...(s.clip === false ? ['noclip'] : [])].join(' ');
+        // noclip: clip false (no 导出片段 button beside the close); nolatest: latest false (no 跳到最新 control); noground:
+        // ground false (the stage, not the panel ground, round the sheet)
+        marks['data-fk-skin-art-' + key]=[...['sheet','title','close'].filter(part => s[part]),...(s.title === false ? ['untitled'] : []),...(s.clip === false ? ['noclip'] : []),
+            ...(s.latest === false ? ['nolatest'] : []),...(s.ground === false ? ['noground'] : [])].join(' ');
         if (s.sheet) {const [w,h]=size(s.sheet); Object.assign(tokens,{[p + '-sheet']:url(s.sheet),[p + '-sheet-w']:String(w),[p + '-sheet-h']:String(h)});}
         tokens[p + '-dim']=String(s.dim ?? 0);
         tokens[p + '-font']=String(s.font);

@@ -88,16 +88,20 @@ function pictureLibrary(packId, figure) {
 test('a figure\'s 设定图 are lent from the pack; a 设定图 the pack drops is gone from the next picture with nothing to sync', async () => {
   const packId = '11111111-1111-4111-8111-111111111111', figureId = '22222222-2222-4222-8222-222222222222'
   const ref = { packId, figureId }
-  const figure = { id: figureId, name: '总经理', identitySettei: { board: 'a'.repeat(64) }, outfits: [{ key: 'k', label: '西装', settei: 'b'.repeat(64) }, { key: 'm', label: '大衣' }] }
+  const figure = { id: figureId, name: '总经理', identitySettei: { board: 'a'.repeat(64) }, outfits: [{ key: 'm', label: '大衣' }, { key: 'k', label: '西装', settei: 'b'.repeat(64) }] }
   const library = pictureLibrary(packId, figure), pictures = createFigurePictures(() => library)
   const [row] = await pictures.list([null, { packId: 'stale', figureId }, ref])
-  assert.deepEqual(row.identity, { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理 人物设定图' })
+  assert.deepEqual(row.identity, { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理 默认服装设定图' })
   assert.deepEqual(row.outfits, { k: { picture: { id: 'b'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理／西装 设定图' }, borrowed: false } })
   assert.deepEqual(await pictures.read({ ...ref, id: 'b'.repeat(64) }), { data: new Uint8Array(PNG), mediaType: 'image/png' })
   await assert.rejects(pictures.read({ ...ref, id: 'c'.repeat(64) }), { code: 'NOT_FOUND' }, 'only a picture the figure lends')
+  figure.outfits[0].settei = 'c'.repeat(64)
+  const [withBase] = await pictures.list([ref])
+  assert.equal(withBase.identity.id, 'c'.repeat(64), 'the default outfit board replaces the legacy board')
+  delete figure.outfits[0].settei
   // The 设定图 is unbound in the pack: the record holds no copy, so the next picture has none.
   delete figure.identitySettei
-  delete figure.outfits[0].settei
+  delete figure.outfits[1].settei
   const [after] = await pictures.list([ref])
   assert.equal(after.identity, null)
   assert.deepEqual(after.outfits, {})

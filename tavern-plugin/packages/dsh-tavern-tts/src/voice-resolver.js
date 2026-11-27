@@ -13,11 +13,12 @@ export function chooseService(source, services) {
   return source.serviceId ? compatible.find(s => s.id === source.serviceId) : compatible.length === 1 ? compatible[0] : undefined
 }
 // every 配音来源 can be chosen before it is set up. The chosen source then
-// reports what it still lacks and stays silent; nothing falls back to another source.
+// reports what it still lacks and stays silent; nothing falls back to another source. VOICE_UNSET: no voice picked yet
+// (the figure's own setting to finish), never SERVICE_REQUIRED (the 语音后端's).
 export function sourceUnsetIssue(source) {
   const missing = source.kind === 'reference-list' ? !source.references.length && 'MISSING_REFERENCE'
-    : source.kind === 'voice-id' ? source.voiceId === undefined && 'VOICE_NOT_FOUND'
-    : source.voiceName === undefined && 'VOICE_NOT_FOUND'
+    : source.kind === 'voice-id' ? source.voiceId === undefined && 'VOICE_UNSET'
+    : source.voiceName === undefined && 'VOICE_UNSET'
   return missing ? {effective:null,issues:[{code:missing}]} : null
 }
 // Trusted, already validated pack data. This projection never mutates the binding.

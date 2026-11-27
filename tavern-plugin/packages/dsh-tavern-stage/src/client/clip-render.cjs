@@ -94,7 +94,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
     galEnter(sessionId,{turn:snapshot.from.turn,para:snapshot.from.para});
     const root = document.createElement('div');document.body.appendChild(root);
     const style = document.createElement('style');
-    style.textContent = 'html,body{margin:0;overflow:hidden}*,*::before,*::after{cursor:none!important}.fork-gal-stage{position:fixed!important;inset:0!important}.fork-gal-topbar,.fork-gal-controls,.fork-gal-notices,.fork-gal-first-run,.fork-gal-hints,.fork-gal-quick,.fork-gal-runtime-status,.fork-gal-menu-fold,.fork-gal-voice,.fork-widget-source-controls,.fork-gal-meta,.fork-gal-entry-overlay,.fork-stage-load-progress,.fork-stage-skin-buttons{display:none!important}';
+    style.textContent = 'html,body{margin:0;overflow:hidden}*,*::before,*::after{cursor:none!important}.fork-gal-stage{position:fixed!important;inset:0!important}.fork-gal-topbar,.fork-gal-controls,.fork-gal-notices,.fork-gal-first-run,.fork-gal-hints,.fork-gal-quick,.fork-gal-runtime-status,.fork-gal-menu-fold,.fork-gal-voice,.fork-widget-source-controls,.fork-gal-meta,.fork-gal-entry-overlay,.fork-stage-load-progress,.fork-stage-skin-buttons,.fork-stage-toasts{display:none!important}';
     document.head.appendChild(style);
     const rendered = ReactDOM.createRoot(root), pager = {current:null};
     ReactDOM.flushSync(()=>rendered.render(React.createElement(views.controller.Stage,{sessionId,data:settings,clipPager:pager,choiceProps:{useChat:select=>select(native),useSession:select=>select({running:false})},onExit(){}})));

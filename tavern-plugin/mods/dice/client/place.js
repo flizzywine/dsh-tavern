@@ -23,6 +23,8 @@ function dicePlaceQueue(recordOf = item => item) {
     let items = [];
     return {
         add(list, turn) { items = items.concat(list.map(value => ({ value, turn }))); },
+        // Forget the held items gone(item {value, turn}) says are moot.
+        drop(gone) { items = items.filter(item => !gone(item)); },
         take(place) {
             const due = items.filter(item => dicePlaceState(recordOf(item.value), place, item.turn) === "now");
             items = items.filter(item => !due.includes(item));

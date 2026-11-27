@@ -7,6 +7,42 @@ import { createMvuSettlementModule, PROMPT_PROSE } from '../tavern-plugin/lib/do
 const runtime = await UpstreamTemplateRuntime.create()
 const rules = entries => createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, runtime: async () => runtime }).mvuUpdateRules
 
+test('NPC registration uses the card identity and aliases, keeps ambiguity, and compresses the fallback', async () => {
+  const common = '登记时以上述硬字段为准：身份不写姓名（卡头已有），简介不复述身份、不写本名；态度仍只填本轮私心好恶的个人偏置。气血最大值照上面的落点逐字抄；有 `$道`、`$天资` 或 `兵甲` 各行就连它一并照抄，没有则不写该项。'
+  const profile = (name, identity, primaryKeys) => ({
+    ref: name, title: '[mvu_update]人物登记·' + name, primaryKeys,
+    content: '# NPC首登登记·' + name + '\n身份：' + identity + '\n气血：860\n' + common
+  })
+  const render = rules([
+    { ref: 'ordinary', title: '[mvu_update]日常规则', content: '普通结算规则' },
+    profile('关含英', '振远镖局的女镖师', ['关镖师', '关娘子']),
+    profile('关玉', '绣坊掌柜', ['关娘子']),
+    profile('陈南', '车夫', ['陈车夫']),
+    { ...profile('自定义', '掌柜', ['自定义']), content: '自定义登记在正文未提及的时候也应执行。' },
+  ])
+  const names = rendered => [...rendered.join('\n').matchAll(/^# NPC首登登记·(.+)$/gm)].map(match => match[1])
+  const target = (text, NPC = {}, variableRetry = false) => ({
+    message: { role: 'assistant', text, mvu: { variableRetry } }, messageId: 2, variables: { stat_data: { NPC } }
+  })
+  const chat = { cardPath: 'cards/rules.json', messages: [
+    { role: 'assistant', text: '开场提到陈车夫。', greeting: true },
+    { role: 'user', text: '我打算找陈车夫。' }
+  ] }
+  const surname = await render(chat, {}, target('振远镖局来招工。他往檐下一指，那位女镖师姓关。'))
+  assert.deepEqual(names(surname), ['关含英'])
+  assert.match(surname.join('\n'), /气血：860/)
+  assert.equal(surname[0], '普通结算规则')
+  assert.equal(surname.at(-1), '自定义登记在正文未提及的时候也应执行。')
+  assert.deepEqual(names(await render(chat, {}, target('关娘子走进来。'))), ['关含英', '关玉'])
+  assert.deepEqual(names(await render(chat, {}, target('关镖师笑了。', { 关含英: {} }))), [])
+  const fallback = await render(chat, {}, target('她转身离开了。'))
+  assert.deepEqual(names(fallback), ['关含英', '关玉', '陈南'])
+  assert.equal(fallback.join('\n').split(common).length - 1, 1)
+  assert.deepEqual(names(await render(chat, {}, target('关镖师笑了。', { 关含英: {} }, true))), ['关含英', '关玉', '陈南'])
+  const continued = { ...chat, messages: [{ role: 'assistant', text: '关镖师进了亭子。' }, chat.messages[1]] }
+  assert.deepEqual(names(await render(continued, {}, target('她转身离开了。'))), ['关含英'])
+})
+
 test('MVU settlement keeps card rules alongside separately bound and global books (#619)', async () => {
   const card = { name: '规则卡', character_book: { entries: [
     { id: 0, name: '[mvu_update]卡规则', content: '卡规则：接触阶段只能为独处/牵手/拥抱/接吻。', enabled: true },

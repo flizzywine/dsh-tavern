@@ -193,7 +193,7 @@ function ManagedModSection({ rpc, cardId, cardName, onOpen, takeFocus }) {
   const notice = plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null;
   const rows = [...switched, ...declared];
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。检定、数据删除、文字演出、计时器由卡或舞台皮肤自带，没有开关，只在自带它们的卡上列出。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。检定、数据删除、文字演出、计时器由卡或舞台皮肤自带，没有开关，只在自带它们的卡上列出。安装与卸载在侧栏首页的 舞台装置 › 舞台引擎 › 模组。' },
     h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
     !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(item) : h(EmptyState, { text: '没有安装模组' }),
     plans.dialog);

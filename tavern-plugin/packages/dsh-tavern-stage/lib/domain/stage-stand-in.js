@@ -7,6 +7,7 @@
 // the figure as soon as it has a 立绘 (standInShown). The person keeps their own name and voice throughout.
 import {createHash} from 'node:crypto'
 import figureResolution from '../../../dsh-presentation-protocol/src/figure-resolution.cjs'
+import figureScale from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
 
 export const standInKey = name => 's_' + createHash('sha256').update('stand-in/' + String(name).trim()).digest('hex').slice(0, 16)
 const sameRef = (a, b) => !!a && !!b && a.packId === b.packId && a.figureId === b.figureId
@@ -83,7 +84,7 @@ export function standInShown(actor, rows, stageOutfitKey) {
   const outfitKey = found.status === 'resolved' && !sameRef(found.row.ref, actor.figure) ? stageOutfitKey(found.row.figure) : null
   if (outfitKey === null) return actor
   return {...actor, figure:{packId:found.row.ref.packId, figureId:found.row.ref.figureId}, outfitKey,
-    ruler:{heightCm:found.row.figure.heightCm ?? 150, headRatio:actor.ruler?.headRatio ?? 1, elevationCm:found.row.figure.elevationCm ?? 0}}
+    ruler:{heightCm:found.row.figure.heightCm ?? figureScale.FIGURE_DISPLAY.DEFAULT_HEIGHT_CM, headRatio:actor.ruler?.headRatio ?? 1, elevationCm:found.row.figure.elevationCm ?? 0}}
 }
 // The stand-in on this stage for a speaker of this name, or undefined.
 export const standInFor = (actors, name) => Object.keys(actors).find(alias => actors[alias].standIn && actors[alias].standIn === name)

@@ -64,6 +64,9 @@ export async function* boundedCompaction(ctx, request, stream, { quoted = false 
       if (!size) throw Error('模型窗口不足以容纳压缩片段，未修改历史')
       if (++calls > 256) throw Error('分段压缩超过安全调用上限，未修改历史')
       const input = { ...request, maxTokens: reserve, messages: frame(source.slice(offset, offset + size)) }
+      delete input.tools
+      delete input.toolChoice
+      delete input.toolHistory
       const parts = []
       let finish, failure
       for await (const event of stream(input)) {

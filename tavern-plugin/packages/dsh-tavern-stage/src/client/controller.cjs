@@ -623,18 +623,20 @@ function GalStage(props) {
     }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
     // 卡页面演出 (status-panel.cjs Performance): a mod overlay's cardPage.perform(pageId, cue) plays one of the card's pages
-    // over the scene, above the text box; one at a time. → Promise of {done} / {skipped}; rejected when the card has no such
-    // page, the page cannot be read, or another performance is up (the mod then shows what it shows without one).
+    // over the scene, above the text box; one at a time. perform({name, html, media}, cue) plays a sandboxed skin page.
+    // Returns {done} or {skipped}; rejects if the source is missing, it cannot be read, or another performance is up.
+    // The caller can then show what it would have shown without a performance.
     const [pagePerform, setPagePerform] = React.useState(null);
     const pagePerformNow = React.useRef(null), pageListNow = React.useRef(pageList);
     pageListNow.current = pageList;
-    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(pageId, cue) {
-        if (!pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
+    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(source, cue) {
+        const skinPage = source && typeof source === 'object' ? source : null, pageId = skinPage ? String(source.name || '') : source;
+        if (!skinPage && !pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
         if (pagePerformNow.current) return Promise.reject(new Error('舞台正在演另一段页面'));
         return new Promise((resolve, reject) => {
             const root = rootRef.current, box = root?.querySelector('.fork-gal-box');
             const bottom = root && box ? Math.max(0, root.getBoundingClientRect().bottom - box.getBoundingClientRect().top) : 0;
-            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, cue, region: { bottom },
+            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, skinPage, cue, region: { bottom },
                 end: result => { if (pagePerformNow.current !== item) return; pagePerformNow.current = null; setPagePerform(null); if (result.failed) reject(new Error(result.failed)); else resolve(result); } };
             pagePerformNow.current = item;
             setPagePerform(item);
@@ -889,7 +891,7 @@ function GalStage(props) {
     // the veil was shown (so its leave uncovers the stage; a quick entry never showed it)
     // and the stage's reveal window (transitions.stage.enter plays on the box only then, not on every later box mount).
     const veilShown = React.useRef(false);
-    if (entryGate.phase === "loading" || entryGate.phase === "slow") veilShown.current = true;
+    if (["loading", "slow", "failed"].includes(entryGate.phase)) veilShown.current = true;
     const [stageEntering, setStageEntering] = React.useState(false);
     const revealed = entryGate.phase === "revealing" || entryGate.phase === "ready" || !entryGate.phase;
     React.useEffect(() => {
@@ -1029,6 +1031,9 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
+    // Leaving the stage silences it; the latest turn's lines still being synthesized finish into the cache, so the
+    // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
+    React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
@@ -1306,6 +1311,10 @@ function GalStage(props) {
     // with its pack revision. A figure in the notice leaves the stage for its page in 素材库 (as 回想's 编辑).
     const nameConflicts = useGalNameConflicts(sessionId, JSON.stringify((accepted.avatars || []).map(figure => [figure.ref?.packId || '', figure.ref?.figureId || figure.alias, figure.revision || ''])));
     const openConflictFigure = figure => { const open = stageViews.notices.openLibrary; props.onExit(); if (open) void open(sessionId, {packId:figure.packId, kind:'figures', figureId:figure.figureId}); };
+    // the speaker's own 声音 page, for a voice she has not finished (the name plate's ⚠ opens it; labels.cjs).
+    const speakerRef = characterOf(speaker)?.ref;
+    const openLibrary = stageViews.notices.openLibrary;
+    const openSpeakerVoice = openLibrary && speakerRef?.packId ? () => { props.onExit(); void openLibrary(sessionId, {packId:speakerRef.packId, kind:'figures', figureId:speakerRef.figureId, tab:'voice'}); } : null;
     const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
     const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
@@ -1489,8 +1498,7 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
-        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles,
-        pages: readerPanel ? pageList.map(item => item.id === readerPanel.pageId ? {...item, label: '返回序章'} : item) : pageList }, menuActions);
+        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
@@ -1593,7 +1601,7 @@ function GalStage(props) {
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
-            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay }) : null,
+            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay, onOpenVoice: openSpeakerVoice }) : null,
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
@@ -1629,7 +1637,8 @@ function GalStage(props) {
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
         ...stageHuds.elements,
         // The entry veil: it covers the whole stage until the gate is ready (gal-entry.js), never a notice over the scene.
-        h(GalEntryOverlay, {phase:entryGate.phase, progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
+        h(GalEntryOverlay, {phase:entryGate.phase, failure:entryGate.visible ? null : entryGate.failure, onExit:props.onExit,
+            progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
@@ -1641,7 +1650,7 @@ function GalStage(props) {
             cardPage: stageViews.statusPanel ? cardPagePerformer : undefined,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
         // a card page performing (cardPage.perform above), over the scene and the mods' layers, clear of the text box
-        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
+        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, skinPage: pagePerform.skinPage, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
@@ -1669,6 +1678,8 @@ function GalStage(props) {
             // stage's figure layout (galFigureLayout x, the side rule galShotSubject reads), null when not standing.
             looks: backlogLooks, sideOf: alias => figureLayout?.x && alias in figureLayout.x ? (figureLayout.x[alias] > 0.5 ? "right" : "left") : null,
             nameParts: nameInitials && !film ? (name, entry) => galNameParts(name, bubbleCharacter(config, entry)) : null }) : null,
+        // the card pages' toasts (toasts.cjs) over everything the stage draws, a page and its CONFIG / 履历 included.
+        stageViews.toasts ? h(stageViews.toasts.Layer, { sessionId }) : null,
         title ? h(GalTitle, { key: title.nonce, title, timing: stageEffectResolve("title", effectTables.skin, effectTables.local), reducedMotion: reading.reducedMotion === true, onDone: endTitle }) : null);
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.

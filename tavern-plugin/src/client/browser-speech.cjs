@@ -77,10 +77,11 @@ function createBrowserSpeechClip(line, { synth, Utterance, level = () => 1, subs
     }
     return clip;
 }
-// The app's clip: master × voice volume (a preview: master only), paused while the app is in the background.
-function browserSpeechClip(line, preview = false) {
+// The app's clip: master × voice volume (a preview: master only), paused while the app is in the background -
+// unless it is a background clip (reading the story aloud), which keeps speaking.
+function browserSpeechClip(line, preview = false, background = false) {
     return createBrowserSpeechClip(line, { synth: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance,
-        level: () => forkStageAudio.speechVolume(preview), subscribeAudio: typeof forkForeground === 'undefined' ? null : forkForeground.subscribeAudio });
+        level: () => forkStageAudio.speechVolume(preview), subscribeAudio: background || typeof forkForeground === 'undefined' ? null : forkForeground.subscribeAudio });
 }
 // A speaking browser clip has no samples to analyse; the mouth follows a gentle syllable rhythm while it speaks.
 function browserSpeechMouth(clip, now = Date.now) {

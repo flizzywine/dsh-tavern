@@ -488,7 +488,7 @@ ctx.tavernUi.registerTurnView({
 
 ## `registerStageView`（已停用）
 
-插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开这张卡的舞台即可。调用 `registerStageView` 不会注册任何视图，只在错误提示里报告这次调用。要在舞台里给玩家一个整页界面（状态、地图等），写成人物卡自带的卡页面（`stage-status-panel`），不需要插件。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开这张卡的舞台即可。调用 `registerStageView` 不会注册任何视图，只在错误提示里报告这次调用。要在舞台里给玩家一个整页界面（状态、地图等），写成人物卡自带的卡页面（`stage` Skill 的 references/pages.md），不需要插件。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 

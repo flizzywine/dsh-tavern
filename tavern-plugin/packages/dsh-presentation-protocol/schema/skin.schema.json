@@ -24,7 +24,7 @@
    "additionalProperties": {
     "type": "string",
     "maxLength": 240,
-    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[a-z0-9/._-]+\\.(?:svg|png|webp|ogg|m4a|mp3|wav)$"
+    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[a-z0-9/._-]+\\.(?:svg|png|webp|ogg|m4a|mp3|wav|html)$"
    }
   },
   "mods": {
@@ -2301,6 +2301,14 @@
       },
       "clip": {
        "description": "false = no 导出片段 button beside the close (an original whose log screen has only its close); the export still starts from a row (Shift-click, long press). Omitted = the button beside the drawn close.",
+       "const": false
+      },
+      "latest": {
+       "description": "false = no 跳到最新 control (an original whose log screen has none); the wheel and End still reach the end. Omitted = the control.",
+       "const": false
+      },
+      "ground": {
+       "description": "false = no panel ground round the sheet: a log card over the scene, the stage showing round it (at dim) as through the sheet's clear parts when the window is wider or taller than the game area. Omitted = the panel ground fills the window round the sheet.",
        "const": false
       },
       "close": {
@@ -4711,6 +4719,19 @@
     },
     "shape": {
      "$ref": "#/$defs/shape"
+    },
+    "toast": {
+     "type": "object",
+     "description": "The card pages' toasts drawn as the skin's own art. plates = one image per toast type (info required; success, warning and error fall back to it), 9-sliced by slice [top, right, bottom, left] image px at one CSS px per image px: the edges (a coloured tab, a printed shadow) stay as drawn, the middle stretches and the words sit inside the edges. marks = each type's mark image (all four), drawn mark [centre x, height] CSS px from the plate's left edge and vertically centred, e.g. on the tab the left slice draws; without marks the engine's inline marks stay. A plate replaces the toast's ground, edge, radius and shadow (toast.paint still gives the words' colour).",
+     "additionalProperties": false,
+     "required": ["plates", "slice"],
+     "properties": {
+      "plates": { "type": "object", "additionalProperties": false, "required": ["info"], "properties": { "info": { "$ref": "#/$defs/image" }, "success": { "$ref": "#/$defs/image" }, "warning": { "$ref": "#/$defs/image" }, "error": { "$ref": "#/$defs/image" } } },
+      "slice": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 4096 } },
+      "marks": { "type": "object", "additionalProperties": false, "required": ["info", "success", "warning", "error"], "properties": { "info": { "$ref": "#/$defs/image" }, "success": { "$ref": "#/$defs/image" }, "warning": { "$ref": "#/$defs/image" }, "error": { "$ref": "#/$defs/image" } } },
+      "mark": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 1, "maximum": 512 } }
+     },
+     "dependentRequired": { "marks": ["mark"], "mark": ["marks"] }
     },
     "item": {
      "type": "object",
@@ -8610,6 +8631,44 @@
     "page": { "$ref": "#/$defs/scrollbar" }
    }
   },
+  "toast": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "The card pages' toasts (DshCardPage.toast: a short line that floats up over the stage for a few seconds, at most three stacked). place = where the stack stands: center = the middle of the stage (default), top / top-left / top-right = under the top bar. enter = how one arrives: rise from below (default), drop from above, fade, pop (grows into place), slide (in from its side), stamp (lands like a rubber stamp: from a little larger and turned, a short bounce). paint = its ground, words (fg on bg >= 4.5:1), mark (accent on bg >= 3:1) and edge colours (default: the skin's panel colours, ui). shape = corner radius and edge width in CSS px, shadow soft (default) | hard (an offset block in the edge colour, like print) | none. mark = what stands before an info toast's words: none (default), dot, triangle, diamond. A success toast shows a check mark there and a warning or an error a warning sign in the engine's warning ink. text = the words' CSS px size on wide stages (12-28, default about 14-18 by stage width; phones cap it at 16) and weight. Drawn plates and marks: art.toast. Under reduced motion every toast only fades.",
+   "properties": {
+    "place": { "enum": ["center", "top", "top-left", "top-right"] },
+    "enter": { "enum": ["rise", "drop", "fade", "pop", "slide", "stamp"] },
+    "paint": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": ["bg", "fg"],
+     "properties": {
+      "bg": { "$ref": "#/$defs/color" },
+      "fg": { "$ref": "#/$defs/color" },
+      "accent": { "$ref": "#/$defs/color" },
+      "border": { "$ref": "#/$defs/color" }
+     }
+    },
+    "shape": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "radius": { "type": "number", "minimum": 0, "maximum": 40 },
+      "borderWidth": { "type": "number", "minimum": 0, "maximum": 8 },
+      "shadow": { "enum": ["soft", "hard", "none"] }
+     }
+    },
+    "mark": { "enum": ["none", "dot", "triangle", "diamond"] },
+    "text": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "size": { "type": "number", "minimum": 12, "maximum": 28 },
+      "weight": { "enum": [400, 500, 600, 700, 800, 900] }
+     }
+    }
+   }
+  },
   "waitLines": {
    "type": "array",
    "minItems": 1,
@@ -9465,14 +9524,8 @@
   "license": {
    "type": "object",
    "additionalProperties": false,
-   "required": [
-    "privateUse"
-   ],
    "properties": {
-    "privateUse": {
-     "type": "boolean",
-     "description": "true = never export into a public/shared pack."
-    },
+    "privateUse": {},
     "notes": {
      "type": "array",
      "items": {

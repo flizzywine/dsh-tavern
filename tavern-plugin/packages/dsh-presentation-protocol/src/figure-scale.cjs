@@ -1,5 +1,5 @@
 // shared, IO-free figure contract. Included in the client and imported by the host.
-const FIGURE_DISPLAY = Object.freeze({ version: 6, FILL: 1.24, HEAD_TOP: 0.13, REF_MIN_CM: 150, curve: "log-gap", gapCap: 0.035, gapSlope: 0.45, tailSlope: 0.65, transitionMs: 1200, headLimit: 0.97 });
+const FIGURE_DISPLAY = Object.freeze({ version: 6, FILL: 1.24, HEAD_TOP: 0.13, REF_MIN_CM: 150, DEFAULT_HEIGHT_CM: 168, curve: "log-gap", gapCap: 0.035, gapSlope: 0.45, tailSlope: 0.65, transitionMs: 1200, headLimit: 0.97 });
 const FIGURE_ALGORITHM = 1;
 function figureRatio(r) {
     if (r <= 0) return 0;
@@ -247,8 +247,8 @@ function resolveFigureSizing(input = {}) {
     const legacy = reason => ({ mode: "legacy", reason, warnings: reason === "no-height" ? [] : [reason] });
     const { metrics: record, source, canvas, W, H } = input;
     // a pack figure without a height stands on the ruler like any other, at the height the
-    // director's ruler already gives it (stage-asset-pack-director.js: heightCm ?? 150) - the same head as everyone else.
-    const heightCm = input.heightCm ?? (input.pack ? FIGURE_DISPLAY.REF_MIN_CM : null);
+    // director's ruler gives it: an unknown adult height, independent of the ruler's minimum.
+    const heightCm = input.heightCm ?? (input.pack ? FIGURE_DISPLAY.DEFAULT_HEIGHT_CM : null);
     if (heightCm == null) return legacy("no-height");
     if (!figureNumber(heightCm, 1, 1000)) return legacy("invalid-height");
     if (input.version !== 1) return legacy("unknown-figure-version");

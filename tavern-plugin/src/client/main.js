@@ -1177,6 +1177,8 @@ window.__ModuleLoader__.load({
 
 // @include features/reasoning-stream.js
 
+// @include features/disable-enter-send.js
+
 // @include features/play-events.js
 
 // @include ui/error-center.js

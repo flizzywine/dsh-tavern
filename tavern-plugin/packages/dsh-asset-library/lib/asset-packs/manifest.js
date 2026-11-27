@@ -10,6 +10,7 @@ import {validateAudienceContent} from '../shared/audience.js'
 import {validateAssetVariants} from '../shared/asset-variants.js'
 import {ASSET_CONTENT_FIELDS,assetContents,assetContentMedia} from '../shared/asset-variant-content.js'
 import { validateAssetRef } from './common.js'
+import { validGenStyle, genStyleId, validateGenStyleValue, validateCarriedStyles } from './gen-style.js'
 import widgetContract from '../shared/widget-schema.cjs'
 import widgetTheme from '../shared/widget-theme.cjs'
 import audioCategories from '../shared/audio-categories.cjs'
@@ -173,21 +174,19 @@ export function validateAssetContent(kind, content, path = '$') {
   }
   return content
 }
-// the pack's default style for generated pictures: the id of a style preset of the image plugin (its text and name live
-// there). Packs written before that store one of the four former ids; they read as the plugin presets that replaced them.
-const LEGACY_GEN_STYLES = Object.freeze({clean:'galgame-clean', anime:'galgame-anime', polished:'galgame-polished', none:'no-style'})
+// The pack's 画风 (genStyle, styles) and its one resolution are gen-style.js's. The portable asset CLI names one style id
+// per request: packGenStyle reads it, former ids as their presets, none as 干净低细节.
 export const PACK_GEN_STYLE_DEFAULT = 'galgame-clean'
 export function packGenStyle(value) {
-  return value === undefined ? PACK_GEN_STYLE_DEFAULT : LEGACY_GEN_STYLES[value] ?? value
+  return value === undefined ? PACK_GEN_STYLE_DEFAULT : genStyleId(value)
 }
-export function validGenStyle(value) {
-  return typeof value === 'string' && /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/.test(value) && value.length <= 80
-}
+export { validGenStyle }
 export function validatePackManifest(value, path = '$') {
   assertJson(value)
   const required = ['format', 'schemaVersion', 'id', 'name', 'contentHash', 'assets', 'figures', 'sprites', 'bundles', 'blobs', 'files']
-  shape(value, [...required, ...metadata, 'voiceLibrary', 'tagIcons', 'genStyle', 'backgroundStyle', 'stageSkin'], required, path)
-  if (value.genStyle !== undefined) check(validGenStyle(value.genStyle), path + '.genStyle', 'Unknown style id')
+  shape(value, [...required, ...metadata, 'voiceLibrary', 'tagIcons', 'genStyle', 'styles', 'backgroundStyle', 'stageSkin'], required, path)
+  if (value.genStyle !== undefined) validateGenStyleValue(value.genStyle, path + '.genStyle')
+  if (value.styles !== undefined) validateCarriedStyles(value.styles, path + '.styles')
   // `stageSkin` is the retired pack default skin: a card's skin is its own value, then the global default, then classic
   // (card-stage-settings.js cardStageSkin). An older pack keeps it as stored and it is still shape-checked, but nothing reads it.
   if (value.stageSkin !== undefined) validateShortId(value.stageSkin, path + '.stageSkin')

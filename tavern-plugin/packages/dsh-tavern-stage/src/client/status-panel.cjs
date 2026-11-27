@@ -20,12 +20,16 @@
 //   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面;
 //   title(text) the sheet's title line while the page is open (a sheet about one figure
 //   names it in the title, not in a heading of its own under it); '' gives the declared label back; at most 60 characters;
-//   sound(name) the move / confirm / open / close cue: the shown skin's own, else the engine's (ui-sfx.js).
+//   sound(name) the move / confirm / open / close cue: the shown skin's own, else the engine's (ui-sfx.js); sound({kind:'sfx', id})
+//   one of the card's own SE (its bound packs), played by the stage's SE player under the player's SE volume;
+//   toast(text, {type, tag}) a short line floating up over the stage (toasts.cjs push; it outlives the page).
+//   store.get(scope, key) / store.set(scope, key, value) the page's own small memory (pageStore below): scope 'save'
+//   follows this chat (a game), 'card' this card across its games; set with null forgets the key.
 //   Every action's Promise settles, so a page that disables its buttons while one
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, colorScheme, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, colorScheme, sounds, sfx, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, toast, findPluginPanel, PluginPanel, storage = () => window.localStorage}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -36,6 +40,38 @@ const pageToken = () => 'card-page:' + Math.random().toString(36).slice(2) + Dat
 const PAGE_SOUNDS = new Set(['move', 'confirm', 'open', 'close']);
 // what a performing page may ask (Performance below): read its data and files, sound, say it is done
 const PERFORM_METHODS = new Set(['asset', 'assets', 'sound', 'close']);
+// A page's small memory (store.get / store.set): a few JSON values per scope, kept on this machine (localStorage, as
+// the stage keeps its per-chat BGM choice) - 'save' by the chat's session id, 'card' by the card's library path, shared
+// by every page of that card. Checked here, where the page's request enters: a key of letters, digits, '_', '.', '-'
+// (at most 64), a value of at most 4 KiB as JSON, at most 32 keys per scope.
+const STORE_PREFIX = 'dsh-tavern:card-page-store:', STORE_KEY = /^[A-Za-z0-9_.-]{1,64}$/, STORE_VALUE_BYTES = 4096, STORE_KEYS = 32;
+function pageStore(read) {
+    const slot = (scope, owner) => STORE_PREFIX + scope + ':' + owner;
+    const load = name => JSON.parse(read().getItem(name) || '{}');
+    function where(args, owners) {
+        const scope = args?.scope, key = args?.key;
+        if (scope !== 'save' && scope !== 'card') throw new Error('store 的范围只能是 save（这一局）或 card（这张卡）');
+        if (typeof key !== 'string' || !STORE_KEY.test(key)) throw new Error('store 的键只能用字母、数字、_ . -，最多 64 个字符');
+        if (!owners[scope]) throw new Error('页面还没读好，稍后再存取');
+        return {name: slot(scope, owners[scope]), key};
+    }
+    return {
+        get(args, owners) { const {name, key} = where(args, owners); const value = load(name)[key]; return value === undefined ? null : value; },
+        set(args, owners) {
+            const {name, key} = where(args, owners), values = load(name), value = args.value;
+            if (value === null || value === undefined) delete values[key];
+            else {
+                const json = JSON.stringify(value);
+                if (json === undefined || new TextEncoder().encode(json).length > STORE_VALUE_BYTES) throw new Error('store 的值要能写成 JSON，且不超过 4 KiB');
+                if (!(key in values) && Object.keys(values).length >= STORE_KEYS) throw new Error('store 每个范围最多 32 个键，先删掉不用的');
+                values[key] = JSON.parse(json);
+            }
+            if (Object.keys(values).length) read().setItem(name, JSON.stringify(values)); else read().removeItem(name);
+            return {saved: true};
+        }
+    };
+}
+const store = pageStore(storage);
 // The frame's turn: the latest assistant turn the Helper context knows (at least 1, as the status views use).
 const latestTurn = helper => Math.max(1, ...Object.keys(helper?.turnMessageIds || {}).map(Number).filter(Number.isFinite));
 
@@ -86,7 +122,8 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'openPluginPanel:function(ref){return call("openPluginPanel",ref||{});},'
         + 'opening:function(userName){return call("opening",{userName:String(userName==null?"":userName)});},startGame:function(choice){return call("startGame",choice||{});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
-        + 'sound:function(name){return call("sound",{name:String(name||"")});},title:function(text){return call("title",{text:String(text==null?"":text)});},'
+        + 'store:Object.freeze({get:function(scope,key){return call("storeGet",{scope:scope,key:key});},set:function(scope,key,value){return call("storeSet",{scope:scope,key:key,value:value===undefined?null:value});}}),'
+        + 'sound:function(name){return call("sound",name&&typeof name==="object"?{ref:{kind:name.kind,id:name.id,variant:name.variant}}:{name:String(name||"")});},toast:function(text,options){var o=options||{};return call("toast",{text:String(text==null?"":text),type:o.type,tag:o.tag});},title:function(text){return call("title",{text:String(text==null?"":text)});},'
         + 'asset:function(ref){var key=JSON.stringify(ref||{});if(!assets.has(key)){var task=call("asset",ref||{}).then(function(blob){return URL.createObjectURL(blob);});task.catch(function(){assets.delete(key);});assets.set(key,task);}return assets.get(key);}});})();<\/script>';
 }
 
@@ -146,11 +183,27 @@ function createAssetReader(sessionId, page) {
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
 // perform: the cue of a performance (performCardPage below): the page shows in data().perform and may only read, sound and close.
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
-    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
+// A skin performance can only read the skin media the caller supplied (name → data URL), never card assets.
+function skinAssetReader(media = {}) {
+    const unavailable = name => new Error('皮肤没有素材「' + name + '」');
+    const read = async ref => {
+        const name = String(ref?.skin ?? '');
+        if (!Object.hasOwn(media, name)) throw unavailable(name);
+        const response = await window.fetch(media[name]);
+        if (!response.ok) throw unavailable(name);
+        return response.blob();
+    };
+    read.list = () => Promise.resolve(Object.keys(media).map(name => ({skin: name})));
+    return read;
+}
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, skinPage, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
+    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = skinPage ? null : helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
     const frames = new Map(); // document token → {node, descriptor}
+    // the page's own SE as object URLs of the host, made once per sound and revoked when the page closes
+    const soundUrls = new Map();
+    const soundUrl = ref => { const key = refKey(ref); if (!soundUrls.has(key)) soundUrls.set(key, readAsset(ref).then(blob => window.URL.createObjectURL(blob))); soundUrls.get(key).catch(() => soundUrls.delete(key)); return soundUrls.get(key); };
     const snapshot = () => ({
         ledger: copy(raw?.data?.ledger || {}),
         figures: (raw?.figures || []).map(figure => ({name: figure.name, ...(figure.emotion ? {emotion: figure.emotion} : {}), avatar: avatars.get(figure.name) || null})),
@@ -170,9 +223,15 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     }
     async function answer(method, args) {
         if (perform !== undefined && !PERFORM_METHODS.has(method)) throw new Error('演出中的页面只能读取、播放声音和结束（close），不能 ' + String(method || ''));
-        if (pluginPanelShowing?.() && !['asset', 'assets', 'title', 'sound', 'opening'].includes(method)) throw new Error('请先关闭插件面板');
+        if (pluginPanelShowing?.() && !['asset', 'assets', 'title', 'sound', 'toast', 'opening', 'storeGet', 'storeSet'].includes(method)) throw new Error('请先关闭插件面板');
+        if (method === 'storeGet') return store.get(args, {save: sessionId, card: raw?.card?.key});
+        if (method === 'storeSet') return store.set(args, {save: sessionId, card: raw?.card?.key});
         if (method === 'title') { title = String(args?.text ?? '').trim().slice(0, 60); state(phaseNow); return {title}; }
         if (method === 'asset') return await readAsset(args);
+        if (method === 'toast') {
+            if (typeof toast !== 'function') throw new Error('舞台提示不可用');
+            return toast(sessionId, {text: args?.text, type: args?.type, tag: args?.tag});
+        }
         if (method === 'assets') return await readAsset.list(String(args?.kind || ''));
         if (method === 'openPluginPanel') {
             const {plugin, panelId: id} = args || {};
@@ -221,6 +280,17 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             return {started: true};
         }
         if (method === 'sound') {
+            // sound({kind:'sfx', id}): one of the card's own SE, played as the stage plays an SE (sfx.cjs: the SE slider,
+            // mute and foreground rule), so a page never sounds past the player's settings
+            if (args?.ref) {
+                const ref = args.ref;
+                if (ref.kind !== 'sfx' || typeof ref.id !== 'string' || !ref.id) throw new Error('sound 播本卡音效要写 {kind: "sfx", id}');
+                if (!sfx) throw new Error('舞台音效不可用');
+                const url = await soundUrl({kind: 'sfx', id: ref.id, variant: typeof ref.variant === 'string' ? ref.variant : undefined});
+                if (closed) return {played: false};
+                void sfx.play(url, 'card-page:sfx:' + ref.id, {kind: 'sfx', id: ref.id}, undefined, 1, {name: ref.id, trace: {reason: 'card-page'}});
+                return {played: true};
+            }
             const name = String(args?.name || '');
             if (!PAGE_SOUNDS.has(name)) throw new Error('sound 只接受 move、confirm、open、close');
             return {played: sounds?.play(name) === true};
@@ -285,7 +355,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         }
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: (perform !== undefined ? 'stage-perform-' : 'stage-page-') + page,
-        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
+        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true && !skinPage, eager: true, persistent: true,
         // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
         observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
@@ -316,6 +386,14 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     async function load() {
         state('loading');
         try {
+            if (skinPage) {
+                if (typeof skinPage.html !== 'string' || !skinPage.html.trim()) { state('empty'); return; }
+                raw = {label: page, size: 'full', figures: [], data: {}, card: {}};
+                readAsset = skinAssetReader(skinPage.media);
+                state('ready');
+                mount(skinPage.html);
+                return;
+            }
             const result = await readPage(sessionId, page, true);
             if (closed) return;
             if (!result) { raw = null; state('empty'); return; }
@@ -335,6 +413,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         get frames() { return [...frames.values()].map(item => item.node); },
         // The live view's Helper context moved on: the lifecycle syncs it into the frame (or rebuilds when it appears).
         setHelper(next) {
+            if (skinPage) return;
             helper = next || null;
             if (!closed && lifecycle) lifecycle.update(frameProps());
         },
@@ -365,7 +444,9 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             open.delete(current);
             const errors = [];
             for (const action of [() => stopSignals?.(), () => stopMessages?.(), () => stopLifecycle?.(),
-                () => { for (const item of frames.values()) { item.descriptor.ref(null); item.node.remove(); } frames.clear(); }]) {
+                () => { for (const item of frames.values()) { item.descriptor.ref(null); item.node.remove(); } frames.clear(); },
+                // a sound still ringing keeps its URL until the SE cap (sfx.cjs, 10.5 s) has ended it
+                () => { const urls = [...soundUrls.values()]; soundUrls.clear(); if (urls.length) setTimeout(() => urls.forEach(task => task.then(url => window.URL.revokeObjectURL(url), () => {})), 11000); }]) {
                 try { action(); } catch (error) { errors.push(error); }
             }
             if (errors.length) throw new AggregateError(errors, 'Stage card page cleanup failed');
@@ -497,12 +578,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
 // asset, assets), sound and close. region: {bottom} px kept clear at the stage's bottom (the text box).
 // onEnd(result): {done: true} when the page closed, {skipped: true} on a click / Esc, {failed: message} when the page
 // could not be read (the mod shows what it would have shown without it).
-function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
+function Performance({sessionId, pageId, skinPage, cue, calm, region, onEnd}) {
     const h = React.createElement, body = React.useRef(null), end = React.useRef(onEnd);
     end.current = onEnd;
     const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
-    const ready = !useLiveView || Boolean(live?.view);
-    const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
+    const ready = !!skinPage || !useLiveView || Boolean(live?.view);
+    const trusted = !skinPage && (!useLiveView || Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode));
     const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper), panel = React.useRef(null);
     helperNow.current = helper;
     const [shown, setShown] = React.useState(false);
@@ -510,10 +591,10 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
         if (disposed || !ready) return;
         let over = false;
         const finish = result => { if (!over) { over = true; end.current?.(result); } };
-        const current = openCardPage({sessionId, page: pageId, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, skinPage, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => finish({done: true}), onAction: () => {},
             onState: next => {
-                if (next.phase === 'empty') finish({failed: '本卡没有页面「' + pageId + '」'});
+                if (next.phase === 'empty') finish({failed: (skinPage ? '皮肤没有演出页面「' : '本卡没有页面「') + pageId + '」'});
                 else if (next.phase === 'error') finish({failed: next.error || '页面读取失败'});
                 else if (next.shown) setShown(true);
             }});
@@ -533,7 +614,7 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
             if (panel.current === current) panel.current = null;
             current.dispose();
         };
-    }, [sessionId, pageId, ready, trusted]);
+    }, [sessionId, pageId, skinPage, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     return h('div', {className: 'fork-gal-page-perform', 'data-page': pageId, 'data-shown': shown ? '' : undefined,
         style: {bottom: Math.max(0, Math.round(region?.bottom || 0)) + 'px'}},

@@ -117,35 +117,48 @@ function isOriginalPlayerInput(message) {
  */
 export function projectRegenerationRequestMessages(messages) {
   const source = Array.isArray(messages) ? messages : []
-  let regenerationIndex = -1
-  for (let index = source.length - 1; index >= 0; index--) {
-    if (isRegenerationInput(source[index])) { regenerationIndex = index; break }
+  if (!source.some(isRegenerationInput)) return source
+  // Each regeneration attempt re-samples the player input before it. Anchor on
+  // each original player input and fold through the latest regeneration attempt
+  // before the next player input, rather than only the final attempt in the log:
+  // historical failed-tail or save-only regenerations can leave earlier retry
+  // carriers on the surface, and folding every such span keeps old bodies,
+  // refusals and superseded retry context out of the provider request.
+  const spans = []
+  let index = 0
+  while (index < source.length) {
+    if (!isOriginalPlayerInput(source[index])) { index += 1; continue }
+    let nextPlayer = index + 1
+    let lastRegen = -1
+    while (nextPlayer < source.length && !isOriginalPlayerInput(source[nextPlayer])) {
+      if (isRegenerationInput(source[nextPlayer])) lastRegen = nextPlayer
+      nextPlayer += 1
+    }
+    if (lastRegen > index) spans.push({ playerIndex: index, regenerationIndex: lastRegen, endIndex: nextPlayer })
+    index = nextPlayer
   }
-  if (regenerationIndex < 0) return source
-  // The attempt replaces the input of the turn it re-samples. Anchor on that
-  // input — the last player message before the attempt — not on the newest
-  // assistant: a turn whose reply never landed (error, stop, rolled back) has no
-  // assistant of its own, and walking back from the previous turn's reply would
-  // then take the previous input and drop everything after it, erasing the whole
-  // transcript between the two turns.
-  let playerIndex = -1
-  for (let index = regenerationIndex - 1; index >= 0; index--) {
-    if (isOriginalPlayerInput(source[index])) { playerIndex = index; break }
+  if (spans.length === 0) return source
+  const result = []
+  let cursor = 0
+  for (const { playerIndex, regenerationIndex, endIndex } of spans) {
+    if (playerIndex > cursor) result.push(...source.slice(cursor, playerIndex))
+    const projectedPlayer = Object.assign({}, source[playerIndex], {
+      content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
+    })
+    // Keep updates the frame adapter saw in the replaced turn if the new frame did not supersede them.
+    const replaced = source.slice(playerIndex + 1, regenerationIndex)
+    const tail = source.slice(regenerationIndex + 1, endIndex)
+    const retained = ['writingRulesSnapshot', 'playerIdentity'].flatMap(field => {
+      const isUpdate = message => message?.role === 'user' &&
+        isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.[field]?.schemaVersion === 1
+      const last = tail.some(isUpdate) ? undefined : replaced.findLast(isUpdate)
+      return last ? [last] : []
+    })
+    result.push(projectedPlayer, ...retained, ...tail)
+    cursor = endIndex
   }
-  if (playerIndex < 0) return source
-  const projectedPlayer = Object.assign({}, source[playerIndex], {
-    content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
-  })
-  const tail = source.slice(regenerationIndex + 1)
-  // Keep updates the frame adapter saw in the replaced turn if the new frame did not supersede them.
-  const replaced = source.slice(playerIndex + 1, regenerationIndex)
-  const retained = ['writingRulesSnapshot', 'playerIdentity'].flatMap(field => {
-    const isUpdate = message => message?.role === 'user' &&
-      isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.[field]?.schemaVersion === 1
-    const last = tail.some(isUpdate) ? undefined : replaced.findLast(isUpdate)
-    return last ? [last] : []
-  })
-  return source.slice(0, playerIndex).concat(projectedPlayer, retained, tail)
+  if (cursor < source.length) result.push(...source.slice(cursor))
+  return result
 }
 
 function snapshotMessage(text) {
@@ -383,7 +396,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       const writingSections = pureWritingSystemSections(fixed, frame, snapshot?.back?.entries)
       recordSystemSections(sessionId, writingSections)
       const system = writingSections.map(section => section.text).filter(Boolean).join('\n\n')
-      stagedRequests.set(sessionId, { pureWriter, frame, system, chat: input.chat, session: payload.agent.session })
+      stagedRequests.set(sessionId, { pureWriter, frame, system, writingSections, chat: input.chat, session: payload.agent.session })
       return { kind: 'enter', messages: agentMessages, startsRequestSeries: true }
     }
     if (play) {
@@ -455,7 +468,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (!staged?.pureWriter) throw new Error('本轮写作上下文已失效')
     const { frame } = staged
     const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(request.messages))
-    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages)
+    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages, staged.writingSections)
     if (!staged.preparation) {
       const { provider, model, reasoningEffort } = request
       const foregroundSelection = provider && model ? { provider, model, reasoningEffort } : undefined

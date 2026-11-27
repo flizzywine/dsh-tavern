@@ -1,6 +1,6 @@
 import { acquireHostSession, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
 import { readFile, writeFile } from 'node:fs/promises'
-import { clearFailedTurnSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { clearFailedTurnSurface, unansweredTailIndex } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -1144,4 +1144,24 @@ test('插件重生成中途停止会报告取消，仍保留已生成的片段',
   assert.deepEqual(view.pluginRegeneration, { aborted: true })
   assert.equal(h.chat.messages.at(-1).text, '已写片段')
   assert.equal(h.chat.messages.at(-1).incomplete, true)
+})
+
+test('末尾残留 placeholder 玩家气泡时，重新生成正文以该气泡为失败尾构建请求并清除其 placeholder 标记', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const expectedReply = { turn: 2, textVersion: computeSceneTarget(h.chat, 2).key }
+  h.chat.messages.push(
+    { role: 'user', text: '第一条未回复输入', sourceText: '第一条未回复输入', native: true, source: { kind: 'user', rpcId: 'rpc-tail-1' } },
+    { role: 'user', text: '第二条未进入原生轮的输入', sourceText: '第二条未进入原生轮的输入', native: true, placeholder: true, source: { kind: 'user', rpcId: 'rpc-tail-2' } }
+  )
+  assert.equal(unansweredTailIndex(h.chat), h.chat.messages.length - 1)
+  await assert.rejects(
+    h.create().regenerate('chat', '', 'session', { expectedReply }),
+    { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' }
+  )
+  await h.create().regenerate('chat', '', 'session')
+  const sentText = (h.agent.input?.content || []).map(part => part?.text || '').join('')
+  assert.match(sentText, /第二条未进入原生轮的输入/, '重生成请求必须携带第二个气泡的输入内容')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.equal(h.chat.messages.at(-2).text, '第二条未进入原生轮的输入')
+  assert.equal(h.chat.messages.at(-2).placeholder, undefined, '补写正文提交后应清除该用户气泡的 placeholder 标记')
 })

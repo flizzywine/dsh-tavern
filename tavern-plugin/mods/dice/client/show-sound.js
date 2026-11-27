@@ -1,5 +1,6 @@
-// The check show's sound (show.js), synthesized in code: no audio file, no pack entry. Pure: (stem, timeline) → PCM,
-// the same samples on every machine, so the tests and the review render read the very sound the stage plays.
+// The check show's sound (show.js): a procedural 16-beat skeleton on the show's own timeline (SHOW_T), mixed with the
+// packaged retro brass/organ harmonic beds (check-show-bed.ogg / check-show-calm.ogg) when loaded, or falling back to
+// pure procedural synthesis when offline. Pure: (stem, timeline, cast, rate, bed?) → PCM.
 //
 // The score follows the picture beat for beat (the times are the show's own timeline, SHOW_T):
 //   open   the shutter closes (a rising hiss cut by a clack); each die is set down (a tick); each marked die is counted
@@ -7,18 +8,20 @@
 //          ruled (a short rising stroke, each quicker); the figure is stamped (a low thud); then nothing.
 //   bloom  a breath in, and the hit as the figure swallows the stage (a sub drop under a wide wash of air); each figure
 //          of the frieze rings as it lights (the count's three tones an octave down, left, centre, right); each letter
-//          lands (a drum, rising), the last on the downbeat with the whole chord: the open fifths the count promised
-//          gain their major third, sung by a choir of formant voices over glitter.
+//          lands (a drum, rising), the last on the downbeat with the whole chord: the retro brass/organ bed resolves on
+//          the accent (or the synthesized formant choir in offline fallback) over shimmering dust.
 //   exit   the air is drawn back in, and the result is filed on its card (a small tick).
 //   calm   减少动态: nothing moves, so nothing strikes - the three tones, soft, and the chord held under the still.
 // Everything rings in one small room (a Schroeder / Moorer reverb); the low end stays dry.
 
 const SHOW_SOUND_RATE = 48000;
+const SHOW_SOUND_ASSET_BASE = "/api/dsh-tavern/vendor/runtime-assets/gal-stage/";
+const SHOW_SOUND_BEDS = Object.freeze({ bloom: "check-show-bed.ogg", calm: "check-show-calm.ogg" });
 // The root: A (55 Hz and its octaves). Count tone j is 440 x (3/2)^j.
 const SHOW_SOUND_ROOT = 55;
 // The whole score's level as rendered (stems laid at their cues; BS.1770 integrated, sample peak in dBFS): the mixer
 // gains the sfx bus from it (stage-audio-math.js audioGain). tests/fork-check-show-sound.test.mjs holds it to the render.
-const SHOW_SOUND_LOUDNESS = Object.freeze({ v: 1, lufs: -15.2, peak: -1.0 });
+const SHOW_SOUND_LOUDNESS = Object.freeze({ v: 1, lufs: -14.5, peak: -1.0 });
 // Every stem is scaled by this, so the laid-out score peaks at SHOW_SOUND_LOUDNESS.peak.
 const SHOW_SOUND_GAIN = 0.9;
 
@@ -115,20 +118,20 @@ function showSynth(rate) {
         return out;
     }
     // A choir on one vowel (ah): three sawtooth voices a note, each a little off pitch and slowly wavering, spread
-    // across the stereo field, through the vowel's five formants. notes: [[hz, level]]. → [left, right], unshaped.
+    // across the stereo field, through the vowel's (a rounded oo / oh) formants, with a little breath of air. notes: [[hz, level]]. → [left, right], unshaped.
     function choir(seconds, notes, seed) {
         const next = random(seed), length = count(seconds), sides = [new Float32Array(length), new Float32Array(length)];
         for (const [hz, level] of notes) for (const cents of [-8, 0, 7]) {
-            const pitch = hz * Math.pow(2, (cents + (next() - 0.5) * 5) / 1200), speed = 4.6 + next() * 1.2, lag = next() * TAU, pan = (next() - 0.5) * 1.5;
-            const voice = saw(seconds, t => pitch * (1 + 0.004 * Math.min(1, t / 0.6) * Math.sin(TAU * speed * t + lag)), next());
+            const pitch = hz * Math.pow(2, (cents + (next() - 0.5) * 5) / 1200), speed = 3.4 + next() * 1, lag = next() * TAU, pan = (next() - 0.5) * 1.5;
+            const voice = saw(seconds, t => pitch * (1 + 0.0025 * Math.min(1, t / 0.6) * Math.sin(TAU * speed * t + lag)), next());
             const left = level * Math.cos((pan + 1) * Math.PI / 4), right = level * Math.sin((pan + 1) * Math.PI / 4);
             for (let i = 0; i < length; i++) { sides[0][i] += voice[i] * left; sides[1][i] += voice[i] * right; }
         }
         return sides.map(side => {
-            const out = new Float32Array(length), body = biquad("lowpass", 520, 0.7);
-            const formants = [[800, 80, 1], [1150, 90, 0.5], [2900, 120, 0.1], [3900, 130, 0.12], [4950, 140, 0.02]].map(([f, width, level]) => [biquad("bandpass", f, f / width), level]);
+            const out = new Float32Array(length), body = biquad("lowpass", 480, 0.7), breath = biquad("bandpass", 2400, 1.1), air = noise(seconds, seed + "air" + sides.indexOf(side));
+            const formants = [[420, 150, 0.9], [860, 180, 0.55], [2500, 320, 0.08], [3400, 420, 0.05]].map(([f, width, level]) => [biquad("bandpass", f, f / width), level]);
             for (let i = 0; i < length; i++) {
-                let sum = 0.3 * body.run(side[i]);
+                let sum = 0.55 * body.run(side[i]) + 0.035 * breath.run(air[i]);
                 for (const [filter, level] of formants) sum += level * filter.run(side[i]);
                 out[i] = sum;
             }
@@ -179,8 +182,8 @@ function showSynth(rate) {
             }
             return out;
         }
-        function done(roomLevel = 1, feedback = 0.86, damp = 0.3) {
-            const wetL = room(sendL, 0, feedback, damp), wetR = room(sendR, 23, feedback, damp), edge = count(0.03);
+        function done(roomLevel = 1, feedback = 0.86, damp = 0.3, fade = 0.03) {
+            const wetL = filtered(room(sendL, 0, feedback, damp), "highpass", 200), wetR = filtered(room(sendR, 23, feedback, damp), "highpass", 200), edge = count(fade);
             for (let i = 0; i < length; i++) {
                 // The room answers in both ears; a soft knee rounds what the sum pushes past -3 dBFS.
                 const l = (left[i] + roomLevel * (wetL[i] * 0.8 + wetR[i] * 0.2)) * SHOW_SOUND_GAIN, r = (right[i] + roomLevel * (wetR[i] * 0.8 + wetL[i] * 0.2)) * SHOW_SOUND_GAIN;
@@ -205,9 +208,32 @@ function showSoundCues(T, calm) {
     return calm ? [{ stem: "calm", at: 0 }] : [{ stem: "open", at: 0 }, { stem: "bloom", at: T.hit - T.breath }, { stem: "exit", at: T.end }];
 }
 
+// Mixes a pre-enveloped stereo harmonic bed ({ left, right, rate? }) onto a rendered stem at `offset` samples, scales
+// by `trim`, and applies a gentle soft ceiling `ceil` (linear amplitude) so peaks stay clean without hard clipping.
+function showSoundMixBed(base, bed, offset, rate, trim = 1, ceil = 0.85) {
+    const outL = new Float32Array(base.left), outR = new Float32Array(base.right);
+    const bedRate = bed.rate || rate, ratio = bedRate / rate;
+    const bedLen = Math.floor(bed.left.length / ratio);
+    const end = Math.min(outL.length, offset + bedLen);
+    for (let i = Math.max(0, offset); i < end; i++) {
+        const pos = (i - offset) * ratio, idx = Math.floor(pos), frac = pos - idx;
+        const next = Math.min(idx + 1, bed.left.length - 1);
+        outL[i] += bed.left[idx] + (bed.left[next] - bed.left[idx]) * frac;
+        outR[i] += bed.right[idx] + (bed.right[next] - bed.right[idx]) * frac;
+    }
+    const thresh = ceil * 0.76, span = ceil - thresh;
+    const limit = x => { const a = Math.abs(x); return a <= thresh ? x : Math.sign(x) * (thresh + span * Math.tanh((a - thresh) / span)); };
+    for (let i = 0; i < outL.length; i++) {
+        outL[i] = limit(outL[i] * trim);
+        outR[i] = limit(outR[i] * trim);
+    }
+    return { left: outL, right: outR };
+}
+
 // One stem's PCM: { left, right } Float32Array at `rate`. T: the show's timeline (SHOW_T); cast: { dice, marked,
-// corners, letters } counts of this record's composition.
-function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE) {
+// corners, letters } counts of this record's composition. bed: optional decoded harmonic bed ({ left, right, rate? })
+// for "bloom" / "calm"; omitted falls back to pure procedural synthesis.
+function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE, bed = null) {
     const S = showSynth(rate), s = ms => ms / 1000, fifth = j => 440 * Math.pow(1.5, Math.min(j, 3));
     if (name === "open") {
         const mix = S.stem(s(T.fill) + 1.3);
@@ -224,12 +250,13 @@ function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE) {
         }
         // The count: one chime a marked die, a fifth above the last.
         for (let j = 0; j < cast.marked; j++) mix.add(S.chime(fifth(j), 1.6, 0.42), s(T.count + j * T.countStep), 0.34, -0.25 + 0.25 * j, 0.55);
-        // The edges ruled: a rising stroke each (pen on paper), the pitch a step higher every time.
+        // The edges ruled: a rising stroke each (pen on paper, ending on the nib's dot), the pitch a step higher every time.
         for (let j = 0; j < cast.corners; j++) {
-            const length = s(T.edgeDur), from = 700 * Math.pow(1.26, j);
-            const stroke = S.shape(S.sweep(S.noise(length, "rule" + j), "bandpass", from, from * 3.2, 5), t => Math.min(1, t / 0.008) * Math.pow(1 - t / length, 0.6));
-            mix.add(stroke, s(showEdgeAt(T, j)), 0.4, [-0.4, 0.4, 0][j % 3], 0.15);
-            mix.add(S.shape(S.tone(length, t => from * 0.5 * (1 + 1.4 * t / length)), t => 0.5 * Math.min(1, t / 0.008) * (1 - t / length)), s(showEdgeAt(T, j)), 0.12, [-0.4, 0.4, 0][j % 3], 0.2);
+            const length = s(T.edgeDur), from = 1200 * Math.pow(1.1, j);
+            const stroke = S.shape(S.sweep(S.noise(length, "rule" + j), "bandpass", from, from * 2.2, 2.2), t => Math.min(1, t / 0.008) * Math.pow(1 - t / length, 0.6));
+            mix.add(stroke, s(showEdgeAt(T, j)), 0.34, [-0.4, 0.4, 0][j % 3], 0.15);
+            // The pen lifts: a short bright dot of the nib at the stroke's end.
+            mix.add(S.shape(S.filtered(S.noise(0.02, "nib" + j), "bandpass", 3500, 2), t => Math.exp(-t / 0.002)), s(showEdgeAt(T, j)) + length - 0.004, 0.2, [-0.4, 0.4, 0][j % 3], 0.2);
         }
         // The stamp: the figure inked in one blow.
         mix.add(S.drop(0.5, 170, 58, 0.022, 0.13, 2.2), s(T.fill), 0.5, 0, 0.06);
@@ -237,59 +264,73 @@ function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE) {
         return mix.done(1, 0.8, 0.35);
     }
     if (name === "bloom") {
-        const breath = s(T.breath), at = ms => breath + s(ms - T.hit), accent = at(T.accent), end = at(T.end), mix = S.stem(end + 2.6);
+        const breath = s(T.breath), at = ms => breath + s(ms - T.hit), accent = at(T.accent), end = at(T.end), mix = S.stem(end + 1.4);
         // The breath in: air and the root's octave swelling out of the silence, cut by the hit.
         mix.add(S.shape(S.sweep(S.noise(breath, "breath"), "bandpass", 5200, 1400, 0.9), t => Math.exp((t - breath) / 0.075)), 0, 0.3, 0, 0.3);
-        mix.add(S.shape(S.tone(breath, () => 220), t => Math.exp((t - breath) / 0.09)), 0, 0.12);
+        mix.add(S.shape(S.tone(breath, () => 220), t => Math.exp((t - breath) / 0.09)), 0, bed ? 0.1 : 0.12);
         // The hit: the sub falls an octave and a half and stays; a knock a small speaker can say; a wide wash of air.
-        mix.add(S.drop(2.6, 150, SHOW_SOUND_ROOT, 0.05, 0.55, 2.6), breath, 0.6);
-        mix.add(S.drop(0.5, 330, 110, 0.03, 0.12, 2), breath, 0.3, 0, 0.08);
+        mix.add(S.drop(bed ? 2.2 : 2.6, 150, SHOW_SOUND_ROOT, 0.05, bed ? 0.32 : 0.34, 2), breath, 0.44);
+        mix.add(S.drop(0.5, 330, 110, 0.03, bed ? 0.11 : 0.12, 2), breath, bed ? 0.28 : 0.3, 0, 0.08);
         for (const [side, seed] of [[-1, "washL"], [1, "washR"]]) {
-            const wash = S.shape(S.sweep(S.noise(2.2, seed), "lowpass", 7000, 260, 0.8, 0.5), t => Math.min(1, t / 0.004) * Math.exp(-t / 0.55));
-            mix.add(wash, breath, 0.26, side * 0.9, 0.25);
+            const wash = S.shape(S.sweep(S.noise(bed ? 1.8 : 2.2, seed), "lowpass", bed ? 6500 : 7000, 260, 0.8, 0.5), t => Math.min(1, t / 0.004) * Math.exp(-t / (bed ? 0.48 : 0.55)));
+            mix.add(wash, breath, bed ? 0.24 : 0.26, side * 0.9, bed ? 0.22 : 0.25);
         }
-        // The open fifths under everything from the hit (root, twelfth, and the ninth above it: 1 : 3 : 9), swelling
-        // toward the accent.
-        const hold = end - breath + 1.6, swell = t => Math.min(1, 0.25 + 0.75 * t / (accent - breath)) * Math.min(1, t / 0.25) * Math.min(1, Math.exp(-(t - (end - breath)) / 0.5));
-        for (const [ratio, level] of [[2, 0.1], [3, 0.07], [9, 0.02]]) {
-            const drone = S.filtered(S.saw(hold, t => SHOW_SOUND_ROOT * ratio * (1 + 0.0015 * Math.sin(S.TAU * 0.31 * t + ratio))), "lowpass", 900);
-            mix.add(S.shape(drone, swell), breath, level, 0, 0.3);
+        // Offline fallback: open fifths under everything from the hit, swelling toward the accent.
+        if (!bed) {
+            const hold = end - breath + 1.6, swell = t => Math.min(1, 0.25 + 0.75 * t / (accent - breath)) * Math.min(1, t / 0.25) * Math.min(1, Math.exp(-(t - (end - breath)) / 0.5));
+            for (const [ratio, level] of [[2, 0.1], [3, 0.07], [9, 0.02]]) {
+                const drone = S.filtered(S.saw(hold, t => SHOW_SOUND_ROOT * ratio * (1 + 0.0015 * Math.sin(S.TAU * 0.31 * t + ratio))), "lowpass", 900);
+                mix.add(S.shape(drone, swell), breath, level, 0, 0.3);
+            }
         }
         // The frieze: each figure rings as it lights - the count's tones an octave down, left to right.
         for (let k = 0; k < 3; k++) {
-            mix.add(S.chime(fifth(k) / 2, 3.2, 1.25, 6), at(T.tri + k * T.triStep), 0.26, [-0.62, 0, 0.62][k], 0.7);
-            mix.add(S.chime(fifth(k), 2, 0.6), at(T.tri + k * T.triStep), 0.1, [-0.62, 0, 0.62][k], 0.7);
+            mix.add(S.chime(fifth(k) / 2, bed ? 2.8 : 3.2, bed ? 1.0 : 1.25, 6), at(T.tri + k * T.triStep), bed ? 0.24 : 0.26, [-0.62, 0, 0.62][k], bed ? 0.65 : 0.7);
+            mix.add(S.chime(fifth(k), bed ? 1.8 : 2, bed ? 0.5 : 0.6), at(T.tri + k * T.triStep), bed ? 0.09 : 0.1, [-0.62, 0, 0.62][k], bed ? 0.65 : 0.7);
         }
         // The letters land: a drum each, climbing the chord; the last is the accent.
         const steps = [2, 2.5, 3, 4, 5, 6];
         for (let i = 0; i < cast.letters - 1; i++) {
             const when = at(showSlamAt(T, i, cast.letters)), pitch = SHOW_SOUND_ROOT * steps[Math.min(i, steps.length - 1)], pan = -0.3 + 0.6 * i / Math.max(1, cast.letters - 1);
-            mix.add(S.drop(0.6, pitch * 2.2, pitch, 0.018, 0.16, 2), when, 0.42, pan, 0.18);
-            mix.add(S.shape(S.filtered(S.noise(0.05, "slam" + i), "bandpass", 1900, 1.4), t => Math.exp(-t / 0.009)), when, 0.3, pan, 0.3);
+            mix.add(S.drop(bed ? 0.55 : 0.6, pitch * 2.2, pitch, 0.018, 0.085, 2), when, 0.42, pan, 0.18);
+            mix.add(S.shape(S.filtered(S.noise(0.05, "slam" + i), "bandpass", 2000, 1.4), t => Math.exp(-t / 0.009)), when, 0.4, pan, bed ? 0.28 : 0.3);
         }
-        // The accent: the second sub, a crash of bright air, and the chord complete - the choir brings the third.
-        mix.add(S.drop(2.8, 165, SHOW_SOUND_ROOT, 0.06, 0.7, 2.8), accent, 0.62);
-        mix.add(S.drop(0.6, 440, 110, 0.03, 0.14, 2), accent, 0.3, 0, 0.1);
+        // The accent: the second sub, a crisp punch and a crash of bright air; the harmonic bed (or fallback choir) brings the third.
+        mix.add(S.drop(bed ? 2.6 : 2.8, 165, SHOW_SOUND_ROOT, 0.06, bed ? 0.65 : 0.68, bed ? 2.7 : 2.8), accent, bed ? 0.62 : 0.64);
+        mix.add(S.drop(bed ? 0.55 : 0.6, 440, 110, 0.03, bed ? 0.13 : 0.14, 2), accent, 0.3, 0, 0.1);
         for (const [side, seed] of [[-1, "crashL"], [1, "crashR"]]) {
-            mix.add(S.shape(S.filtered(S.noise(2.4, seed), "highpass", 3200), t => Math.min(1, t / 0.003) * Math.exp(-t / 0.6)), accent, 0.12, side * 0.85, 0.5);
+            mix.add(S.shape(S.filtered(S.noise(bed ? 2.2 : 2.4, seed), "highpass", bed ? 3600 : 3200), t => Math.min(1, t / 0.003) * Math.exp(-t / (bed ? 0.55 : 0.6))), accent, bed ? 0.11 : 0.12, side * 0.85, bed ? 0.45 : 0.5);
+        }
+        if (bed) {
+            // Subtle shimmering air dust behind the retro brass/organ bed.
+            for (const [side, seed] of [[-1, "airL"], [1, "airR"]]) {
+                const lag = side < 0 ? 0 : Math.PI, mist = S.filtered(S.filtered(S.noise(end - accent + 1.2, seed), "highpass", 5200), "lowpass", 10000);
+                mix.add(S.shape(mist, t => Math.min(1, t / 0.6) * Math.exp(-Math.max(0, t - (end - accent)) / 0.35) * (0.65 + 0.35 * Math.sin(S.TAU * 0.8 * t + lag))), accent, 0.035, side * 0.8, 0.25);
+            }
+            return showSoundMixBed(mix.done(1, 0.88, 0.28, 0.6), bed, Math.round(breath * rate), rate, 0.84, 0.84);
         }
         const sung = end - accent + 2.2, voices = S.choir(sung, [[110, 0.8], [165, 0.7], [220, 0.9], [277.18, 0.75], [330, 0.8], [495, 0.6], [554.37, 0.5], [660, 0.35]], "choir");
         // It comes in under the blow and keeps growing until the field folds.
         const breathe = t => Math.pow(Math.min(1, t / 0.32), 1.5) * (0.72 + 0.28 * Math.min(1, t / (end - accent))) * Math.min(1, Math.exp(-(t - (end - accent)) / 0.55));
-        mix.addStereo(voices.map(side => S.shape(side, breathe)), accent, 0.38, 0.6);
+        mix.addStereo(voices.map(side => S.shape(side, breathe)), accent, 0.26, 0.6);
         // Glitter: the dust heard - short high tones of the chord, thick at the accent and thinning.
         const next = S.random("glitter"), tones = [1760, 1980, 2217.46, 2640, 3520, 3960, 4434.92, 5280];
         for (let t = at(T.tri); t < end + 0.5;) {
-            const since = t - accent, density = since < 0 ? 7 + 14 * (t - at(T.tri)) / (accent - at(T.tri)) : 46 * Math.exp(-since / 1.3) + 6;
+            const since = t - accent, density = since < 0 ? 7 + 14 * (t - at(T.tri)) / (accent - at(T.tri)) : 24 * Math.exp(-since / 1.3) + 6;
             t += -Math.log(1 - next()) / density;
-            const hz = tones[Math.floor(next() * tones.length)], ring = 0.03 + next() * 0.11, level = 0.02 + 0.05 * next() * next();
-            const ping = S.shape(S.tone(ring * 5, () => hz), x => Math.min(1, x / 0.002) * Math.exp(-x / ring));
+            const hz = tones[Math.floor(next() * tones.length)], ring = 0.03 + next() * 0.11, level = 0.01 + 0.025 * next() * next();
+            const ping = S.shape(S.tone(ring * 5, () => hz), x => Math.min(1, x / (0.012 + 0.013 * next())) * Math.exp(-x / ring));
             mix.add(ping, t, level * (t > end ? Math.max(0, 1 - (t - end) / 0.5) : 1), next() * 1.8 - 0.9, 0.6);
         }
-        return mix.done(1, 0.88, 0.28);
+        // Air in the dust: a faint high shimmer swaying from ear to ear, rising with the accent and ebbing with the field.
+        for (const [side, seed] of [[-1, "airL"], [1, "airR"]]) {
+            const lag = side < 0 ? 0 : Math.PI, mist = S.filtered(S.filtered(S.noise(end - accent + 1.4, seed), "highpass", 4500), "lowpass", 9000);
+            mix.add(S.shape(mist, t => Math.min(1, t / 0.7) * Math.exp(-Math.max(0, t - (end - accent)) / 0.4) * (0.65 + 0.35 * Math.sin(S.TAU * 0.8 * t + lag))), accent, 0.05, side * 0.8, 0.3);
+        }
+        return mix.done(1, 0.88, 0.28, 0.6);
     }
     if (name === "exit") {
-        const ebb = s(T.ebb), land = s(T.ebb + T.exit), mix = S.stem(land + 0.9);
+        const ebb = s(T.ebb), land = s(T.ebb + T.exit), mix = S.stem(land + 0.8);
         // The air drawn back in as the field folds into the figure; the figure filed on its card.
         mix.add(S.shape(S.sweep(S.noise(ebb, "ebb"), "bandpass", 300, 3800, 1.2, 1.4), t => Math.pow(t / ebb, 1.8) * (t > ebb - 0.006 ? (ebb - t) / 0.006 : 1)), 0, 0.5, 0, 0.2);
         mix.add(S.drop(0.3, 210, 96, 0.015, 0.06, 1.6), ebb, 0.36, 0, 0.1);
@@ -299,11 +340,13 @@ function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE) {
         return mix.done(1, 0.8, 0.35);
     }
     // calm: the three tones, close together and soft, into the chord held under the still picture.
-    const hold = s(T.calmIn + T.calmHold), mix = S.stem(hold + 2.4);
-    for (let j = 0; j < 3; j++) mix.add(S.chime(fifth(j) / 2, 3, 1.1, 6), 0.06 + 0.13 * j, 0.26, -0.4 + 0.4 * j, 0.7);
+    const hold = s(T.calmIn + T.calmHold), mix = S.stem(hold + 1.9);
+    for (let j = 0; j < 3; j++) mix.add(S.chime(fifth(j) / 2, 3, 1.1, 6), 0.06 + 0.13 * j, bed ? 0.13 : 0.12, -0.4 + 0.4 * j, 0.7);
+    if (bed) return showSoundMixBed(mix.done(1, 0.88, 0.28, 0.4), bed, Math.round(0.25 * rate), rate, 0.9, 0.5);
     const voices = S.choir(hold + 1.6, [[110, 0.8], [165, 0.7], [220, 0.9], [277.18, 0.75], [330, 0.8], [495, 0.6]], "calm");
-    mix.addStereo(voices.map(side => S.shape(side, t => Math.pow(Math.min(1, t / 0.9), 1.5) * Math.min(1, Math.exp(-(t - hold) / 0.5)))), 0.3, 0.26, 0.6);
-    return mix.done(1, 0.88, 0.28);
+    mix.addStereo(voices.map(side => S.shape(side, t => Math.pow(Math.min(1, t / 0.9), 1.5) * Math.min(1, Math.exp(-(t - hold) / 0.5)))), 0.3, 0.18, 0.6);
+    for (const [side, seed] of [[-1, "calmAirL"], [1, "calmAirR"]]) mix.add(S.shape(S.filtered(S.filtered(S.noise(hold + 1, seed), "highpass", 4500), "lowpass", 9000), t => Math.min(1, t / 0.9) * Math.min(1, Math.exp(-(t - hold) / 0.5))), 0.3, 0.05, side * 0.8, 0.3);
+    return mix.done(1, 0.88, 0.28, 0.4);
 }
 
-if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { SHOW_SOUND_RATE, SHOW_SOUND_LOUDNESS, SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundCues, showSoundStem };
+if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { SHOW_SOUND_RATE, SHOW_SOUND_ASSET_BASE, SHOW_SOUND_BEDS, SHOW_SOUND_LOUDNESS, SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundCues, showSoundMixBed, showSoundStem };

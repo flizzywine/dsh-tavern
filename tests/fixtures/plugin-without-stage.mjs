@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import {createPluginHost} from './plugin-host.mjs'
 const host=await createPluginHost({withTools:true,config:{stage:false}})
 try {
+  assert.equal(host.registeredTools.has('tavern_test_response'), false, 'automated playtesting is not a workbench tool')
+  assert.equal(typeof host.registeredTools.get('tavern_validate_card')?.execute, 'function')
   assert.equal(host.services.has('tavernManagedModules'),false)
   assert.equal(host.services.has('tavernAssetCards'),false)
   assert.equal(host.services.has('tavernAssetDependencies'),false)

@@ -1,3 +1,5 @@
+import { projectTavernHostScript } from './tavern-host-script-projection.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -30,12 +32,14 @@ export function projectTavernHelperScripts(helperScripts, savedVariables) {
     const initial = Object.prototype.hasOwnProperty.call(variables, id) && object(variables[id])
       ? variables[id]
       : (object(source.data) ? source.data : {})
+    const content = str(source.content).replace(/^\s*```(?:javascript|js)?[^\S\r\n]*\r?\n([\s\S]*?)\r?\n```\s*$/i, '$1')
     scripts.push({
       id,
       name,
       // Some exported cards wrap executable source in a Markdown code fence.
       // Only unwrap a single complete JavaScript block, preserving its body.
-      content: str(source.content).replace(/^\s*```(?:javascript|js)?[^\S\r\n]*\r?\n([\s\S]*?)\r?\n```\s*$/i, '$1'),
+      content: /\b(?:import|export)\b/.test(content)
+        ? projectTavernHostScript(content, { imports: true, hostAccess: false }) : content,
       data: clone(initial),
       buttons: clone(Array.isArray(source.buttons) ? source.buttons : []),
       buttonsEnabled: source.buttonsEnabled !== false,

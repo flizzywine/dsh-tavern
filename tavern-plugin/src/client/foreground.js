@@ -2,7 +2,9 @@
 // Two signals, one authority. `foreground` (presentation): the window is visible - a visible stage keeps animating
 // while another app has the focus. `audible`: every sound - BGM, ambience,
 // voice, SE, UI cues - plays only while DSH Tavern is also the focused app; leaving pauses media where it is and
-// returning resumes it. A live phone call holds its audio (keepAudio) so the line is not cut.
+// returning resumes it. A live phone call holds its audio (keepAudio) so the line is not cut. Reading the story aloud
+// (a media element tracked with {background:true}) is the one other sound that goes on while the app is behind: its
+// element keeps playing and the mixer's context runs for it, while every other source stays silent (stage-audio.js).
 const FOREGROUND_BLUR_MS = 250;
 function createForeground(host, doc) {
     const listeners = new Set(), audioListeners = new Set(), timers = new Map(), frames = new Map(), media = new Map(), contexts = new Set();
@@ -53,6 +55,7 @@ function createForeground(host, doc) {
         if (audible === value) return;
         audible = value;
         for (const record of media.values()) {
+            if (record.background) continue;
             if (value) record.resume(); else record.freeze();
         }
         syncContexts();
@@ -63,10 +66,11 @@ function createForeground(host, doc) {
         set(Boolean(picker) || doc.visibilityState === 'visible');
         hear();
     }
-    // Contexts run while audible or held; they are only touched when that changes (a held call never dips).
+    // Contexts run while audible, held, or a background element plays; they are only touched when that changes (a held call never dips).
     let running = audible;
+    const backgroundPlaying = () => { for (const record of media.values()) if (record.background) return true; return false; };
     function syncContexts() {
-        const value = audible || holds.size > 0;
+        const value = audible || holds.size > 0 || backgroundPlaying();
         if (running === value) return;
         running = value;
         for (const record of contexts) record.sync(value);
@@ -110,11 +114,11 @@ function createForeground(host, doc) {
     doc.addEventListener('visibilitychange', refresh);
     doc.addEventListener('click', pickerClick, true);
     if (!foreground) pauseAnimations();
-    function trackMedia(node, graph = false) {
-        if (node.__forkForeground) { node.__forkForeground.graph ||= graph; return node; }
+    function trackMedia(node, graph = false, { background = false } = {}) {
+        if (node.__forkForeground) { node.__forkForeground.graph ||= graph; node.__forkForeground.background ||= background; return node; }
         const play = node.play.bind(node), pause = node.pause.bind(node);
         const record = {
-            graph, epoch: 0, fade: null, target: null,
+            graph, background, epoch: 0, fade: null, target: null,
             settle() { if (this.fade !== null) { cancel(this.fade); this.fade = null; node.volume = this.target; } },
             freeze() { this.epoch++; this.settle(); pause(); },
             resume() {
@@ -143,16 +147,17 @@ function createForeground(host, doc) {
         node.play = function () {
             media.set(node, record);
             const epoch = record.epoch;
-            return audible ? play().catch(error => {
+            if (record.background) syncContexts();
+            return audible || record.background ? play().catch(error => {
                 // pause() rejects an in-flight native play promise. This is suspension, not an SFX/voice failure.
                 if (epoch !== record.epoch && media.get(node) === record && error.name === 'AbortError') return;
                 media.delete(node); throw error;
             }) : Promise.resolve();
         };
-        node.pause = function () { record.settle(); media.delete(node); return pause(); };
-        const done = () => { record.settle(); media.delete(node); };
+        node.pause = function () { record.settle(); media.delete(node); syncContexts(); return pause(); };
+        const done = () => { record.settle(); media.delete(node); syncContexts(); };
         node.addEventListener('ended', done); node.addEventListener('error', done);
-        if (!node.paused) { media.set(node, record); if (!audible) record.freeze(); }
+        if (!node.paused) { media.set(node, record); if (!audible && !record.background) record.freeze(); }
         return node;
     }
     function trackContext(context, gain) {
@@ -188,6 +193,8 @@ function createForeground(host, doc) {
         return () => { off(); app.ticker.update = update; app.renderer.render = render; };
     }
     return {
+        // A source heard now: everything while audible, otherwise only a background element.
+        heard: node => audible || Boolean(node?.__forkForeground?.background),
         state: () => ({ foreground, audible, held: holds.size, visibility: doc.visibilityState, focused: doc.hasFocus(), picker: Boolean(picker), timers: timers.size, frames: frames.size, media: media.size, contexts: contexts.size, audioContexts: [...contexts].map(record => record.context.state) }),
         isForeground: () => foreground, subscribe, now, refresh,
         // Sound policy: whether anything may sound now, and its changes (called once at once, like subscribe).

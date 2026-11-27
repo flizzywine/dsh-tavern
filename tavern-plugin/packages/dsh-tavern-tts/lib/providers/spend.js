@@ -1,6 +1,7 @@
 // The optional spend guard for paid requests. DSH_TAVERN_SPEND_MODULE names a module whose createApiSpend() returns
-// check({category, purpose, channel, estimatedUsd}) → {id} (it throws to refuse the request) and release(id) (the provider
-// certainly did not bill it). Without the variable paid requests go straight to the service: their limits are the
+// check({category, purpose, channel, estimatedUsd, batchId, budget, dryRun}) → {id} (it throws to refuse the request;
+// batchId and budget bound one batch such as a voice pilot, dryRun only previews) and release(id) (the provider certainly did
+// not bill it). Without the variable paid requests go straight to the service: their limits are the
 // provider account's own.
 import { pathToFileURL } from 'node:url'
 

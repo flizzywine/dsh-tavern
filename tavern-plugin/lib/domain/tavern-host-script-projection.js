@@ -13,8 +13,24 @@ function walk(node, visit) {
     else if (child && typeof child === 'object') walk(child, visit)
   }
 }
+function bindingNames(pattern, names) {
+  switch (pattern?.type) {
+    case 'Identifier': names.add(pattern.name); break
+    case 'AssignmentPattern': bindingNames(pattern.left, names); break
+    case 'RestElement': bindingNames(pattern.argument, names); break
+    case 'ArrayPattern': pattern.elements.forEach(item => bindingNames(item, names)); break
+    case 'ObjectPattern': pattern.properties.forEach(item => bindingNames(item.value || item, names)); break
+  }
+}
+
+function cachedImportUrl(value, moduleUrl) {
+  if (typeof value !== 'string' || value.startsWith('/api/dsh-tavern/')) return value
+  if (moduleUrl && /^(?:\.{1,2}\/|\/)/.test(value)) value = new URL(value, moduleUrl).href
+  return /^https:\/\//i.test(value) ? '/api/dsh-tavern/static-assets?url=' + encodeURIComponent(value) + '&host=3' : value
+}
+
 /** Compile only known host-object accesses; never expose the real outer Window. */
-export function projectTavernHostScript(source) {
+export function projectTavernHostScript(source, { imports = false, moduleUrl = '', hostAccess = true } = {}) {
   let tree
   try { tree = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true }) }
   catch { return source }
@@ -26,14 +42,37 @@ export function projectTavernHostScript(source) {
       : /Function/.test(node.type || '') ? (node.params || []).concat(node.id || [])
       : node.type === 'ImportSpecifier' || node.type === 'ImportDefaultSpecifier' || node.type === 'ImportNamespaceSpecifier' ? [node.local]
       : node.type === 'CatchClause' ? [node.param] : []
-    patterns.forEach(pattern => walk(pattern, value => {
-      if (value.type === 'Identifier' && ['window', 'parent', 'top', 'globalThis'].includes(value.name)) shadowed.add(value.name)
-    }))
+    patterns.forEach(pattern => bindingNames(pattern, shadowed))
   })
   if (shadowed.has('globalThis')) return source
   const edits = []
   walk(tree, node => {
-    if (node.type !== 'MemberExpression') return
+    if (imports) {
+      if (node.type === 'ImportExpression' || node.type === 'ImportDeclaration' ||
+          node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') {
+        const argument = node.source
+        let localAsset = false
+        if (argument?.type === 'Literal') {
+          const url = cachedImportUrl(argument.value, moduleUrl)
+          if (url !== argument.value) edits.push({ start: argument.start, end: argument.end, text: JSON.stringify(url) })
+          localAsset = typeof url === 'string' && url.startsWith('/api/dsh-tavern/')
+        }
+        if (node.type === 'ImportExpression' && (argument.type !== 'Literal' || localAsset) &&
+            !source.startsWith('(globalThis.__dshTavernStaticAssetUrl || ', argument.start)) {
+          // A card can choose a CDN or version after fetching its manifest.
+          // Evaluate that choice once, using the same cache route as static imports.
+          edits.push({ start: argument.start, end: argument.start,
+            text: '(globalThis.__dshTavernStaticAssetUrl || (value => value))((' })
+          edits.push({ start: argument.end, end: argument.end, text: '), ' + JSON.stringify(moduleUrl) + ')' })
+        }
+      }
+      if (moduleUrl && node.type === 'MemberExpression' && property(node) === 'url' &&
+          node.object?.type === 'MetaProperty' && node.object.meta?.name === 'import') {
+        // Relative URLs authored against import.meta.url still use the CDN base.
+        edits.push({ start: node.start, end: node.end, text: JSON.stringify(moduleUrl) })
+      }
+    }
+    if (!hostAccess || node.type !== 'MemberExpression') return
     // Imported modules have their own lexical environment, so the entry module's
     // scoped window binding cannot protect their host DOM accesses.
     if (['parent', 'top'].includes(property(node)) && node.object?.type === 'Identifier'
@@ -55,7 +94,9 @@ export function projectTavernHostScript(source) {
   // Direct Helper accesses retain their local RPC facade; avoid overlapping the
   // parent/top edit contained in that same expression.
   const selected = edits.filter(edit => edit.helper || !edits.some(other => other.helper && other.start <= edit.start && other.end >= edit.end))
-  for (const edit of selected.sort((a, b) => b.start - a.start)) source = source.slice(0, edit.start) + edit.text + source.slice(edit.end)
+  for (const edit of selected.sort((a, b) => b.start - a.start || b.end - a.end)) {
+    source = source.slice(0, edit.start) + edit.text + source.slice(edit.end)
+  }
   return source
 }
 

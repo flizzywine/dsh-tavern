@@ -31,14 +31,17 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.WindowInsetsController;
 import android.view.WindowInsets;
+import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -48,21 +51,32 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /** 启动页（状态、启停、更新、后台运行、维护）+ 全屏 WebView。服务就绪后默认直接进酒馆，返回键回到启动页。 */
 public final class MainActivity extends Activity {
     static final String EXTRA_SHOW_UPDATE = "showUpdate";
     private static final int PICK_FILES = 1;
+    private static final int SAVE_RESCUE = 2;
     private static final String INSTALL_ACTION = "io.github.flizzywine.dshtavern.bionic.INSTALL_STATUS";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
+    private WebDownloads downloads;
     private ScrollView launcher;
     private TextView versionText, updateText, updateStatusTitle, keepAliveText, logText;
     private ProgressBar bar, updateBar;
@@ -77,6 +91,9 @@ public final class MainActivity extends Activity {
     private String loadedUrl;
     private boolean showLauncher;
     private boolean logsVisible;
+    private boolean advancedVisible;
+    private LinearLayout advanced;
+    private TextView advancedToggle, advancedChevron;
     private boolean clearHistoryOnLoad;
     private ValueCallback<Uri[]> fileCallback;
 
@@ -412,11 +429,6 @@ public final class MainActivity extends Activity {
             render();
         });
         listRow(tools, "分享日志", INK, v -> shareLogs());
-        listRow(tools, "重置程序文件", DANGER, v -> new AlertDialog.Builder(this)
-                .setTitle("重置程序文件")
-                .setMessage("重新解出安装包自带的程序文件（会撤销应用内更新）。存档、人物卡、API key 和模型设置都保留。")
-                .setPositiveButton("重置", (d, w) -> send(TavernService.ACTION_RESET))
-                .setNegativeButton("取消", null).show());
         listRow(tools, "退出", INK, v -> {
             send(TavernService.ACTION_EXIT);
             finishAndRemoveTask();
@@ -427,6 +439,34 @@ public final class MainActivity extends Activity {
         logText.setBackground(shape(TRACK, 0, 12));
         logText.setPadding(dp(12), dp(10), dp(12), dp(10));
         ((LinearLayout.LayoutParams) logText.getLayoutParams()).topMargin = dp(12);
+
+        // 高级：默认折叠，每次打开启动页都收起（不记状态）
+        advancedToggle = listRow(c, "高级", MUTED, v -> {
+            advancedVisible = !advancedVisible;
+            show(advanced, advancedVisible);
+            advancedChevron.setText(advancedVisible ? "⌄" : "›");
+        });
+        View advancedRow = (View) advancedToggle.getParent();
+        ((LinearLayout.LayoutParams) advancedRow.getLayoutParams()).topMargin = dp(18);
+        advancedRow.setBackground(pressable(BG, 0, 10));
+        advancedChevron = (TextView) ((LinearLayout) advancedRow).getChildAt(1);
+        advanced = card(c, 0);
+        advanced.setPadding(dp(10), dp(4), dp(10), dp(4));
+        listRow(advanced, "救援存档", INK, v -> confirmRescueExport());
+        TextView rescueHint = label(advanced, 12, MUTED, false);
+        rescueHint.setText("不用启动酒馆也能按板块或具体条目导出存档、人物卡、世界书和设置（.dshtransfer，不含 API key），流式写盘防内存溢出；程序损坏时支持原始数据兜底。");
+        rescueHint.setPadding(dp(4), 0, dp(4), dp(10));
+        divider(advanced);
+        listRow(advanced, "修复酒馆", INK, v -> confirmRepair());
+        TextView repairHint = label(advanced, 12, MUTED, false);
+        repairHint.setText("进不去酒馆、反复退出或更新出错时先试这个：清理更新残留，检查并修好写坏的存档和设置，重新解出程序文件。存档、人物卡和设置都保留。");
+        repairHint.setPadding(dp(4), 0, dp(4), dp(10));
+        divider(advanced);
+        listRow(advanced, "完全重置", DANGER, v -> confirmFactoryReset());
+        TextView advancedHint = label(advanced, 12, MUTED, false);
+        advancedHint.setText("酒馆文件损坏、无法进入也无法修复时使用：清除全部数据，恢复到刚安装的状态。");
+        advancedHint.setPadding(dp(4), 0, dp(4), dp(10));
+        show(advanced, false);
 
         versionText = label(c, 12, MUTED, false);
         versionText.setGravity(Gravity.CENTER);
@@ -495,6 +535,8 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
+        downloads = new WebDownloads(this, web);
+        downloads.attach();
         web.setVisibility(View.GONE);
         return web;
     }
@@ -587,6 +629,9 @@ public final class MainActivity extends Activity {
         }
         applyBarColor(BG);
         maybeShowApkNotice();
+        maybeShowRepairReport();
+        maybeShowRescueListResult();
+        maybeShowRescueReport();
 
         String err = TavernService.error;
         int p = TavernService.progress;
@@ -773,7 +818,7 @@ public final class MainActivity extends Activity {
         StringBuilder text = new StringBuilder(appVersion()).append('\n').append(TavernService.sourceInfo).append("\nAndroid ")
                 .append(Build.VERSION.RELEASE).append(" · ").append(Build.MODEL).append(" · ").append(Build.SUPPORTED_ABIS[0]).append("\n\n");
         File dir = new File(getFilesDir(), "logs");
-        for (String name : new String[]{"update.log", "node.prev.log", "node.log"}) {
+        for (String name : new String[]{"update.log", "repair.log", "rescue.log", "node.prev.log", "node.log"}) {
             File f = new File(dir, name);
             if (!f.exists()) continue;
             text.append("==== ").append(name).append(" ====\n").append(lastBytes(f, 48 * 1024)).append('\n');
@@ -878,6 +923,618 @@ public final class MainActivity extends Activity {
         noticeDialog = b.show();
     }
 
+    // ---------------------------------------------------------------- 高级：修复酒馆
+
+    private long repairShownAt;
+
+    private void confirmRepair() {
+        new AlertDialog.Builder(this)
+                .setTitle("修复酒馆")
+                .setMessage("会先停止酒馆，然后：\n"
+                        + "· 清理更新中途留下的残留文件\n"
+                        + "· 检查存档、人物卡和设置，修好写到一半的文件；损坏且没有备份的移到隔离目录，不会删除\n"
+                        + "· 重新解出安装包自带的程序文件（会撤销应用内更新）\n\n"
+                        + "通常一分钟内完成，完成后自动启动酒馆。")
+                .setPositiveButton("开始修复", (d, w) -> {
+                    repairShownAt = TavernService.repairReportAt;
+                    showLauncher = true;
+                    send(TavernService.ACTION_REPAIR);
+                    render();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 修复完成后在启动页弹一次结果。 */
+    private void maybeShowRepairReport() {
+        long at = TavernService.repairReportAt;
+        String report = TavernService.repairReport;
+        if (at == 0 || at == repairShownAt || report == null) return;
+        repairShownAt = at;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(TavernService.repairOk ? "修复完成" : "修复未能解决问题")
+                .setMessage(report)
+                .setPositiveButton(TavernService.repairOk ? "进入酒馆" : "知道了", (d, w) -> {
+                    if (TavernService.repairOk) {
+                        showLauncher = false;
+                        render();
+                    }
+                });
+        if (!TavernService.repairOk) {
+            b.setNegativeButton("救援存档", (d, w) -> startRescueList());
+            b.setNeutralButton("分享日志", (d, w) -> shareLogs());
+        }
+        b.show();
+    }
+
+    // ---------------------------------------------------------------- 高级：救援存档
+
+    private long rescueShownAt;
+    private long rescueListShownAt;
+    private boolean rescueScanPending;
+    private AlertDialog rescueScanDialog;
+
+    private static final Set<String> RESCUE_DOMAIN_KINDS = new LinkedHashSet<>(
+            Arrays.asList("cards", "worldbooks", "presets", "prompts", "profile", "regex"));
+
+    private void confirmRescueExport() {
+        startRescueList();
+    }
+
+    private void startRescueList() {
+        rescueListShownAt = TavernService.rescueListAt;
+        rescueScanPending = true;
+        send(TavernService.ACTION_RESCUE_LIST);
+        if (rescueScanDialog != null && rescueScanDialog.isShowing()) rescueScanDialog.dismiss();
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(22), dp(18), dp(22), dp(18));
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(28), dp(28));
+        sp.rightMargin = dp(14);
+        box.addView(spinner, sp);
+        TextView msg = label(box, 14, INK, false);
+        msg.setText("正在扫描可导出的存档与资源…");
+        rescueScanDialog = new AlertDialog.Builder(this)
+                .setTitle("救援存档")
+                .setView(box)
+                .setNegativeButton("取消", (d, w) -> rescueScanPending = false)
+                .setOnCancelListener(d -> rescueScanPending = false)
+                .create();
+        rescueScanDialog.show();
+    }
+
+    private void maybeShowRescueListResult() {
+        long at = TavernService.rescueListAt;
+        if (!rescueScanPending || at == 0 || at == rescueListShownAt) return;
+        rescueListShownAt = at;
+        rescueScanPending = false;
+        if (rescueScanDialog != null && rescueScanDialog.isShowing()) rescueScanDialog.dismiss();
+        rescueScanDialog = null;
+        JSONObject catalog = TavernService.rescueCatalog;
+        if (catalog != null) {
+            showRescuePickerDialog(catalog);
+            return;
+        }
+        String err = TavernService.rescueListError != null ? TavernService.rescueListError : "未知错误";
+        new AlertDialog.Builder(this)
+                .setTitle("标准导出扫描失败")
+                .setMessage("无法读取标准导出目录（" + err + "）。\n\n"
+                        + "仍可使用兜底模式把全部用户原始文件流式打包成 ZIP（不能直接从酒馆导入，可用于手动恢复或排查；可能含 API key，请妥善保管）。")
+                .setPositiveButton("打包原始数据（兜底）", (d, w) -> startRescueExport(null, false, true))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private ColorStateList checkTint() {
+        return new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{ACCENT, MUTED});
+    }
+
+    /** 与酒馆「导出」页一致的分组/板块/逐项勾选弹窗，支持快速选择与「含对话配图」开关。 */
+    private void showRescuePickerDialog(JSONObject catalog) {
+        JSONArray groupsArr = catalog.optJSONArray("groups");
+        JSONArray partsArr = catalog.optJSONArray("parts");
+        Map<String, List<JSONObject>> byGroup = new LinkedHashMap<>();
+        List<JSONObject> allNonEmptyParts = new ArrayList<>();
+        if (partsArr != null) {
+            for (int i = 0; i < partsArr.length(); i++) {
+                JSONObject part = partsArr.optJSONObject(i);
+                if (part == null) continue;
+                JSONArray items = part.optJSONArray("items");
+                if (items == null || items.length() == 0) continue;
+                allNonEmptyParts.add(part);
+                String gid = part.optString("group", "other");
+                byGroup.computeIfAbsent(gid, k -> new ArrayList<>()).add(part);
+            }
+        }
+        if (allNonEmptyParts.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("救援存档")
+                    .setMessage("没有找到可导出的存档、人物卡或设置。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
+
+        // selection: kind -> set of selected item keys
+        Map<String, Set<String>> selected = new LinkedHashMap<>();
+        Map<String, CheckBox> partBoxes = new LinkedHashMap<>();
+        Map<String, TextView> partSubtitles = new LinkedHashMap<>();
+        Map<String, Map<String, CheckBox>> itemBoxes = new LinkedHashMap<>();
+        Map<String, JSONObject> partByKind = new LinkedHashMap<>();
+        boolean[] syncing = {false};
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(12), dp(18), dp(12));
+        content.setBackgroundColor(BG);
+
+        TextView intro = label(content, 12, MUTED, false);
+        intro.setText("可按板块或展开逐项勾选导出（.dshtransfer，不含 API key）。采用流式写盘防内存溢出；导出期间会短暂暂停酒馆，完成后自动恢复。");
+
+        LinearLayout quickRow = row(content, 10);
+        Button btnAll = secondary(quickRow, "全部", false, null);
+        Button btnDomains = secondary(quickRow, "设定与写法", false, null);
+        Button btnClear = secondary(quickRow, "清空", false, null);
+        for (Button b : new Button[]{btnAll, btnDomains, btnClear}) {
+            b.setPadding(dp(12), 0, dp(12), 0);
+            b.setTextSize(13);
+            ((LinearLayout.LayoutParams) b.getLayoutParams()).height = dp(34);
+        }
+
+        TextView summaryView = label(content, 13, INK, true);
+        summaryView.setPadding(dp(2), dp(10), dp(2), dp(2));
+        TextView warnView = label(content, 12, WARN, false);
+        warnView.setPadding(dp(2), 0, dp(2), dp(4));
+        show(warnView, false);
+
+        CheckBox imagesBox = new CheckBox(this);
+        imagesBox.setText("含对话配图（勾选对话与存档时可用）");
+        imagesBox.setTextSize(13);
+        imagesBox.setTextColor(INK);
+        imagesBox.setButtonTintList(checkTint());
+        imagesBox.setChecked(false);
+        imagesBox.setEnabled(false);
+
+        final AlertDialog[] holder = new AlertDialog[1];
+
+        Runnable refreshUi = () -> {
+            syncing[0] = true;
+            int totalKinds = 0;
+            int totalItems = 0;
+            long totalBytes = 0;
+            boolean hasZeroSizeSelected = false;
+            for (JSONObject part : allNonEmptyParts) {
+                String kind = part.optString("kind");
+                String unit = part.optString("unit", "项");
+                JSONArray items = part.optJSONArray("items");
+                int count = items != null ? items.length() : 0;
+                Set<String> chosen = selected.get(kind);
+                int chosenCount = chosen != null ? chosen.size() : 0;
+                long chosenBytes = 0;
+                long partTotalBytes = 0;
+                Map<String, CheckBox> boxes = itemBoxes.get(kind);
+                for (int i = 0; i < count; i++) {
+                    JSONObject item = items.optJSONObject(i);
+                    if (item == null) continue;
+                    String key = item.optString("key");
+                    long b = Math.max(0L, item.optLong("bytes", 0L));
+                    partTotalBytes += b;
+                    boolean isPicked = chosen != null && chosen.contains(key);
+                    if (isPicked) {
+                        chosenBytes += b;
+                        if (b == 0) hasZeroSizeSelected = true;
+                    }
+                    if (boxes != null && boxes.containsKey(key)) {
+                        CheckBox ib = boxes.get(key);
+                        if (ib.isChecked() != isPicked) ib.setChecked(isPicked);
+                    }
+                }
+                CheckBox pb = partBoxes.get(kind);
+                if (pb != null) {
+                    boolean checked = count > 0 && chosenCount == count;
+                    if (pb.isChecked() != checked) pb.setChecked(checked);
+                }
+                TextView sub = partSubtitles.get(kind);
+                if (sub != null) {
+                    String totalSizeStr = partTotalBytes > 0 ? TavernService.formatBytes(partTotalBytes) : "按需生成";
+                    if (chosenCount == 0) {
+                        sub.setText(count + " " + unit + " · 共 " + totalSizeStr);
+                    } else if (chosenCount == count) {
+                        sub.setText("已全选 " + count + " " + unit + " · " + (chosenBytes > 0 ? TavernService.formatBytes(chosenBytes) : "按需生成"));
+                    } else {
+                        sub.setText("已选 " + chosenCount + "/" + count + " " + unit + " · " + (chosenBytes > 0 ? TavernService.formatBytes(chosenBytes) : "按需生成"));
+                    }
+                }
+                if (chosenCount > 0) {
+                    totalKinds++;
+                    totalItems += chosenCount;
+                    totalBytes += chosenBytes;
+                }
+            }
+            Set<String> chatsChosen = selected.get("chats");
+            boolean chatsPicked = chatsChosen != null && !chatsChosen.isEmpty();
+            imagesBox.setEnabled(chatsPicked);
+            imagesBox.setTextColor(chatsPicked ? INK : MUTED);
+            if (!chatsPicked && imagesBox.isChecked()) imagesBox.setChecked(false);
+
+            if (totalItems == 0) {
+                summaryView.setText("请至少选择一个板块或条目");
+                summaryView.setTextColor(MUTED);
+                show(warnView, false);
+            } else {
+                String sizeNote = totalBytes > 0
+                        ? (hasZeroSizeSelected ? "，已知约 " + TavernService.formatBytes(totalBytes) + "（存档按需生成）" : "，约 " + TavernService.formatBytes(totalBytes))
+                        : "（体积导出时生成）";
+                summaryView.setText("已选 " + totalKinds + " 个板块，共 " + totalItems + " 项" + sizeNote);
+                summaryView.setTextColor(INK);
+                if (totalBytes > 800L * 1024 * 1024) {
+                    warnView.setText("预计体积接近 1 GB 单包上限，建议分批勾选或取消「含对话配图」。");
+                    show(warnView, true);
+                } else {
+                    show(warnView, false);
+                }
+            }
+            if (holder[0] != null) {
+                Button ok = holder[0].getButton(AlertDialog.BUTTON_POSITIVE);
+                if (ok != null) ok.setEnabled(totalItems > 0);
+            }
+            syncing[0] = false;
+        };
+
+        // 渲染分组与板块
+        List<String[]> groupDefs = new ArrayList<>();
+        Set<String> seenGroups = new LinkedHashSet<>();
+        if (groupsArr != null) {
+            for (int i = 0; i < groupsArr.length(); i++) {
+                JSONObject g = groupsArr.optJSONObject(i);
+                if (g == null) continue;
+                String id = g.optString("id");
+                String title = g.optString("title", id);
+                if (byGroup.containsKey(id)) {
+                    groupDefs.add(new String[]{id, title});
+                    seenGroups.add(id);
+                }
+            }
+        }
+        for (String gid : byGroup.keySet()) {
+            if (!seenGroups.contains(gid)) groupDefs.add(new String[]{gid, "其他"});
+        }
+
+        for (String[] gd : groupDefs) {
+            List<JSONObject> groupParts = byGroup.get(gd[0]);
+            if (groupParts == null || groupParts.isEmpty()) continue;
+            TextView gh = label(content, 13, MUTED, true);
+            gh.setText(gd[1]);
+            gh.setPadding(dp(2), dp(12), 0, dp(6));
+
+            for (JSONObject part : groupParts) {
+                String kind = part.optString("kind");
+                String labelText = part.optString("label", kind);
+                String privacy = part.optString("privacy", "");
+                JSONArray items = part.optJSONArray("items");
+                int count = items != null ? items.length() : 0;
+                partByKind.put(kind, part);
+
+                LinearLayout pCard = new LinearLayout(this);
+                pCard.setOrientation(LinearLayout.VERTICAL);
+                pCard.setBackground(shape(CARD, HAIRLINE, 12));
+                pCard.setPadding(dp(10), dp(8), dp(10), dp(8));
+                content.addView(pCard, lp(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, 6));
+
+                LinearLayout headRow = row(pCard, 0);
+                CheckBox pBox = new CheckBox(this);
+                pBox.setButtonTintList(checkTint());
+                headRow.addView(pBox);
+                partBoxes.put(kind, pBox);
+
+                LinearLayout infoCol = new LinearLayout(this);
+                infoCol.setOrientation(LinearLayout.VERTICAL);
+                infoCol.setPadding(dp(4), 0, dp(6), 0);
+                headRow.addView(infoCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+                TextView titleView = label(infoCol, 15, INK, true);
+                titleView.setText(privacy.isEmpty() ? labelText : labelText + "  ·  " + privacy);
+                TextView subView = label(infoCol, 12, MUTED, false);
+                partSubtitles.put(kind, subView);
+
+                LinearLayout itemsContainer = new LinearLayout(this);
+                itemsContainer.setOrientation(LinearLayout.VERTICAL);
+                itemsContainer.setPadding(dp(28), dp(6), dp(2), dp(2));
+                show(itemsContainer, false);
+
+                if (count > 1 || "chats".equals(kind) || "cards".equals(kind) || "assets".equals(kind)) {
+                    TextView expandBtn = label(headRow, 12, ACCENT, true);
+                    expandBtn.setText("展开 ▾");
+                    expandBtn.setPadding(dp(8), dp(6), dp(4), dp(6));
+                    expandBtn.setOnClickListener(v -> {
+                        boolean opening = itemsContainer.getVisibility() != View.VISIBLE;
+                        show(itemsContainer, opening);
+                        expandBtn.setText(opening ? "收起 ▴" : "展开 ▾");
+                    });
+                }
+
+                Map<String, CheckBox> kindItemBoxes = new LinkedHashMap<>();
+                itemBoxes.put(kind, kindItemBoxes);
+                if (count > 0) {
+                    View line = new View(this);
+                    line.setBackgroundColor(HAIRLINE);
+                    itemsContainer.addView(line, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(1), 0));
+                    for (int i = 0; i < count; i++) {
+                        JSONObject item = items.optJSONObject(i);
+                        if (item == null) continue;
+                        String key = item.optString("key");
+                        String title = item.optString("title", key);
+                        String meta = item.optString("meta", "");
+                        long b = Math.max(0L, item.optLong("bytes", 0L));
+
+                        LinearLayout iRow = row(itemsContainer, 4);
+                        CheckBox iBox = new CheckBox(this);
+                        iBox.setButtonTintList(checkTint());
+                        iRow.addView(iBox);
+                        kindItemBoxes.put(key, iBox);
+
+                        LinearLayout iCol = new LinearLayout(this);
+                        iCol.setOrientation(LinearLayout.VERTICAL);
+                        iCol.setPadding(dp(2), 0, 0, 0);
+                        iRow.addView(iCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                        TextView iTitle = label(iCol, 13, INK, false);
+                        iTitle.setText(title);
+                        String sizePart = b > 0 ? TavernService.formatBytes(b) : "导出时生成";
+                        TextView iMeta = label(iCol, 11, MUTED, false);
+                        iMeta.setText(meta.isEmpty() ? sizePart : meta + " · " + sizePart);
+
+                        iBox.setOnCheckedChangeListener((btn, checked) -> {
+                            if (syncing[0]) return;
+                            Set<String> set = selected.computeIfAbsent(kind, k -> new LinkedHashSet<>());
+                            if (checked) set.add(key);
+                            else set.remove(key);
+                            if (set.isEmpty()) selected.remove(kind);
+                            refreshUi.run();
+                        });
+                        iCol.setOnClickListener(v -> iBox.setChecked(!iBox.isChecked()));
+                    }
+                    pCard.addView(itemsContainer);
+                }
+
+                pBox.setOnCheckedChangeListener((btn, checked) -> {
+                    if (syncing[0]) return;
+                    if (checked) {
+                        Set<String> set = new LinkedHashSet<>();
+                        for (int i = 0; i < count; i++) {
+                            JSONObject item = items.optJSONObject(i);
+                            if (item != null) set.add(item.optString("key"));
+                        }
+                        if (!set.isEmpty()) selected.put(kind, set);
+                    } else {
+                        selected.remove(kind);
+                    }
+                    refreshUi.run();
+                });
+                infoCol.setOnClickListener(v -> pBox.setChecked(!pBox.isChecked()));
+            }
+        }
+
+        // 「含对话配图」选项卡
+        LinearLayout optCard = new LinearLayout(this);
+        optCard.setOrientation(LinearLayout.VERTICAL);
+        optCard.setBackground(shape(CARD, HAIRLINE, 12));
+        optCard.setPadding(dp(10), dp(8), dp(12), dp(8));
+        content.addView(optCard, lp(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, 12));
+        optCard.addView(imagesBox);
+        TextView imgHint = label(optCard, 11, MUTED, false);
+        imgHint.setText("默认不带配图；带上场景配图会明显增大导出包体积。");
+        imgHint.setPadding(dp(32), 0, 0, 0);
+
+        btnAll.setOnClickListener(v -> {
+            selected.clear();
+            for (JSONObject part : allNonEmptyParts) {
+                String kind = part.optString("kind");
+                JSONArray items = part.optJSONArray("items");
+                if (items == null || items.length() == 0) continue;
+                Set<String> set = new LinkedHashSet<>();
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject item = items.optJSONObject(i);
+                    if (item != null) set.add(item.optString("key"));
+                }
+                if (!set.isEmpty()) selected.put(kind, set);
+            }
+            refreshUi.run();
+        });
+        btnDomains.setOnClickListener(v -> {
+            selected.clear();
+            for (JSONObject part : allNonEmptyParts) {
+                String kind = part.optString("kind");
+                if (!RESCUE_DOMAIN_KINDS.contains(kind)) continue;
+                JSONArray items = part.optJSONArray("items");
+                if (items == null || items.length() == 0) continue;
+                Set<String> set = new LinkedHashSet<>();
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject item = items.optJSONObject(i);
+                    if (item != null) set.add(item.optString("key"));
+                }
+                if (!set.isEmpty()) selected.put(kind, set);
+            }
+            refreshUi.run();
+        });
+        btnClear.setOnClickListener(v -> {
+            selected.clear();
+            refreshUi.run();
+        });
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(BG);
+        scroll.addView(content);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("选择要救援导出的内容")
+                .setView(scroll)
+                .setPositiveButton("开始导出", (d, w) -> {
+                    JSONObject payload = new JSONObject();
+                    try {
+                        for (Map.Entry<String, Set<String>> e : selected.entrySet()) {
+                            if (e.getValue() == null || e.getValue().isEmpty()) continue;
+                            JSONArray arr = new JSONArray();
+                            for (String k : e.getValue()) arr.put(k);
+                            payload.put(e.getKey(), arr);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    if (payload.length() == 0) return;
+                    startRescueExport(payload.toString(), imagesBox.isChecked(), false);
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        holder[0] = dialog;
+        dialog.setOnShowListener(d -> refreshUi.run());
+        refreshUi.run();
+        dialog.show();
+    }
+
+    private void startRescueExport(String selectionJson, boolean includeImages, boolean rawOnly) {
+        rescueShownAt = TavernService.rescueReportAt;
+        showLauncher = true;
+        Intent intent = TavernService.intent(this, TavernService.ACTION_RESCUE_EXPORT);
+        if (selectionJson != null) intent.putExtra(TavernService.EXTRA_RESCUE_SELECTION, selectionJson);
+        intent.putExtra(TavernService.EXTRA_RESCUE_INCLUDE_IMAGES, includeImages);
+        intent.putExtra(TavernService.EXTRA_RESCUE_RAW_ONLY, rawOnly);
+        startForegroundService(intent);
+        render();
+    }
+
+    private void cleanupRescueCache(boolean toast) {
+        send(TavernService.ACTION_RESCUE_CLEANUP);
+        if (toast) Toast.makeText(this, "已清理救援临时缓存", Toast.LENGTH_SHORT).show();
+    }
+
+    /** 救援导出完成后在启动页弹一次结果，成功时可直接用系统文档选择器保存到手机存储，保存或关闭后自动清理缓存。 */
+    private void maybeShowRescueReport() {
+        long at = TavernService.rescueReportAt;
+        String report = TavernService.rescueReport;
+        if (at == 0 || at == rescueShownAt || report == null) return;
+        rescueShownAt = at;
+        boolean hasFile = TavernService.rescueOk && TavernService.rescueFile != null;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(TavernService.rescueOk ? (TavernService.rescueIsRaw ? "已打包原始数据" : "救援存档已就绪") : "救援存档失败")
+                .setMessage(report);
+        if (hasFile) {
+            b.setCancelable(false);
+            b.setPositiveButton("保存到文件", (d, w) -> pickRescueDestination());
+            b.setNegativeButton("关闭（释放缓存）", (d, w) -> cleanupRescueCache(true));
+        } else {
+            b.setPositiveButton("知道了", null);
+            b.setNeutralButton("分享日志", (d, w) -> shareLogs());
+        }
+        b.show();
+    }
+
+    private void pickRescueDestination() {
+        String name = TavernService.rescueFileName;
+        if (name == null || name.isEmpty()) name = TavernService.rescueIsRaw ? "DSH酒馆原始数据包.zip" : "DSH酒馆救援备份.dshtransfer";
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(TavernService.rescueIsRaw ? "application/zip" : "application/octet-stream")
+                .putExtra(Intent.EXTRA_TITLE, name);
+        try {
+            startActivityForResult(intent, SAVE_RESCUE);
+        } catch (Exception e) {
+            Toast.makeText(this, "无法打开系统保存窗口：" + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void copyRescueTo(Uri destination) {
+        String srcPath = TavernService.rescueFile;
+        String name = TavernService.rescueFileName;
+        if (srcPath == null) {
+            Toast.makeText(this, "备份文件已失效，请重新救援导出", Toast.LENGTH_LONG).show();
+            return;
+        }
+        File src = new File(srcPath);
+        if (!src.isFile()) {
+            Toast.makeText(this, "备份文件不存在，请重新救援导出", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, "正在保存备份文件…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try (InputStream in = new FileInputStream(src);
+                 OutputStream out = getContentResolver().openOutputStream(destination, "w")) {
+                if (out == null) throw new java.io.IOException("无法写入目标文件");
+                byte[] buf = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.flush();
+                // 保存完成后立即删掉应用缓存里的临时副本，不长期占用手机空间。
+                cleanupRescueCache(false);
+                handler.post(() -> Toast.makeText(this, "已保存并清理临时缓存：" + (name != null ? name : src.getName()), Toast.LENGTH_LONG).show());
+            } catch (Exception e) {
+                handler.post(() -> Toast.makeText(this, "保存失败：" + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "save-rescue").start();
+    }
+
+    // ---------------------------------------------------------------- 高级：完全重置（两次警告）
+
+    private void confirmFactoryReset() {
+        new AlertDialog.Builder(this)
+                .setTitle("完全重置酒馆？")
+                .setMessage("会删除全部存档、人物卡、世界书、预设、API key 和模型设置，恢复到刚安装的状态，无法撤销。\n\n"
+                        + "建议先点「先救援存档」把存档和人物卡导出来。")
+                .setPositiveButton("继续", (d, w) -> confirmFactoryResetAgain())
+                .setNeutralButton("先救援存档", (d, w) -> startRescueList())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 第二次警告：确认键先禁用 5 秒，防止连点误触。 */
+    private void confirmFactoryResetAgain() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("最后确认")
+                .setMessage("所有酒馆数据将被永久清除。确定要完全重置吗？")
+                .setPositiveButton("完全重置", (d, w) -> factoryReset())
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            ok.setTextColor(DANGER);
+            ok.setEnabled(false);
+            Runnable[] tick = new Runnable[1];
+            int[] left = {5};
+            tick[0] = () -> {
+                if (!dialog.isShowing()) return;
+                if (left[0] > 0) {
+                    ok.setText("完全重置（" + left[0] + "）");
+                    left[0]--;
+                    handler.postDelayed(tick[0], 1000);
+                } else {
+                    ok.setText("完全重置");
+                    ok.setEnabled(true);
+                }
+            };
+            tick[0].run();
+        });
+        dialog.show();
+    }
+
+    private void factoryReset() {
+        // 酒馆有一部分状态在 WebView 的 localStorage / IndexedDB / Cookie 里，一并清掉。
+        WebStorage.getInstance().deleteAllData();
+        CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().flush();
+        web.clearCache(true);
+        web.clearHistory();
+        web.loadUrl("about:blank");
+        loadedUrl = null;
+        showLauncher = true;
+        advancedVisible = false;
+        show(advanced, false);
+        advancedChevron.setText("›");
+        send(TavernService.ACTION_FACTORY_RESET);
+        Toast.makeText(this, "正在完全重置，完成后会重新解压并启动", Toast.LENGTH_LONG).show();
+        render();
+    }
+
     private void installApk(File apk) {
         if (!getPackageManager().canRequestPackageInstalls()) {
             Toast.makeText(this, "请允许本应用安装更新，返回后再点一次「安装」", Toast.LENGTH_LONG).show();
@@ -929,6 +1586,20 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == SAVE_RESCUE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                copyRescueTo(data.getData());
+            } else if (TavernService.rescueFile != null) {
+                new AlertDialog.Builder(this)
+                        .setTitle("尚未保存导出文件")
+                        .setMessage("取消保存后，临时导出的备份包仍占用应用缓存空间。需要重新选择保存位置，还是直接丢弃以释放空间？")
+                        .setCancelable(false)
+                        .setPositiveButton("重新选择位置", (d, w) -> pickRescueDestination())
+                        .setNegativeButton("丢弃并释放缓存", (d, w) -> cleanupRescueCache(true))
+                        .show();
+            }
+            return;
+        }
         if (requestCode != PICK_FILES || fileCallback == null) return;
         Uri[] result = null;
         if (resultCode == RESULT_OK && data != null) {
@@ -981,8 +1652,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (rescueScanDialog != null && rescueScanDialog.isShowing()) rescueScanDialog.dismiss();
         handler.removeCallbacks(poll);
         unregisterReceiver(installReceiver);
+        if (downloads != null) downloads.destroy();
         web.destroy();
         super.onDestroy();
     }
