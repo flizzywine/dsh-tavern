@@ -3234,6 +3234,10 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-alias-bg-base: var(--fk-current-bgSolid); --dsw-alias-border-l3: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
+/* 右侧工作台里的常规 .ap-ui 面板背景透明，与宿主面板底色和壁纸浑然一体（不再硬垫不透明纯色导致与顶栏断层）。 */
+[data-sidebar-right-panel] .ap-ui:not(.fork-gal-theme-scope, .dsh-opening-setup) {
+  background: transparent;
+}
 .ap-ui:is(.dsh-session-settings, .fork-readings, .dsh-opening-setup):not(.fork-gal-theme-scope) {
   /* Embedded panels sit on the host surface. Match their text and interactive fills to that surface. */
   --fk-current-bgSolid: var(--dsh-tavern-accent-cream, Canvas);
@@ -7057,9 +7061,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-tab-title]
 
 /* ==== 世界书库 › 常驻排布（方案 A · 纵序横条 + GPU FLIP + 防误触内容速览）==== */
 .dsh-tavern-wblib-head { flex-wrap: wrap; gap: 8px 12px; }
-.dsh-wbl-entry-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--fork-state-card, #2e9d5b) 36%, transparent); border-radius: var(--fork-radius, 9px); background: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 10%, transparent); color: var(--fork-state-card, #2e9d5b); font-size: var(--fork-fs-meta, 12px); font-weight: 650; font-variant-numeric: tabular-nums; cursor: pointer; transition: background 0.14s ease, border-color 0.14s ease; }
-.dsh-wbl-entry-btn:hover { background: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 17%, transparent); border-color: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 55%, transparent); }
-.dsh-wbl-entry-btn:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
+.dsh-wbl-entry-btn, .ap-ui button.dsh-wbl-entry-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--fork-state-card, #2e9d5b) 36%, transparent); border-radius: var(--fork-radius, 9px); background: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 10%, transparent); color: var(--fork-state-card, #2e9d5b); font-size: var(--fork-fs-meta, 12px); font-weight: 650; font-variant-numeric: tabular-nums; cursor: pointer; transition: background 0.14s ease, border-color 0.14s ease; }
+.dsh-wbl-entry-btn:hover, .ap-ui button.dsh-wbl-entry-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 17%, transparent); border-color: color-mix(in srgb, var(--fork-state-card, #2e9d5b) 55%, transparent); }
+.dsh-wbl-entry-btn:focus-visible, .ap-ui button.dsh-wbl-entry-btn:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
 
 .dsh-wbl-page { padding: 12px 14px 28px; max-width: 920px; margin: 0 auto; position: relative; container-type: inline-size; }
 .dsh-wbl-page, .dsh-wbl-drag-ghost, .dsh-wbl-preview-modal {
