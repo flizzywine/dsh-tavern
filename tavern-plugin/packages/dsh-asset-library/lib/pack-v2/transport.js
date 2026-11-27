@@ -59,7 +59,8 @@ const json = (value, code = 200) => Response.json(value, {status:code, headers:{
 function errorResponse(error) {
   // a write that ran out of disk space was rolled back; the player frees space and tries again
   const code = error?.code === 'ENOSPC' ? 'DISK_FULL' : /^[A-Z_]+$/.test(error?.code || '') ? error.code : 'INVALID_INPUT'
-  return json({error:code, ...(['DOWNLOAD_FAILED','INTEGRITY_MISMATCH','SCRIPT_CONFIRMATION_REQUIRED'].includes(code) ? {message:error.message?.replace(/https?:\/\/\S+/g,'[URL]')} : {}), ...(code === 'REVISION_CONFLICT' && typeof error.revision === 'string' ? {revision:error.revision} : {})}, status[code] || 400)
+  // `reason`: the player's sentence a check wrote for this refusal (what failed, how to fix it), shown instead of the code's
+  return json({error:code, ...(['DOWNLOAD_FAILED','INTEGRITY_MISMATCH','SCRIPT_CONFIRMATION_REQUIRED'].includes(code) ? {message:error.message?.replace(/https?:\/\/\S+/g,'[URL]')} : {}), ...(typeof error?.reason === 'string' ? {reason:error.reason} : {}), ...(code === 'REVISION_CONFLICT' && typeof error.revision === 'string' ? {revision:error.revision} : {})}, status[code] || 400)
 }
 // Connection authenticates the single browser administrator before invoking us.
 // Its HTTP bridge retains Host but replaces the Request URL with dsh.internal.
