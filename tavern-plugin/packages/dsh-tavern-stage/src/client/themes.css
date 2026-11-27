@@ -5993,15 +5993,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     width: calc(var(--art-cf-page-w) * var(--mu)); height: calc(var(--art-cf-page-h) * var(--mu)); padding: 0 calc(var(--art-cf-row) * var(--mu)) 0 calc(var(--art-cf-row) * var(--mu)); margin-left: calc(-1 * var(--art-cf-row) * var(--mu));
     width: calc((var(--art-cf-page-w) + 2 * var(--art-cf-row)) * var(--mu)); font-size: calc(var(--art-config-font) * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-group + .fork-gal-config-group { margin-top: calc(var(--art-cf-row) * var(--mu) * .25); }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-caption { margin: 0; padding: calc(var(--art-cf-row) * var(--mu) * .2) 0 0; border: 0 none; color: var(--gal-ui-ink-2); font-size: .7em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-caption { margin: 0; padding: calc(var(--art-cf-row) * var(--mu) * .2) 0 0; border: 0 none; color: var(--gal-ui-accent); font-size: 1.05em; font-weight: 700; letter-spacing: .12em; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-row { position: relative; grid-template-columns: minmax(0, 1fr) calc(var(--art-cf-control) * var(--mu)); column-gap: calc(var(--art-cf-row) * var(--mu) * .25);
     min-height: calc(var(--art-cf-row) * var(--mu)); padding: 0; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="focus"]:not(.is-film) .fork-gal-config-row:is(:hover, :focus-within)::before { content: ""; position: absolute; z-index: -1; left: calc(-1 * var(--art-cf-row) * var(--mu)); right: calc(-1 * var(--art-cf-row) * var(--mu));
     top: 10%; bottom: 10%; background: var(--art-cf-focus) 0 0 / 100% 100% no-repeat; pointer-events: none; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-row { isolation: isolate; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-label { font-size: 1em; letter-spacing: .06em; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-control { font-size: .9em; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-label b { font-size: .9em; letter-spacing: .06em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-label { font-size: .82em; letter-spacing: .04em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-control { font-size: .78em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-label b { font-size: .82em; letter-spacing: .04em; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-value { color: inherit; font-size: .8em; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="tabs"]:not(.is-film) .fork-gal-config-tabs { position: absolute; display: flex; flex-direction: column; gap: calc((var(--art-cf-tab-pitch) - var(--art-cf-tab-h)) * var(--mu));
     left: calc(var(--gx) + var(--art-cf-tab-x) * var(--mu)); top: calc(var(--gy) + var(--art-cf-tab-y) * var(--mu)); width: calc(var(--art-cf-tab-w) * var(--mu)); padding: 0; border: 0 none; background: none; }
