@@ -121,8 +121,9 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
   // own builtin module search path instead of inheriting the incompatible one.
   if (isWindows) for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key]
   env[isWindows ? 'Path' : 'PATH'] = mocks + path.delimiter + searchPath
+  // Windows launches the mock Desktop and PowerShell/Node helpers for every stage.
   const run = (extraEnv = {}) => execute(isWindows ? 'powershell.exe' : 'sh', isWindows
-    ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrap] : [bootstrap], { env: { ...env, ...extraEnv }, timeout: 45000, maxBuffer: 1024 * 1024 })
+    ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrap] : [bootstrap], { env: { ...env, ...extraEnv }, timeout: isWindows ? 90_000 : 45_000, maxBuffer: 1024 * 1024 })
   try { await run() } catch (error) { throw new Error(error.stdout + '\n' + error.stderr) }
   assert.equal(await readFile(path.join(app, 'installed.txt'), 'utf8'), 'install --host desktop')
   assert.deepEqual(JSON.parse(await readFile(path.join(app, 'dsh-tavern-runtime.json'), 'utf8')), manifest)
