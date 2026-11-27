@@ -7240,19 +7240,39 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-tab-title]
 .dsh-wbl-preview-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--dsh-wbl-border); }
 .dsh-wbl-preview-move-group, .dsh-wbl-preview-primary-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
-/* 窄屏与移动端适配：两行式卡片 + 左侧独立拖柄（仅拖柄可拖，其余区域自由纵向滚动防误触） */
+/* 窄屏与移动端适配：紧凑两行式卡片（约 42px 高）+ 左侧独立拖柄（仅拖柄可拖，其余区域自由纵向滚动防误触） */
 @container (max-width: 560px) {
-  .ap-ui.dsh-wbl-page { padding: 4px 12px 24px; }
-  .dsh-wbl-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 5px 7px; padding: 7px 8px 7px 4px; cursor: default; }
-  .ap-ui button.dsh-wbl-handle, .dsh-wbl-drag-ghost button.dsh-wbl-handle { grid-row: 1 / 3; width: 30px; height: 40px; }
-  .dsh-wbl-info { grid-column: 2; grid-row: 1; }
-  .dsh-wbl-ops { grid-column: 3; grid-row: 1; }
-  .dsh-wbl-bar-wrap { grid-column: 2 / 4; grid-row: 2; }
-  .dsh-wbl-bar-track { height: 9px; }
+  .ap-ui.dsh-wbl-page { padding: 4px 10px 22px; }
+  .dsh-wbl-head { margin-bottom: 8px; }
+  .dsh-wbl-overview { padding: 9px 10px 8px; margin-bottom: 8px; }
+  .dsh-wbl-kpi-row { margin-bottom: 6px; }
+  .dsh-wbl-kpi-big { font-size: 17px; }
+  .dsh-wbl-ribbon { height: 11px; }
+  .dsh-wbl-legend { margin-top: 6px; font-size: 10.5px; }
+  .dsh-wbl-legend-tip { display: none; }
+  .dsh-wbl-sequence { gap: 5px; }
+  .dsh-wbl-anchor { padding: 3px 8px; font-size: 10.5px; }
+  .dsh-wbl-zone { padding: 7px 7px; }
+  .dsh-wbl-zone-head { padding: 0 2px 5px; margin-bottom: 5px; }
+  .dsh-wbl-zone-sub { display: none; }
+  .dsh-wbl-budget { padding: 0 2px 6px; gap: 3px; }
+  .dsh-wbl-list { gap: 3px; }
+  .dsh-wbl-row { grid-template-columns: 22px auto minmax(48px, 1fr) auto; grid-template-rows: auto auto; gap: 1px 5px; padding: 3px 6px 4px 2px; border-radius: 7px; cursor: default; }
+  .ap-ui button.dsh-wbl-handle, .dsh-wbl-drag-ghost button.dsh-wbl-handle { grid-column: 1; grid-row: 1 / 3; width: 22px; height: 28px; }
+  .dsh-wbl-info { display: contents; }
+  .dsh-wbl-name-line { grid-column: 2 / 4; grid-row: 1; gap: 6px; }
+  .dsh-wbl-name { font-size: 12.5px; line-height: 1.2; }
+  .dsh-wbl-ops { grid-column: 4; grid-row: 1; gap: 1px; }
+  .dsh-wbl-tags { grid-column: 2; grid-row: 2; max-width: 152px; min-width: 0; flex-wrap: nowrap; overflow: hidden; font-size: 10px; line-height: 1.2; gap: 3px; }
+  .dsh-wbl-book-label { min-width: 0; flex: 0 1 auto; }
+  .dsh-wbl-tag { flex: none; padding: 0 4px; font-size: 9.5px; line-height: 1.3; }
+  .dsh-wbl-bar-wrap { grid-column: 3 / 5; grid-row: 2; gap: 5px; }
+  .dsh-wbl-bar-track { height: 6px; border-radius: 3px; }
+  .dsh-wbl-bar-fill { min-width: 6px; border-radius: 3px; }
   .dsh-wbl-tok, .dsh-wbl-order { display: none; }
-  .dsh-wbl-tok-mobile { display: inline; font-size: 12px; font-weight: 700; color: var(--fork-ink); flex: none; }
-  .dsh-wbl-order-mobile { display: inline; font-size: 11px; color: var(--fork-ink-3); flex: none; }
-  .ap-ui button.dsh-wbl-op-btn { width: 28px; height: 28px; }
+  .dsh-wbl-tok-mobile { display: inline; font-size: 11.5px; font-weight: 700; color: var(--fork-ink); flex: none; }
+  .dsh-wbl-order-mobile { display: inline; font-size: 10px; color: var(--fork-ink-3); flex: none; min-width: 28px; text-align: right; }
+  .ap-ui button.dsh-wbl-op-btn, .dsh-wbl-drag-ghost button.dsh-wbl-op-btn { width: 22px; height: 22px; }
 }
 @media (max-width: 640px) {
   .ap-modal-scrim:has(.dsh-wbl-preview-modal) { align-items: flex-end; padding: 0; }

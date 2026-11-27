@@ -381,13 +381,17 @@ test('真实浏览器（桌面 + 移动端）：入口进入常驻排布、防�
   assert.equal(afterNames[0], beforeNames[1])
   assert.equal(afterNames[1], beforeNames[0])
 
-  // 6) 移动端 390px 视口验证：无横向溢出，显式查看按钮可打开底部预览
+  const desktopRowHeight = await page.evaluate(() => Math.round(document.querySelector('.dsh-wbl-row').getBoundingClientRect().height))
+
+  // 6) 移动端 390px 视口验证：无横向溢出、条目更紧凑（不高过桌面端），显式查看按钮可打开底部预览
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload()
   await page.locator('button.dsh-wbl-entry-btn').click()
   await page.locator('.dsh-wbl-page').waitFor()
   const reloadedNames = await page.locator('ul[aria-label="稳定前缀条目"] .dsh-wbl-name').allInnerTexts()
   assert.deepEqual(reloadedNames, afterNames, '刷新后应保持已持久化的新顺序')
+  const mobileRowHeight = await page.evaluate(() => Math.round(document.querySelector('.dsh-wbl-row').getBoundingClientRect().height))
+  assert.ok(mobileRowHeight <= desktopRowHeight && mobileRowHeight <= 50, `移动端单行应比桌面端更紧凑，实际 mobile=${mobileRowHeight}px desktop=${desktopRowHeight}px`)
   const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   assert.ok(overflowX <= 1, '移动端不应出现横向滚动溢出，实际溢出：' + overflowX)
   await page.locator('button.dsh-wbl-preview-btn').first().click()
