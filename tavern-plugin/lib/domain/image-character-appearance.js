@@ -1,7 +1,7 @@
 // A figure's 外貌 lives in the 配图 人物库 record (schema 4, per view). Asset generation draws standing, clothed,
 // front-facing pictures, so it reads the front SFW views and the outfit's front parts.
 import { IMAGE_CHARACTER_TRAITS } from './plugin-image-catalog.js'
-import { figureOutfitReference } from './figure-sprite-reference.js'
+import { figureBaseSettei, figureOutfitReference } from './figure-sprite-reference.js'
 
 // A pack that leaves this library (export, copy) carries each figure's record 外貌 as this figure extension; the host moves
 // it back into a record when the pack is written here (appearanceMove), so an installed pack never keeps a second copy.
@@ -55,6 +55,9 @@ export function appearanceFromImageCharacter(character, outfitKey) {
     ...(outfit?.name ? { outfitName: outfit.name } : {}),
     identityAppearance: joined([traits.face, traits.bodySFW, traits.lowerSFW]),
     outfitAppearance: outfit ? joined([outfit.upper, outfit.lower, outfit.shoes, outfit.accessory, outfit.full]) : '',
+    // Keep the back-view fields separate from the front-view description.
+    identityBack: joined([traits.faceBack, traits.bodySFWBack, traits.lowerSFWBack]),
+    outfitBack: outfit ? joined([outfit.back]) : '',
   }
 }
 
@@ -129,7 +132,7 @@ export function linkPatchFromFigure(character, figure, packId) {
 }
 
 /** The pictures a figure's pack gives 配图 (ADR 0012: the pack is their one store; the 人物库 record reads them through the
- *  host by its link and never holds a copy): the person's 人设图, and per outfit its 服装设定图 or, lacking one, the resting
+ *  host by its link and never holds a copy): the person's base settei (figureBaseSettei: the default outfit's), and per outfit its 服装设定图 or, lacking one, the resting
  *  立绘 it borrows (`borrowed`: a picture uploaded to the record's outfit goes first). Hashes are pack media sha256. */
 export function figurePackPictures(pack, figure) {
   const outfits = {}
@@ -137,7 +140,7 @@ export function figurePackPictures(pack, figure) {
     if (outfit.settei) outfits[outfit.key] = { hash: outfit.settei, borrowed: false }
     else { const fallback = figureOutfitReference(pack, figure, outfit); if (fallback) outfits[outfit.key] = { hash: fallback.hash, borrowed: true } }
   }
-  return { identity: figure.identitySettei?.board || null, outfits }
+  return { identity: figureBaseSettei(figure)?.board || null, outfits }
 }
 
 // Names the copies of pack pictures that records held before ADR 0012 ended with (设定图, borrowed 立绘/差分/头像): a

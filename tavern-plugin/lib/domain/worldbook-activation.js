@@ -141,6 +141,10 @@ function keywordEvaluation(entry, body, sources, lowerBody) {
     primaryKeyCount: keys(entry.primaryKeys).length, secondaryKeys, selectiveLogic: entry.selective === true ? Number(entry.selectiveLogic) || 0 : null }
 }
 
+export function matchesWorldBookKeywords(entry, text) {
+  return keywordEvaluation(entry, text, []).matched
+}
+
 function scanMessages(input) {
   const messages = (input.chat?.messages || []).map((message, messageIndex) => ({ ...message, messageIndex }))
     .filter(message => ['user', 'assistant'].includes(message?.role))

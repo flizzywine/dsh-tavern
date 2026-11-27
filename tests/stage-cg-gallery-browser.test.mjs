@@ -9,6 +9,8 @@ async function open(t, items, options = {}) {
   const context = await browser.newContext(options.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: options.viewport || { width: 1280, height: 720 } })
   const page = await context.newPage(); page.setDefaultTimeout(5000)
   const errors = []; page.on('pageerror', error => errors.push(error.message)); t.after(() => assert.deepEqual(errors, []))
+  // a real origin, for a test that reads localStorage (about:blank has none)
+  if (options.origin) { await page.route('http://gallery.test/', route => route.fulfill({ contentType: 'text/html', body: '' })); await page.goto('http://gallery.test/') }
   await mountGallery(page, { items, pageSize: options.pageSize, stale: options.stale, failCursor: options.failCursor })
   return page
 }
@@ -296,3 +298,57 @@ for (const [name, phone, portrait] of [['wide screen, landscape CG', false, fals
     }
   })
 }
+
+// 回想's filter: only while the card has both its own and 自动生成 CGs; the choice is this device's (localStorage).
+test('全部 | 卡自带 | 自动生成 shows only with both kinds, reads the filtered list and is remembered on this device', async t => {
+  const own = galleryItems(2, { scene: false }).map((item, i) => ({ ...item, ref: { ...item.ref, assetId: `own-${i}` }, label: `卡 ${i + 1}` }))
+  const page = await open(t, [...galleryItems(3), ...own], { origin: true })
+  const modes = page.locator('.fork-cg-filter > button')
+  assert.deepEqual(await modes.allTextContents(), ['全部', '卡自带', '自动生成'])
+  assert.equal(await page.locator('.fork-cg-filter [aria-pressed="true"]').textContent(), '全部')
+  await modes.nth(2).click()
+  await page.waitForFunction(() => document.querySelectorAll('.fork-cg-gallery-cell').length === 3)
+  assert.equal(await page.locator('.fork-cg-filter [aria-pressed="true"]').textContent(), '自动生成')
+  assert.equal(await page.evaluate(() => localStorage.getItem('dsh-tavern:cg-gallery-source')), 'scene')
+  await modes.nth(1).click()
+  await page.waitForFunction(() => document.querySelectorAll('.fork-cg-gallery-cell').length === 2)
+  assert.deepEqual(await page.evaluate(() => galleryState.calls.filter(c => c.method === 'getCgGallery').map(c => c.args.source)), ['all', 'scene', 'card'])
+  // a card with one kind only: no filter, every CG
+  const single = await open(t, galleryItems(3))
+  assert.equal(await single.locator('.fork-cg-filter').count(), 0)
+})
+
+test('the grid has a thin drawn scroll indicator at its right edge: shown while scrolling, gone at rest, draggable, absent when all fits', async t => {
+  const page = await open(t, galleryItems(40))
+  const bar = page.locator('.fork-cg-scrollbar'), thumb = bar.locator('b')
+  assert.equal(await bar.getAttribute('data-scrollable'), '')
+  const box = await page.locator('.fork-cg-gallery-scroll').boundingBox(), rail = await bar.boundingBox(), at = await thumb.boundingBox()
+  assert.ok(box.x + box.width - (rail.x + rail.width) <= 4, 'at the right edge')
+  assert.ok(at.width <= 3.5 && at.y <= rail.y + 1, 'thin, at the top')
+  const ink = () => thumb.evaluate(node => getComputedStyle(node).backgroundColor)
+  assert.match(await ink(), /, 0\)$/, 'unseen at rest')
+  await page.locator('.fork-cg-gallery-scroll').evaluate(node => { node.scrollTop = node.scrollHeight })
+  await page.waitForFunction(() => document.querySelector('.fork-cg-scrollbar').hasAttribute('data-moving'))
+  await page.waitForTimeout(300); assert.doesNotMatch(await ink(), /, 0\)$/, 'seen while scrolling')
+  await page.waitForTimeout(2000); assert.match(await ink(), /, 0\)$/, 'gone again a moment after')
+  const end = await thumb.boundingBox()
+  assert.ok(Math.abs(end.y + end.height - (rail.y + rail.height)) <= 1.5, 'at the bottom once scrolled to the end')
+  await page.mouse.move(end.x + 2, end.y + end.height / 2); await page.mouse.down(); await page.mouse.move(end.x + 2, rail.y - 50, { steps: 4 }); await page.mouse.up()
+  assert.equal(await page.locator('.fork-cg-gallery-scroll').evaluate(node => node.scrollTop), 0, 'dragging the thumb scrolls the list')
+  const short = await open(t, galleryItems(2))
+  assert.equal(await short.locator('.fork-cg-scrollbar').getAttribute('data-scrollable'), null)
+  assert.equal(await short.locator('.fork-cg-scrollbar').isVisible(), false)
+})
+
+test('the sort button turns 新的在前 into 旧的在前 and back, reading the list again and remembering it on this device', async t => {
+  const page = await open(t, galleryItems(4), { origin: true })
+  const sort = page.locator('.fork-cg-grid-top [data-k="sort"]')
+  assert.equal(await sort.getAttribute('aria-label'), '新的在前')
+  await sort.click()
+  await page.waitForFunction(() => document.querySelector('.fork-cg-gallery-cell')?.getAttribute('aria-label') === '第 4 张 CG')
+  assert.equal(await sort.getAttribute('aria-label'), '旧的在前')
+  assert.equal(await page.evaluate(() => localStorage.getItem('dsh-tavern:cg-gallery-order')), 'oldest')
+  await sort.click()
+  await page.waitForFunction(() => document.querySelector('.fork-cg-gallery-cell')?.getAttribute('aria-label') === '第 1 张 CG')
+  assert.deepEqual(await page.evaluate(() => galleryState.calls.filter(c => c.method === 'getCgGallery').map(c => c.args.order)), ['newest', 'oldest', 'newest'])
+})

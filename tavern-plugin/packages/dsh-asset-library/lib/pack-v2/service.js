@@ -97,7 +97,7 @@ function voiceRows(pack) {
       revision:pack.local.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}, users, ...(figures[0] ? {previewFigureId:(users[0] || figures[0]).id} : {})}
   })}
 }
-const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
+const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true,automaticCardId:pack.local.autoWrite.cardId}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
 // what a list row reads — name, revision, counts, size and a few picture refs.
 // No files, blobs, sprites, figure or widget documents (the full list was 19 MB for 30 packs); details are per pack.
 const SUMMARY_PICTURE_KINDS = ['backgrounds','cg','items','props'], SUMMARY_PICTURES = 8
@@ -949,8 +949,8 @@ export function createAssetPackService(options) {
         for (const key of Object.keys(patch)) check(!['id','format','schemaVersion','contentHash','files'].includes(key), '$.patch.' + key, 'Identity/hash fields cannot be patched')
         // Metadata probing and the full transaction each trim their own resource closure.
         Object.assign(manifest, copy(patch))
-        // An optional author field patched to undefined is removed.
-        for (const [key, value] of Object.entries(patch)) if (value === undefined) delete manifest[key]
+        // An optional author field patched to undefined (null over RPC, where undefined is dropped) is removed.
+        for (const [key, value] of Object.entries(patch)) if (value === undefined || value === null) delete manifest[key]
         for (const [name, bytes] of updates) {
           check(!name.startsWith('mods/') || bytes === null && retiredModIds.some(id => name.startsWith('mods/'+id+'/')),'$.fileUpdates','Only retired mod namespaces can be removed here','UNKNOWN_FIELD')
           if (name.startsWith('figures/') && bytes !== null) check(manifest.figures.includes(name.slice(8, -5)), '$.fileUpdates', 'Figure document is not in the manifest')
@@ -1757,7 +1757,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}

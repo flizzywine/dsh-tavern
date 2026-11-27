@@ -9,7 +9,6 @@ import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {mvuConditionHolds} from './domain/mvu-visibility.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import {createReplyStreamRewriters} from './domain/reply-stream-rewrite.js'
-import {createSpeechRecognitionHost} from './speech-recognition-host.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
@@ -282,7 +281,7 @@ import { createDialogueBubblePresets, DEFAULT_BUBBLE_TEMPLATE } from './domain/d
 import { bubbleCharacter } from '../src/client/bubble-line.cjs'
 import { modLibrary } from './mod-library.js'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
-import { createCardStorage } from './card-storage.js'
+import { CARD_ID, createCardStorage } from './card-storage.js'
 import { createCardLeftovers } from './card-leftovers.js'
 import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
@@ -320,6 +319,8 @@ import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import {withConversationReadLane} from './domain/conversation-read-lanes.js'
+import {recoverRuntimeHistory as recoverHistory} from './domain/runtime-history-recovery.js'
 import { installTavernTokenMeter } from './domain/tavern-token-meter.js'
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
@@ -1969,6 +1970,14 @@ export async function apply(ctx) {
     }
     return result
   }
+  // A card deleted before deleteCard cleaned up after it: the same cleanup, once the card is gone. cardId is the id its
+  // storage knew (per-card records such as the stage's CG gallery are named by it).
+  async function removeDeletedCardLeftovers(cardPath, cardId) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    if (cardId !== undefined && !CARD_ID.test(cardId)) throw new Error('人物卡身份不合法')
+    if (await fileResources.readCard(normalized) !== undefined || await cardStorage.findId(normalized) !== undefined) throw Object.assign(new Error('人物卡还在，请用删除人物卡'), { code: 'CARD_EXISTS' })
+    return await cardLeftovers.remove({ cardPath: normalized, cardId })
+  }
   const sessionInventory = createSessionInventory({
     persistence: ctx.get('sessionPersistence'), sessions: sessionStore, agents: agentRegistry,
     references: () => conversationRegistry.list(), archived: () => ctx.get('workspaceRegistry')?.archivedSessionIds
@@ -3202,6 +3211,20 @@ export async function apply(ctx) {
     linkedAppearance: async ({packId, figureId, outfitKey}) => {
       const linked = await findFigureImageCharacter(pluginApi, {packId, figureId})
       return linked.status === 'linked' ? appearanceFromImageCharacter(linked.character, outfitKey) : null
+    },
+    // 画风: a card's own (extensions.dsh_tavern genStyle, styles), by path, or by id for the card a 自动素材 pack belongs to.
+    readCardStyle: async ({cardPath, cardId}) => {
+      let path = cardPath, workspace
+      if (cardId) {
+        for (const candidate of await fileResources.list('card')) {
+          const shared = await readSharedCardWorkspace(candidate)
+          if (shared?.meta?.id === cardId) { path = candidate; workspace = shared; break }
+        }
+      } else workspace = await readSharedCardWorkspace(cardPath)
+      const raw = workspace && (workspace.raw?.data || workspace.raw)
+      if (!raw) return null
+      const own = raw.extensions?.dsh_tavern
+      return {path, name:String(raw.name || ''), genStyle:own?.genStyle, styles:own?.styles}
     }})
   ctx.effect(() => () => assetGeneration.dispose(), 'dsh-tavern: dispose asset generation')
   // Public extension service for third-party DSH plugins (docs/plugin-api.md).
@@ -3215,7 +3238,8 @@ export async function apply(ctx) {
     slice: (sessionId, indices) => chatSliceForSession(sessionId, indices, []),
     fullChat: chatForSession,
     readChatCard,
-    regexScripts: pluginTurnRegexScripts
+    regexScripts: pluginTurnRegexScripts,
+    cardImageStyle: cardPath => assetGeneration.cardImageStyle(cardPath)
   })
   const pluginSettlementProgress = createPluginSettlementProgress()
   // What each 精修 changed, shown on the 精修对比 page.
@@ -3352,8 +3376,10 @@ export async function apply(ctx) {
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}, origin) {
     const card = await castCardOf(str(sessionId)).catch(() => null)
     const figures = card && origin ? await stageRuntime.assets.cardSpeech({ sessionId: str(sessionId), cardPath: card.path }, origin) : null
-    const extension = card && !figures && narration === true ? await cardStageExtension(card.path).catch(() => null) : null
-    return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension: extension || undefined })
+    // without the stage, narration reads the card's narrator layer and its own 旁白 voice (narrator:<card id>) directly.
+    const workspace = card && !figures && narration === true ? await readCardWorkspace(card.path).catch(() => null) : null
+    const extension = workspace?.raw && hasCardAssetBindings(workspace.raw) ? readCardAssetExtension(workspace.raw) : undefined
+    return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension })
   }
   // The asset packs this game's card carries, with the base address of their files.
   async function cardPacksOf(sessionId) {
@@ -4077,9 +4103,11 @@ export async function apply(ctx) {
     enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && (await readTavernSettings()).candidateAutoGenerate === true,
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
-      const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
+      const agent = agentRegistry.get(sessionId)
+      const session = sessionStore.get(sessionId) || agent?.session
       const turn = chat?.messages?.findLast(message => message?.role === 'assistant')?.turn
-      return { chat, messageId: str(assistantResultForTurn(session, turn)?.event?.data?.message?.id) }
+      return { chat, running: agent?.phase?.kind === 'running',
+        messageId: str(assistantResultForTurn(session, turn)?.event?.data?.message?.id) }
     },
     activity: chat => backgroundTasks.activity(chat),
     submit: args => candidateTasks.submit(args)
@@ -4767,7 +4795,7 @@ export async function apply(ctx) {
     cardArchiveUploads, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
-    conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
+    conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, removeDeletedCardLeftovers, deleteChat, deleteChats,
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
     fileResources, forkCardWorkbench, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,

@@ -182,10 +182,13 @@ function galCreateScene(host, options, own) {
     const call=stageViews.callViews.create({PIXI,renderer:app.renderer,screen:app.screen,canvas:app.view,tune});
     own(call,value=>value.dispose());
     app.stage.addChild(world, bust.sprite, overlay, call.container);
-    // Filter attachment points (render order within each chain).
+    // Filter attachment points (render order within each chain). Everything under the world (backgrounds, figures,
+    // particles) takes its edges from texture alpha, so those chains draw single-sampled: MSAA there changed no pixel but
+    // made every full-screen pass four times the memory plus a resolve. Only the overlay draws polygons (blink lids, slash
+    // bars) and keeps MSAA on high.
     const filters = {
-        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"]),
-        backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
+        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"], true), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"], true),
+        backFx: stageViews.sceneGraphics.filters(backFx, null, null, true), figures: stageViews.sceneGraphics.filters(figuresBox, null, null, true), frontFx: stageViews.sceneGraphics.filters(frontFx, null, null, true), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
     };
     function tune(filter) {
         filter.resolution = filter.forkLowRes ? 1 : app.renderer.resolution;
@@ -211,7 +214,9 @@ function galCreateScene(host, options, own) {
         camera: cameraMotion.snapshot(),
         dof: galSpringValue(0),
 
-        frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0,
+        // videoBlend: 动态立绘 frame blending, the share of each video frame spent crossfading into the next
+        // (owner 11-26: always on over the whole frame, no setting; 0 off through forkGalDebug.videoBlend).
+        frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0, videoBlend: 1,
         offstage: new Map()            // call view figures not on stage: key → entry
     };
     // A debug light override of day or a time look (dusk, night …) drives the time-of-day grade, as the
@@ -247,7 +252,7 @@ function galCreateScene(host, options, own) {
     own(textures,value=>value.dispose());
     const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
-    const figureVideos=stageViews.figureVideos.create({PIXI});
+    const figureVideos=stageViews.figureVideos.create({PIXI,blend:()=>state.videoBlend});
     own(figureVideos,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
@@ -432,10 +437,10 @@ function galCreateScene(host, options, own) {
     // loaded picture. A new picture's videos take over from the old one's, which play on under the old picture's fade-out
     // and go with it. When the old picture's videos were showing, settled on it (not themselves entering), and name a
     // transition into the new picture (video.into[image]), the new picture enters through it: the old picture stays whole
-    // while the transition is awaited (the new still does not draw meanwhile), then fades out over it in SWITCH_MS; a
+    // while the transition is awaited (the new still does not draw meanwhile), then gives way to it within a frame or two (ENTER_SWITCH_MS: a longer fade shows the two poses at once, a ghost arm); a
     // transition that does not come leaves the usual crossfade. Speech meanwhile: the transition plays out with its own
     // closed mouth (the still's mouths stay shut under it), then the talking loop takes over if the voice is still heard.
-    const ENTER_SWITCH_MS = 150;
+    const ENTER_SWITCH_MS = 40;
     function tickFigureVideo(entry, figure, desc, dt) {
         // While the next picture loads, the shown one's videos play on with it.
         const video = entry.loadedIdentity === figure.identity ? figure.video : entry.videoSprite === entry.sprite ? entry.videoMotion : null;
@@ -446,7 +451,7 @@ function galCreateScene(host, options, own) {
             const leaving = old && entry.videoSprite !== entry.sprite ? entry.fading.find(item => item.sprite === entry.videoSprite) : null;
             const into = leaving && shown && video && before?.outfit === video.outfit && !old.entering() ? before.into?.[video.image] : null;
             if (leaving) leaving.video = old; else old?.destroy();
-            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: into} : video) : null;
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: {...into, clip: old.lend(video.image)}} : video) : null;
             if (into && entry.video) leaving.held = entry.video;
             entry.videoKey = key; entry.videoSprite = entry.sprite;
         }
@@ -465,7 +470,9 @@ function galCreateScene(host, options, own) {
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks();
+        // (not while the picture enters through a transition: its own closed mouth covers the speech, and the talking loop
+        // still loading then is usually ready by its end)
+        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks() && !entry.video.entering();
         entry.video.update({on: moving && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
@@ -620,7 +627,8 @@ function galCreateScene(host, options, own) {
     function staticIdle(entry, desc, dt, now) {
         const reduced = galBlinkCalm(), tap = stageViews.figureTap.galTapFrame(entry.tapReaction, now, reduced);
         const out = { on: false, scaleY: 1, scaleX: tap.scaleX, rotation: tap.tilt * 0.5 * Math.PI / 180, dx: tap.dx, tapY: tap.scaleY };
-        const warp = !reduced && entry.kind === "static" && stageViews.figureGeometry.galStaticWarps(entry.figure);
+        // A playing 动态立绘 moves its own body, so the warp (a full-figure pass every frame) waits for the still.
+        const warp = !reduced && entry.kind === "static" && !entry.videoShown && stageViews.figureGeometry.galStaticWarps(entry.figure);
         const active = figureLifeOn(desc) && !reduced && entry.kind === "static" && entry.sprite && entry.container.visible && figuresBox.visible;
         if (active) {
             const frame = stageViews.figureIdle.galStaticIdleStep(entry.idle, dt, warp);
@@ -1151,11 +1159,11 @@ function galCreateScene(host, options, own) {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !galWeathering(desc) && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        state.unsettled = tier === "high" ? "tier" : idle ? "" : unsettled(desc, plan);
+        state.unsettled = idle ? "" : unsettled(desc, plan);
         state.settled = !state.unsettled;
         return galFrameRate(tier, !idle, refreshRate, stageReading.get().frameCap, handheld, state.settled);
     }
-    // Below high, a scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
+    // A scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
     // (scene-math.cjs GAL_SETTLED_FPS): 4 s after the last change, the camera at rest, no effect, weather, moving look
     // part (grain, wobble, pulse, motes), transition or override, and no figure arriving, leaving, changing, reacting to a
     // tap, blinking or speaking a voice (the mouth follows it).
@@ -1176,6 +1184,8 @@ function galCreateScene(host, options, own) {
             if (entry.tapReaction && state.clock - entry.tapReaction.start < 2000) return "tap";
             if (entry.blink.active && entry.blink.phase() !== "open") return "blink";
             if (figure.speaking && figure.audio && !figure.audio.paused) return "voice";
+            // a blended video crossfades on every screen refresh; the settled rate would undo it
+            if (state.videoBlend > 0 && entry.videoShown) return "blend";
         }
         return "";
     }
@@ -1202,7 +1212,7 @@ function galCreateScene(host, options, own) {
     const renderUncovered = app.renderer.render;
     app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
     function restart() { app.ticker.lastTime = performance.now(); app.start(); }
-    // Settled below high (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
+    // Settled (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
     // no wake-up every vsync for frames it would skip. A change (set, a tap) puts it straight back on the frame loop.
     function setSettled(on, fps) {
         if (on && state.settledTimer && state.settledFps === fps) return;
@@ -1262,6 +1272,8 @@ function galCreateScene(host, options, own) {
         transition(kind, url) { const base = state.desc && state.desc.background || {}; state.override = galSceneMerge(state.override || {}, { background: Object.assign({}, base, { url: url || base.url || "", transition: kind }) }); },
         error() { return state.tickError || ""; },
         probe() { let render = "ok"; try { app.render(); } catch (error) { render = String(error && error.stack || error); } let step = "ok"; try { tick(); } catch (error) { step = String(error && error.stack || error); } return { started: app.ticker.started, count: app.ticker.count, desc: Boolean(state.desc), render, step }; },
+        // videoBlend(share): 动态立绘 frame blending for this stage (0 off, 1 a crossfade over each whole frame); returns it.
+        videoBlend(share) { if (share !== undefined) state.videoBlend = Math.min(1, Math.max(0, Number(share) || 0)); return state.videoBlend; },
         fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality, tier, settled: Boolean(state.settled), unsettled: state.unsettled || "" }; },
         // each figure's idle rhythm and its current idle signals, for phase traces.
         idlePhase() {
@@ -1289,6 +1301,7 @@ function galCreateScene(host, options, own) {
                     glow: round(entry.appearance.snapshot().glow, 2), shadow: round(entry.appearance.snapshot().shadow, 2), blur: round(entry.appearance.snapshot().blur, 2), filters: entry.filters.all().length,
                     light: entry.light ? { strength: round(entry.light[11], 2), side: round(entry.light[9], 2), contact: Boolean(entry.contact?.visible) } : null,
                     ...(entry.spineFigure ? { spine: entry.spineFigure.debug() } : {}),
+                    ...(entry.video ? { video: { ...entry.video.state(), shown: Boolean(entry.videoShown), entering: entry.video.entering(), fading: entry.fading.length, held: entry.fading.some(item => item.held) } } : {}),
                     // figure-life: warp on, the last tap reaction, the reaction still (size, on screen) and the emotions a tap can borrow.
                     life: { armed: round(entry.appearance.snapshot().armed, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),
                 lastTap: state.lastTap || null,

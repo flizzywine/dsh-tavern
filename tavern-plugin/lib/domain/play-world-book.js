@@ -4,6 +4,7 @@ import { isMvuUpdateEntry, isWorldBookTemplateEntry, projectWorldBookTemplates }
 import { withPluginWorldbookEntries } from './plugin-worldbook.js'
 import { inspectWorldBookDocument } from './worldbook-resource.js'
 import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
+import { projectMvuNpcRegistration } from './mvu-npc-registration.js'
 
 // The world book a game plays with, as the background and recall read it.
 export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime, globalVariables = async () => ({}) }) {
@@ -15,15 +16,17 @@ export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runti
     // A standalone binding can replace the embedded book in bound(). Settlement
     // still needs the card's own rules, once each when the book is also bound.
     const seen = new Set()
-    const entries = [...cardEntries, ...(worldBook?.view?.entries || [])].filter(entry => {
+    const enabledRules = [...cardEntries, ...(worldBook?.view?.entries || [])].filter(entry => {
       if (entry.enabled === false || !isMvuUpdateEntry(entry)) return false
       const content = entry.content?.trim()
       if (!content || seen.has(content)) return false
       seen.add(content)
       return true
     })
+    const options = { charName: card?.name, macroState: chat.macroState }
+    const entries = projectMvuNpcRegistration(enabledRules, { chat, target, projection: options })
     if (!entries.some(entry => isWorldBookTemplateEntry(entry) || hasTavernHelperVariableMacro(entry.content))) {
-      return entries.map(entry => projectAgentContent(entry.content, { charName: card?.name, macroState: chat.macroState }).agentText).filter(Boolean)
+      return entries.map(entry => projectAgentContent(entry.content, options).agentText).filter(Boolean)
     }
     // Render only settlement rules in a read-only projection. Never run ordinary
     // worldbook controllers again or send failed templates to the model as code.

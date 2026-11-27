@@ -4,11 +4,11 @@ import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
 const {createStageSessionObservation}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-observation.cjs')
 function fixture({characters=[],failCleanup=false}={}){
- const calls=[],pending=[],listeners=new Set(),events=new Map(),packListeners=new Set();let selected='a',shown=null,display=false,disposedSelectors=0
+ const calls=[],pending=[],listeners=new Set(),events=new Map(),packListeners=new Set();let selected='a',shown=null,display=false,disposedSelectors=0,away=false,holds=[]
  const subscribe=fn=>{listeners.add(fn);return ()=>listeners.delete(fn)}
  const state={source:{sessionId:'a',authorityEpoch:1,turn:1},latestSource:{turn:1},settings:{config:{}},textIndex:new Map([[1,{text:{pages:[{voice:'v',anchor:{paragraphId:1}}]}}]]),opened:true}
  const store={getSnapshot:()=>state,dispatch:event=>calls.push(event.type),select:()=>({subscribe,dispose(){disposedSelectors++;if(failCleanup)throw Error('selector cleanup')}})}
- const media=Object.fromEntries(['music','background','ambience'].map(key=>[key,{subscribe,get:()=>({loopsPaused:false}),activate:id=>calls.push([key,id]),invalidate:()=>calls.push([key,'invalidate']),kick(){},resume(){},hold(){}}]))
+ const media=Object.fromEntries(['music','background','ambience'].map(key=>[key,{subscribe,get:()=>({paused:key==='music'&&away}),activate:id=>calls.push([key,id]),invalidate:()=>calls.push([key,'invalidate']),kick(){},resume(){},hold:value=>holds.push(value)}]))
  const input={owner:{get:id=>id==='a'?store:null},resources:{invalidate:id=>calls.push(['invalidate',id]),suspend:id=>calls.push(['suspend',id]),revoke:id=>calls.push(['revoke',id])},
  resourceOwner:{acquire:()=>new Promise(resolve=>pending.push(resolve)),invalidateDerived:()=>calls.push('derived')},
  selection:{current:()=>selected,list:{subscribe,getSnapshot:()=>({byId:{a:{}}})}},settings:{subscribe,get:()=>({config:{characters}})},
@@ -17,7 +17,7 @@ function fixture({characters=[],failCleanup=false}={}){
  voice:{available:()=>true,handle:()=>({prefetch:()=>calls.push('voice')}),retain(){}},
  portraits:{select:id=>calls.push(['portraits',id]),revision(){},get(){},prepare:()=>calls.push('prepare')},media,
  document:{hidden:false,addEventListener:(key,fn)=>events.set(key,fn),removeEventListener:key=>events.delete(key)}}
- return {scope:createStageSessionObservation(input),input,calls,pending,listeners,events,packListeners,store,get disposedSelectors(){return disposedSelectors},show(value){display=value;shown=value?store:null;for(const fn of [...listeners])fn()}}
+ return {scope:createStageSessionObservation(input),input,calls,pending,listeners,events,packListeners,store,holds,get disposedSelectors(){return disposedSelectors},setAway(value){away=value;for(const fn of [...listeners])fn()},show(value){display=value;shown=value?store:null;for(const fn of [...listeners])fn()}}
 }
 test('session policies continue in chat, revoke on deletion but only suspend on transport loss',()=>{
  const f=fixture();f.scope.start();f.scope.start()
@@ -38,4 +38,11 @@ test('dispose releases late avatar pins, drains queued work without acquiring an
  let releases=0;for(const resolve of f.pending)resolve({handle:{url:'blob:test'},release:()=>releases++})
  await new Promise(resolve=>setImmediate(resolve))
  assert.equal(releases,2);assert.equal(f.pending.length,2);assert.equal(f.calls.includes('prepare'),false)
+})
+
+test('the ambience holds with the music when the player leaves the stage (away) and resumes on return',()=>{
+ const f=fixture();f.scope.start()
+ f.setAway(true);assert.equal(f.holds.at(-1),true)
+ f.setAway(false);assert.equal(f.holds.at(-1),false)
+ f.scope.dispose()
 })

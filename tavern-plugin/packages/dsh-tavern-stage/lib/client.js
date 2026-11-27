@@ -2950,8 +2950,9 @@ if (typeof module !== "undefined" && typeof window === "undefined") module.expor
 
         // dsh-presentation-protocol tts-messages.cjs: the 语音服务 failure sentences the name plate shows.
         // The 语音服务 control-error messages: one authority, read by the plugin (copied into src/shared by build.mjs) and by the core route.
-// ttsErrorMessage(code): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
-function ttsErrorMessage(code) {
+// ttsErrorMessage(code, {name}): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
+// A sentence about one figure says her name where it has {name} (「这个人物」 when the caller has none).
+function ttsErrorMessage(code, {name} = {}) {
   const messages = {
     PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
     FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
@@ -2978,6 +2979,7 @@ function ttsErrorMessage(code) {
     MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
     MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
     SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
+    VOICE_UNSET:'{name}还没选声音，去 素材包 › {name} › 声音 选一个。',
     CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
     MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
     LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
@@ -3012,7 +3014,7 @@ function ttsErrorMessage(code) {
     PLAY_BLOCKED:'浏览器拦截了自动播放，点任意处开启声音。',
     SAMPLE_TOO_LARGE:'这个声音的官方样例文件过大，没有下载。',
   }
-  return Object.hasOwn(messages, code) ? messages[code] : null
+  return Object.hasOwn(messages, code) ? messages[code].replaceAll('{name}', name || '这个人物') : null
 }
 function describeTtsError(code) {
   return ttsErrorMessage(code) || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查语音后端中的服务状态后重试。')
@@ -3160,6 +3162,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
 function stageTtsMessages() {
     return typeof ttsErrorMessage === 'function' ? {ttsErrorMessage} : require('../../../dsh-presentation-protocol/src/tts-messages.cjs');
 }
+// The resolver's answers for a voice the figure has not finished (dsh-tts sourceUnsetIssue): fixed on her 声音 page.
+const GAL_FIGURE_VOICE_CODES = new Set(["VOICE_UNSET", "MISSING_REFERENCE"]);
 function createStageLabels({React, Icon, document, getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame}) {
 // HUD change moments. One step per render for a top-left label
 // (place or track): the first value, a cleared label, a new session or a change outside live playback (history,
@@ -3205,7 +3209,8 @@ function GalHudLabels(props) {
 
 // Name plate of the text box: the name (classic: 【名字】 unless in film mode), the mood tag (other themes) and,
 // only when the line is voiced, a small replay button right after the name (V does the same).
-// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay() }.
+// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay(),
+// onOpenVoice() (opens this figure's 声音 page; absent when the stage cannot) }.
 // a name as [family lead, family rest, given lead, given rest] - the
 // given name is the longest of the figure's other names (aliases) that ends the name; without one the name is all family.
 function galNameParts(name, character) {
@@ -3290,10 +3295,14 @@ function GalNamePlate(props) {
         return () => { live = false; if (frame !== null) cancelAnimationFrame(frame); observer?.disconnect(); };
     }, [props.name, state]);
     // The player-facing sentence for the failure code (the 语音服务 message authority); a code without one stays generic.
-    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError) : null;
-    const label = state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
-    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
-        onClick: event => { event.stopPropagation(); props.onReplay(); },
+    // A voice not set up on the figure itself (GAL_FIGURE_VOICE_CODES) is no failure to retry: it says what to pick and the
+    // button opens her 声音 page.
+    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError, { name: props.name }) : null;
+    const unset = state === "error" && GAL_FIGURE_VOICE_CODES.has(props.voiceError), open = unset && props.onOpenVoice;
+    const label = unset ? (open ? reason.replace(/。$/, "") + "（点击打开）" : reason)
+        : state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
+    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" || open ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
+        onClick: event => { event.stopPropagation(); if (open) props.onOpenVoice(); else props.onReplay(); },
         // Enter / Space activate the focused button instead of turning the page (the stage listens on window).
         onKeyDown: event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); } }, state === "error" ? "⚠ 配音" : h("b", { className: "fork-gal-voice-glyph", "data-figure-ink": "4.5", "aria-hidden": true }, "\uE900")) : null;
     // The glyph stands right after the name, measured: centred on the name's ink and GAL_VOICE_GAP name em from it (galVoiceAlign).
@@ -7912,10 +7921,13 @@ function galCreateScene(host, options, own) {
     const call=stageViews.callViews.create({PIXI,renderer:app.renderer,screen:app.screen,canvas:app.view,tune});
     own(call,value=>value.dispose());
     app.stage.addChild(world, bust.sprite, overlay, call.container);
-    // Filter attachment points (render order within each chain).
+    // Filter attachment points (render order within each chain). Everything under the world (backgrounds, figures,
+    // particles) takes its edges from texture alpha, so those chains draw single-sampled: MSAA there changed no pixel but
+    // made every full-screen pass four times the memory plus a resolve. Only the overlay draws polygons (blink lids, slash
+    // bars) and keeps MSAA on high.
     const filters = {
-        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"]),
-        backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
+        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"], true), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"], true),
+        backFx: stageViews.sceneGraphics.filters(backFx, null, null, true), figures: stageViews.sceneGraphics.filters(figuresBox, null, null, true), frontFx: stageViews.sceneGraphics.filters(frontFx, null, null, true), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
     };
     function tune(filter) {
         filter.resolution = filter.forkLowRes ? 1 : app.renderer.resolution;
@@ -8350,7 +8362,8 @@ function galCreateScene(host, options, own) {
     function staticIdle(entry, desc, dt, now) {
         const reduced = galBlinkCalm(), tap = stageViews.figureTap.galTapFrame(entry.tapReaction, now, reduced);
         const out = { on: false, scaleY: 1, scaleX: tap.scaleX, rotation: tap.tilt * 0.5 * Math.PI / 180, dx: tap.dx, tapY: tap.scaleY };
-        const warp = !reduced && entry.kind === "static" && stageViews.figureGeometry.galStaticWarps(entry.figure);
+        // A playing 动态立绘 moves its own body, so the warp (a full-figure pass every frame) waits for the still.
+        const warp = !reduced && entry.kind === "static" && !entry.videoShown && stageViews.figureGeometry.galStaticWarps(entry.figure);
         const active = figureLifeOn(desc) && !reduced && entry.kind === "static" && entry.sprite && entry.container.visible && figuresBox.visible;
         if (active) {
             const frame = stageViews.figureIdle.galStaticIdleStep(entry.idle, dt, warp);
@@ -8881,11 +8894,11 @@ function galCreateScene(host, options, own) {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !galWeathering(desc) && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        state.unsettled = tier === "high" ? "tier" : idle ? "" : unsettled(desc, plan);
+        state.unsettled = idle ? "" : unsettled(desc, plan);
         state.settled = !state.unsettled;
         return galFrameRate(tier, !idle, refreshRate, stageReading.get().frameCap, handheld, state.settled);
     }
-    // Below high, a scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
+    // A scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
     // (scene-math.cjs GAL_SETTLED_FPS): 4 s after the last change, the camera at rest, no effect, weather, moving look
     // part (grain, wobble, pulse, motes), transition or override, and no figure arriving, leaving, changing, reacting to a
     // tap, blinking or speaking a voice (the mouth follows it).
@@ -8932,7 +8945,7 @@ function galCreateScene(host, options, own) {
     const renderUncovered = app.renderer.render;
     app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
     function restart() { app.ticker.lastTime = performance.now(); app.start(); }
-    // Settled below high (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
+    // Settled (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
     // no wake-up every vsync for frames it would skip. A change (set, a tap) puts it straight back on the frame loop.
     function setSettled(on, fps) {
         if (on && state.settledTimer && state.settledFps === fps) return;
@@ -9305,8 +9318,9 @@ function sceneFigureScale() {
 // anything else at 60.
 // quality is the 画质 tier in force (device.cjs galDeviceQuality: high | medium | saver; the old "low" is saver): below
 // high the default cap is 30, saver never goes over 30, and a settled scene (nothing moving but the figures' idle
-// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier. High keeps its rates.
-const GAL_SETTLED_FPS = Object.freeze({ medium: 15, saver: 10 });
+// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier: high to 30 too (the GPU work is per
+// drawn frame, so a still scene costs half; 动态立绘 keep playing, their 24 fps paced by the 30 fps ticks).
+const GAL_SETTLED_FPS = Object.freeze({ high: 30, medium: 15, saver: 10 });
 function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false, settled = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
     const tier = quality === "low" ? "saver" : quality;
@@ -15079,18 +15093,20 @@ function GalStage(props) {
     }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
     // 卡页面演出 (status-panel.cjs Performance): a mod overlay's cardPage.perform(pageId, cue) plays one of the card's pages
-    // over the scene, above the text box; one at a time. → Promise of {done} / {skipped}; rejected when the card has no such
-    // page, the page cannot be read, or another performance is up (the mod then shows what it shows without one).
+    // over the scene, above the text box; one at a time. perform({name, html, media}, cue) plays a sandboxed skin page.
+    // Returns {done} or {skipped}; rejects if the source is missing, it cannot be read, or another performance is up.
+    // The caller can then show what it would have shown without a performance.
     const [pagePerform, setPagePerform] = React.useState(null);
     const pagePerformNow = React.useRef(null), pageListNow = React.useRef(pageList);
     pageListNow.current = pageList;
-    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(pageId, cue) {
-        if (!pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
+    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(source, cue) {
+        const skinPage = source && typeof source === 'object' ? source : null, pageId = skinPage ? String(source.name || '') : source;
+        if (!skinPage && !pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
         if (pagePerformNow.current) return Promise.reject(new Error('舞台正在演另一段页面'));
         return new Promise((resolve, reject) => {
             const root = rootRef.current, box = root?.querySelector('.fork-gal-box');
             const bottom = root && box ? Math.max(0, root.getBoundingClientRect().bottom - box.getBoundingClientRect().top) : 0;
-            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, cue, region: { bottom },
+            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, skinPage, cue, region: { bottom },
                 end: result => { if (pagePerformNow.current !== item) return; pagePerformNow.current = null; setPagePerform(null); if (result.failed) reject(new Error(result.failed)); else resolve(result); } };
             pagePerformNow.current = item;
             setPagePerform(item);
@@ -15762,6 +15778,10 @@ function GalStage(props) {
     // with its pack revision. A figure in the notice leaves the stage for its page in 素材库 (as 回想's 编辑).
     const nameConflicts = useGalNameConflicts(sessionId, JSON.stringify((accepted.avatars || []).map(figure => [figure.ref?.packId || '', figure.ref?.figureId || figure.alias, figure.revision || ''])));
     const openConflictFigure = figure => { const open = stageViews.notices.openLibrary; props.onExit(); if (open) void open(sessionId, {packId:figure.packId, kind:'figures', figureId:figure.figureId}); };
+    // the speaker's own 声音 page, for a voice she has not finished (the name plate's ⚠ opens it; labels.cjs).
+    const speakerRef = characterOf(speaker)?.ref;
+    const openLibrary = stageViews.notices.openLibrary;
+    const openSpeakerVoice = openLibrary && speakerRef?.packId ? () => { props.onExit(); void openLibrary(sessionId, {packId:speakerRef.packId, kind:'figures', figureId:speakerRef.figureId, tab:'voice'}); } : null;
     const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
     const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
@@ -16049,7 +16069,7 @@ function GalStage(props) {
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
-            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay }) : null,
+            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay, onOpenVoice: openSpeakerVoice }) : null,
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
@@ -16097,7 +16117,7 @@ function GalStage(props) {
             cardPage: stageViews.statusPanel ? cardPagePerformer : undefined,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
         // a card page performing (cardPage.perform above), over the scene and the mods' layers, clear of the text box
-        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
+        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, skinPage: pagePerform.skinPage, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
@@ -18189,6 +18209,8 @@ uniform vec2 uNormalSize;
 const vec3 W = vec3(0.2126, 0.7152, 0.0722);
 void main(void) {
     vec4 src = texture2D(uSampler, vTextureCoord);
+    // Outside the figure (often half its box) the matrix below gives alpha m[19] at most: nothing to light or draw.
+    if (src.a <= 0.0 && m[19] <= 0.0) { gl_FragColor = vec4(0.0); return; }
     vec4 c = src;
     if (c.a > 0.0) c.rgb /= c.a;
     if (uLight.z > 0.0) {
@@ -19066,7 +19088,225 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSceneTextures};
 
-        __STAGE_FIGURE_VIDEO__
+        'use strict';
+// 动态立绘: a pack figure's still may carry looping videos (outfit sprite.videos, 视频 entries whose frames hold the picture on
+// the left and its alpha matte on the right, stageVideo alpha 'right'): an idle loop, and optionally a talking loop whose
+// mouth, jaw and blinks are the video's own. Both are made from the still and start and end on it. The still stays the
+// figure: its size, anatomy, anchor, light, tap and avatar never change. A video only stands in for the still's pixels, drawn
+// as a child of the figure sprite over the still's rect, so every transform and filter of the figure applies to it as well.
+// - The still shows until the idle loop can play, whenever the stage says the motion is off (`on: false`), and for good when
+//   the idle loop cannot play (a decode error, no WebGL upload); the change is a short crossfade, never a gap.
+// - Speech follows the voice, as the still's mouths do: the talking loop starts from its first frame when the figure's voice
+//   is heard and loops while it goes on (gaps between words shorter than VOICE_HOLD_MS count as speech); once the voice
+//   stops it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. No heard voice
+//   (voice off, muted, failed), no talking loop. Without a playable talking loop the handle says so (`talks()`) and the stage
+//   shows the still's own mouths instead.
+// - A change of expression may enter through a transition (motion.enter, a 视频 of the same kind that starts on the
+//   previous still's pose and ends on this one's): the handle claims the still at once (it does not draw, so the previous
+//   picture fading out on top is all that shows), waits up to ENTER_WAIT_MS for the clip, shows it whole under the
+//   previous picture's fade (entering() says when), plays it once and hands over to the idle loop - or to the talking loop
+//   when the voice is heard by then - from its first frame. A clip that does not come in time, fails, or a motion turned off
+//   meanwhile drops the transition: the still shows and the pictures crossfade as without one.
+// - Only a figure on stage plays: a video whose motion is off pauses once it has faded out, and the browser's hidden page
+//   pauses it too (forkForeground); a released figure releases its videos (elements, textures and the shared reads).
+// - A texture takes each decoded frame once (requestVideoFrameCallback; PIXI's own updates at 30 fps without it) and
+//   nothing while the element is paused.
+// One H.264 or VP9 file with a side-by-side matte plays with transparency in every browser that plays video (Safari does not
+// render a WebM's alpha channel), and decodes in one hardware decoder.
+function createStageFigureVideos({document, acquire, foreground}) {
+let disposed = false;
+const scopes = new Set();
+const FADE_MS = 240, SWITCH_MS = 150, VOICE_HOLD_MS = 400, ENTER_WAIT_MS = 600;
+const VERTEX = `attribute vec2 aVertexPosition;attribute vec2 aTextureCoord;uniform mat3 projectionMatrix;uniform mat3 translationMatrix;uniform mat3 uTextureMatrix;varying vec2 vTextureCoord;
+void main(){gl_Position=vec4((projectionMatrix*translationMatrix*vec3(aVertexPosition,1.0)).xy,0.0,1.0);vTextureCoord=(uTextureMatrix*vec3(aTextureCoord,1.0)).xy;}`;
+// The colour of a point is the left half, its opacity the red of the right half; clamped half a texel from the seam.
+const FRAGMENT = `precision mediump float;varying vec2 vTextureCoord;uniform sampler2D uSampler;uniform vec4 uColor;uniform float uSeam;
+void main(){float x=clamp(vTextureCoord.x*0.5,0.0,0.5-uSeam);vec3 c=texture2D(uSampler,vec2(x,vTextureCoord.y)).rgb;
+float a=texture2D(uSampler,vec2(0.5+clamp(vTextureCoord.x*0.5,uSeam,0.5-uSeam),vTextureCoord.y)).r;gl_FragColor=vec4(c*a,a)*uColor;}`;
+function create({PIXI}) {
+    if (disposed) throw new Error('Figure videos disposed');
+    let closed = false;
+    const handles = new Set();
+    let program = null;
+    // One video of a figure: its element, texture and mesh under the figure's own children (a mouth or a blink over it).
+    function clip(sprite, source, loop, place) {
+        const video = document.createElement('video');
+        video.muted = true; video.defaultMuted = true; video.loop = loop; video.playsInline = true; video.preload = 'auto';
+        video.setAttribute('playsinline', ''); video.setAttribute('muted', ''); video.disablePictureInPicture = true;
+        const read = acquire(source, {poster: false});
+        const c = {video, status: 'loading', mix: 0, mesh: null, base: null, playing: false};
+        c.fail = error => {
+            if (c.status === 'released') return;
+            if (error) console.warn('[figure-video] still kept', error);
+            c.status = 'failed'; c.mix = 0; video.pause(); if (c.mesh) c.mesh.visible = false;
+        };
+        video.addEventListener('error', () => c.fail(video.error));
+        video.addEventListener('loadeddata', () => {
+            if (c.status !== 'loading') return;
+            try {
+                // One upload per decoded frame: the browser's frame callback where it has one, else PIXI's own updates at 30 fps.
+                const frames = typeof video.requestVideoFrameCallback === 'function';
+                const resource = new PIXI.VideoResource(video, {autoPlay: false, autoLoad: true, updateFPS: 30});
+                if (frames) resource.autoUpdate = false;
+                c.base = new PIXI.BaseTexture(resource, {mipmap: PIXI.MIPMAP_MODES.OFF});
+                if (frames) {
+                    const next = () => { if (c.status === 'ready') { resource.update(); video.requestVideoFrameCallback(next); } };
+                    video.requestVideoFrameCallback(next);
+                }
+                program ||= PIXI.Program.from(VERTEX, FRAGMENT, 'figure-video');
+                const material = new PIXI.MeshMaterial(new PIXI.Texture(c.base), {program, uniforms: {uSeam: 0.5 / video.videoWidth}});
+                c.mesh = new PIXI.Mesh(new PIXI.PlaneGeometry(1, 1, 2, 2), material);
+                c.mesh.alpha = 0; c.mesh.visible = false;
+                sprite.addChildAt(c.mesh, 0); place(c.mesh);
+                c.status = 'ready';
+            } catch (error) { c.fail(error); }
+        });
+        if (foreground) foreground.media(video);
+        read.video.then(url => { if (c.status === 'loading') { video.src = url; video.load(); } }, c.fail);
+        // from: play from the first frame (the still's pose) rather than where it was.
+        c.start = from => {
+            if (c.status !== 'ready' || (c.playing && !from && !video.ended)) return;
+            c.playing = true;
+            if (from || c.mix <= 0 || video.ended) try { video.currentTime = 0; } catch (_) {}
+            const played = video.play();
+            if (played && played.catch) played.catch(error => { c.playing = false; if (error?.name !== 'AbortError') c.fail(error); });
+        };
+        c.stop = () => { if (c.playing) { c.playing = false; video.pause(); } };
+        // A clip draws once a frame of its current play is on the texture; an ended clip holds its last frame.
+        c.fade = (wanted, dt, ms) => {
+            if (c.status !== 'ready') return;
+            const target = wanted && c.playing && (!video.paused || video.ended) && video.readyState >= 2 ? 1 : 0, step = Math.max(0, dt) / ms;
+            c.mix = target > c.mix ? Math.min(target, c.mix + step) : Math.max(target, c.mix - step);
+            if (c.mix <= 0 && !wanted) c.stop();
+            c.mesh.visible = c.mix > 0; c.mesh.alpha = c.mix;
+        };
+        c.release = () => {
+            c.status = 'released';
+            return [
+                () => video.pause(),
+                () => { video.removeAttribute('src'); video.load(); },
+                () => { if (c.mesh && !c.mesh.destroyed) { c.mesh.parent?.removeChild(c.mesh); c.mesh.destroy({children: true}); } },
+                () => { if (c.base && !c.base.destroyed) c.base.destroy(); },
+                () => read.release()
+            ];
+        };
+        return c;
+    }
+    // sprite: the figure's PIXI sprite (its texture the still or the still's composed frame, anchor set);
+    // motion: {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect: [x, y, w, h] the still canvas
+    // px both pictures cover, enter: {source, rect} the transition this picture enters through, or none}.
+    function attach(sprite, motion) {
+        if (closed) return null;
+        let on = false, talking = false, quiet = Infinity, released = false, last = null, waited = 0;
+        const placer = rect => mesh => {
+            const [x, y, w, h] = rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
+            mesh.position.set(x - ax, y - ay); mesh.scale.set(w, h);
+        };
+        const place = placer(motion.rect);
+        const idle = clip(sprite, motion.source, true, place);
+        const talk = motion.talk ? clip(sprite, motion.talk, false, place) : null;
+        const placeEnter = motion.enter ? placer(motion.enter.rect) : null;
+        const enter = motion.enter ? clip(sprite, motion.enter.source, false, placeEnter) : null;
+        const clips = [idle, talk, enter].filter(Boolean);
+        const placeAll = () => { for (const c of clips) if (c.mesh) (c === enter ? placeEnter : place)(c.mesh); };
+        let phase = enter ? 'enter' : 'idle';
+        // The still draws itself only while no video covers it fully, and not while a transition is awaited.
+        const drawStill = sprite._render;
+        sprite._render = function (renderer) { if (phase !== 'enter' && !clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
+        const talks = () => talk?.status === 'ready';
+        // Leaves the transition: the clip stops and drops out of sight, the still is back.
+        const dropEnter = () => { phase = 'idle'; enter.stop(); enter.mix = 0; if (enter.mesh) enter.mesh.visible = false; };
+        const handle = {
+            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure's voice is
+            // heard this frame (its mouth would be open).
+            update({on: nextOn, talking: nextTalking = false}) { on = Boolean(nextOn); talking = Boolean(nextTalking); },
+            // Whether a talking loop can show this figure's speech; without one the stage turns the motion off to speak.
+            talks,
+            // The transition this picture enters through: 'pending' while it is awaited (the still does not draw), 'on' once it
+            // covers the picture, null without one or once it is over or dropped.
+            entering: () => phase !== 'enter' ? null : enter.mix >= 1 ? 'on' : 'pending',
+            // dt: ms since the last frame. Returns whether a video draws this frame (or a transition holds the still back).
+            tick(dt) {
+                if (released) return false;
+                quiet = talking ? 0 : quiet + Math.max(0, dt);
+                const speaking = quiet < VOICE_HOLD_MS;
+                if (sprite.texture !== last) { last = sprite.texture; placeAll(); }
+                if (phase === 'enter') {
+                    waited += Math.max(0, dt);
+                    if (!on || enter.status === 'failed' || enter.mix < 1 && waited > ENTER_WAIT_MS) dropEnter();
+                    else if (enter.status === 'ready' && enter.playing && enter.video.ended) {
+                        // Played out on this picture's pose: the loop that fits the voice now takes over from its first frame.
+                        phase = speaking && talks() ? 'talk' : 'idle';
+                        (phase === 'talk' ? talk : idle).start(true);
+                    } else if (enter.status === 'ready') {
+                        enter.start(false);
+                        // Shown whole at once: its first frame is the previous picture, which fades out over it.
+                        if (enter.playing && enter.video.readyState >= 2) { enter.mix = 1; enter.mesh.visible = true; enter.mesh.alpha = 1; }
+                    }
+                    if (phase === 'enter') return true;
+                }
+                if (idle.status === 'failed') {
+                    for (const c of clips) if (c !== idle) { c.stop(); c.mix = 0; if (c.mesh) c.mesh.visible = false; }
+                    return false;
+                }
+                if (phase === 'talk' && !talks()) phase = 'idle';
+                if (on && phase === 'idle' && talking && talks()) { phase = 'talk'; talk.start(true); }
+                if (phase === 'talk' && talk.video.ended) {
+                    if (speaking && on) talk.start(true);
+                    else { phase = 'idle'; if (on) idle.start(true); }
+                }
+                if (!on && phase === 'talk' && talk.mix <= 0) phase = 'idle';
+                const active = phase === 'talk' ? talk : idle;
+                if (on) active.start(false);
+                // A hand-off between the clips fades the incoming one in over the outgoing one, which stays whole underneath
+                // until the incoming one covers it, so the still never shows between them; it is quicker than the motion
+                // fading in over the still.
+                const outgoing = clips.find(c => c !== active && c.mix > 0);
+                if (outgoing && active.mesh && outgoing.mesh) {
+                    const at = sprite.children.indexOf(outgoing.mesh);
+                    if (sprite.children.indexOf(active.mesh) < at) { sprite.removeChild(active.mesh); sprite.addChildAt(active.mesh, at); }
+                }
+                const ms = outgoing ? SWITCH_MS : FADE_MS;
+                for (const c of clips) {
+                    if (c === active) c.fade(on, dt, ms);
+                    else if (!(on && active.status === 'ready' && active.mix < 1 && c.mix > 0)) c.fade(false, dt, ms);
+                }
+                return clips.some(c => c.mix > 0);
+            },
+            state: () => ({status: idle.status, talk: talk ? talk.status : null, enter: enter ? enter.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0, enterMix: enter ? enter.mix : 0,
+                playing: idle.playing, time: idle.video.currentTime, size: [idle.video.videoWidth, idle.video.videoHeight]}),
+            destroy() {
+                if (released) return;
+                released = true; handles.delete(handle);
+                const errors = [];
+                const steps = [() => { if (sprite._render !== drawStill) sprite._render = drawStill; }];
+                for (const c of clips) steps.push(...c.release());
+                for (const release of steps) { try { release(); } catch (error) { errors.push(error); } }
+                if (errors.length) throw new AggregateError(errors, 'Figure video cleanup failed');
+            }
+        };
+        handles.add(handle);
+        return handle;
+    }
+    const scope = {attach, dispose() {
+        if (closed) return; closed = true; scopes.delete(scope);
+        const errors = [];
+        for (const handle of [...handles]) { try { handle.destroy(); } catch (error) { errors.push(error); } }
+        if (program) { program = null; }
+        if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+    }};
+    scopes.add(scope);
+    return scope;
+}
+return {create, dispose() {
+    if (disposed) return; disposed = true;
+    const errors = [];
+    for (const scope of [...scopes]) { try { scope.dispose(); } catch (error) { errors.push(error); } }
+    if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+}};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageFigureVideos};
+
         function createStageSceneGraphics({window,document,paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette}) {
 // Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
 // disabled filters (filter.enabled = false) are skipped; no filters at all means no render pass.
@@ -24836,7 +25076,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup("效果", null,
             galConfigRow("画质", galConfigSegmented({ label: "画质", value: qualitySetting, options: [["auto", "自动"], ["high", "高"], ["medium", "中"], ["saver", "省电"]], onChange: value => stageQuality.set(value) }),
                 h(React.Fragment, null, h("span", null, "自动：电脑用「高」，手机和平板用「中」，电量低或性能弱时用「省电」。这台设备现在是「" + GAL_QUALITY_NAMES[quality] + "」。"),
-                    h("span", null, "中：人物和背景的分辨率降低，逐字出现的文字不再淡入，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
+                    h("span", null, "高：画面静止时每秒 30 帧。中：人物和背景的分辨率降低，逐字出现的文字不再淡入，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
             galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate(quality, true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
                 "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降帧。画质为「省电」时仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
@@ -26429,8 +26669,21 @@ function createAssetReader(sessionId, page) {
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
 // perform: the cue of a performance (performCardPage below): the page shows in data().perform and may only read, sound and close.
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
-    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
+// A skin performance can only read the skin media the caller supplied (name → data URL), never card assets.
+function skinAssetReader(media = {}) {
+    const unavailable = name => new Error('皮肤没有素材「' + name + '」');
+    const read = async ref => {
+        const name = String(ref?.skin ?? '');
+        if (!Object.hasOwn(media, name)) throw unavailable(name);
+        const response = await window.fetch(media[name]);
+        if (!response.ok) throw unavailable(name);
+        return response.blob();
+    };
+    read.list = () => Promise.resolve(Object.keys(media).map(name => ({skin: name})));
+    return read;
+}
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, skinPage, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
+    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = skinPage ? null : helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
     const frames = new Map(); // document token → {node, descriptor}
@@ -26588,7 +26841,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         }
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: (perform !== undefined ? 'stage-perform-' : 'stage-page-') + page,
-        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
+        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true && !skinPage, eager: true, persistent: true,
         // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
         observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
@@ -26619,6 +26872,14 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     async function load() {
         state('loading');
         try {
+            if (skinPage) {
+                if (typeof skinPage.html !== 'string' || !skinPage.html.trim()) { state('empty'); return; }
+                raw = {label: page, size: 'full', figures: [], data: {}, card: {}};
+                readAsset = skinAssetReader(skinPage.media);
+                state('ready');
+                mount(skinPage.html);
+                return;
+            }
             const result = await readPage(sessionId, page, true);
             if (closed) return;
             if (!result) { raw = null; state('empty'); return; }
@@ -26638,6 +26899,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         get frames() { return [...frames.values()].map(item => item.node); },
         // The live view's Helper context moved on: the lifecycle syncs it into the frame (or rebuilds when it appears).
         setHelper(next) {
+            if (skinPage) return;
             helper = next || null;
             if (!closed && lifecycle) lifecycle.update(frameProps());
         },
@@ -26802,12 +27064,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
 // asset, assets), sound and close. region: {bottom} px kept clear at the stage's bottom (the text box).
 // onEnd(result): {done: true} when the page closed, {skipped: true} on a click / Esc, {failed: message} when the page
 // could not be read (the mod shows what it would have shown without it).
-function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
+function Performance({sessionId, pageId, skinPage, cue, calm, region, onEnd}) {
     const h = React.createElement, body = React.useRef(null), end = React.useRef(onEnd);
     end.current = onEnd;
     const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
-    const ready = !useLiveView || Boolean(live?.view);
-    const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
+    const ready = !!skinPage || !useLiveView || Boolean(live?.view);
+    const trusted = !skinPage && (!useLiveView || Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode));
     const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper), panel = React.useRef(null);
     helperNow.current = helper;
     const [shown, setShown] = React.useState(false);
@@ -26815,10 +27077,10 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
         if (disposed || !ready) return;
         let over = false;
         const finish = result => { if (!over) { over = true; end.current?.(result); } };
-        const current = openCardPage({sessionId, page: pageId, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, skinPage, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => finish({done: true}), onAction: () => {},
             onState: next => {
-                if (next.phase === 'empty') finish({failed: '本卡没有页面「' + pageId + '」'});
+                if (next.phase === 'empty') finish({failed: (skinPage ? '皮肤没有演出页面「' : '本卡没有页面「') + pageId + '」'});
                 else if (next.phase === 'error') finish({failed: next.error || '页面读取失败'});
                 else if (next.shown) setShown(true);
             }});
@@ -26838,7 +27100,7 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
             if (panel.current === current) panel.current = null;
             current.dispose();
         };
-    }, [sessionId, pageId, ready, trusted]);
+    }, [sessionId, pageId, skinPage, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     return h('div', {className: 'fork-gal-page-perform', 'data-page': pageId, 'data-shown': shown ? '' : undefined,
         style: {bottom: Math.max(0, Math.round(region?.bottom || 0)) + 'px'}},
@@ -29080,7 +29342,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
             const {useFigureLook, GenLookFields, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
-                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
+                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar, GenStyleLine, genStyleFromText} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
 // enabled is the author-facing switch (bubbles and stage together); bubbles
@@ -29272,8 +29534,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const candidateData=(job,emotionId)=>call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{})});
     // 下载: a waiting picture as it arrived, whether or not it can be adopted.
     async function download(job,name){const d=await candidateData(job);savePictureFile(new Blob([genBytes(d.base64)],{type:d.mediaType}),name+'.png');}
-    // The 画风 menu: the image plugin's style presets, and the pack default they resolve (an older pack's id included).
-    const listStyles=genStyle=>call('listAssetGenStyles',{...(genStyle?{genStyle}:{})});
+    // The 画风 menu of this pack (asset-pack-style-ui.js) and, for an asset kind, the style it paints in now and from where.
+    const listStyles=kind=>call('listAssetGenStyles',{packId,kind});
     async function candidateFile(job,emotionId,forImport=false){
       const d=await call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{}),...(forImport?{forImport:true}:{})});
       return new File([genBytes(d.base64)],(emotionId||job.target.kind)+'.png',{type:d.mediaType});
@@ -29535,7 +29797,9 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const refInput=React.useRef(null),sheetInput=React.useRef(null),made=React.useRef(null),submitRef=React.useRef(null),look=useFigureLook(binding,packId,figure?.id);
     const setPrompt=v=>{texts.current.prompt=v;setPromptState(v);setSaved(false);};
     const setName=v=>{texts.current.name=v;setNameState(v);},setWear=v=>{texts.current.wear=v;setWearState(v);};
-    React.useEffect(()=>{let live=true;gen.listStyles(pack.manifest.genStyle).then(r=>{if(live){setStyles(r);setStyle(s=>s??r.current);}},()=>{if(live)setStyles({styles:[],current:null});});return()=>{live=false;};},[pack.manifest.genStyle]);
+    // 画风: the pack's chain decides by default (the request then names none); a style picked here is sent for this request only.
+    React.useEffect(()=>{let live=true;gen.listStyles(kind).then(r=>{if(live){setStyles(r);setStyle(s=>s??r.current.id);}},()=>{if(live)setStyles({options:[],current:null});});return()=>{live=false;};},[pack.revision,kind]);
+    const sent=()=>style&&style!==styles?.current?.id?style:undefined;
     const close=()=>{if(!busy)gen.closeDialog();};
     if(!figure||!fig&&!outfit)return h(Modal,{title:'生图',className:'ap-gen-dialog',onClose:close},h(EmptyState,{text:'服装已被删除'}));
     // 参考图: the 设定图 the backend attaches by rule (asset-generation.js prepare) — the 人物设定图 (unless the outfit's 设定图
@@ -29559,7 +29823,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
         if(current.hash)references.push({hash:current.hash,role});else{const data=await gen.candidateData(current.job,cell.sheet?emotionId:null);references.push({base64:data.base64,mediaType:data.mediaType,role});}}
       for(const u of uploads)references.push({base64:u.base64,mediaType:u.mediaType,role:cellMode?GEN_POSE_ROLE:GEN_ART_ROLE});
       const omit=['identity','settei'].filter(id=>removed.includes(id)),text=texts.current.prompt.trim();
-      return {...(text?{userPrompt:text}:{}),...(references.length?{references}:{}),...(omit.length?{omit}:{}),...(mode!=='edit'&&style?{style}:{})};
+      return {...(text?{userPrompt:text}:{}),...(references.length?{references}:{}),...(omit.length?{omit}:{}),...(mode!=='edit'&&sent()?{style:sent()}:{})};
     };
     // 添加服装: the outfit is written once (a retry after a failed start does not add a second one), its uploaded 服装设定图
     // goes in, the page shows it; then the 服装设定图 is generated (its first 差分 follows its 采用), or that 差分 at once.
@@ -29572,9 +29836,9 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
         made.current=key;if(wearText)await look.writeUpper({key,label},wearText);if(sheetFile)await importSettei(figure.id,key,sheetFile.file);d.onOutfit?.(key);
       }
       const key=made.current,at=(k,extra={})=>({packId,figureId:figure.id,outfitKey:key,kind:k,...extra}),input=await inputNow();
-      const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(style?{style}:{})}]:[];
+      const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(sent()?{style:sent()}:{})}]:[];
       let job=true;step.sent=true;
-      if(sheetNow)job=await gen.start(at('settei'),{...input,...(genFirst&&first?{followUp:[{kind:'sprite',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(style?{style}:{})},...firstFollow]}:{})});
+      if(sheetNow)job=await gen.start(at('settei'),{...input,...(genFirst&&first?{followUp:[{kind:'sprite',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(sent()?{style:sent()}:{})},...firstFollow]}:{})});
       else if(genFirst&&first)job=await gen.start(at('sprite',{emotionId:first}),{...input,...(firstText?{userPrompt:firstText}:{}),followUp:firstFollow});
       if(job)gen.closeDialog();
     };
@@ -29616,14 +29880,20 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       saved?h('span',{className:'ap-gd-prompt-acts ap-gd-saved',role:'status'},h(Glyph,{name:'check'}),'已存为默认'):null;
     const extra=textField('prompt',mode==='edit'?'想改哪里':'额外要求',prompt,setPrompt,mode==='edit'?'例：领巾换成红色，其余不变':cellMode?'例：双手叉腰，气鼓鼓地瞪着前方':'角度、细节…',{className:'is-prompt',trail:promptTrail});
     // 画风: the image plugin's presets (实验 marked); a pack default the plugin no longer has is named as gone, never replaced.
-    const packStyle=styles?.current,styleOptions=(styles?.styles||[]).map(s=>({value:s.id,label:s.name+(s.status==='experimental'?'（实验）':'')}));
+    const packStyle=styles?.current?.id,styleOptions=[...(styles?.card?.styles||[]).map(s=>({value:s.id,label:s.name+'（随卡）'})),...(styles?.pack?.styles||[]).map(s=>({value:s.id,label:s.name+'（随包）'})),
+      ...(styles?.options||[]).map(s=>({value:s.id,label:s.name+(s.experimental?'（实验）':'')}))].filter((o,i,all)=>all.findIndex(x=>x.value===o.value)===i)
+      .map(o=>o.value===packStyle?{...o,note:genStyleFromText(styles.current.from)}:o);
+    // The pack's own background style is not a preset: it shows as its name and stays the default.
+    if(packStyle&&!styleOptions.some(o=>o.value===packStyle)&&packStyle!=='no-style')styleOptions.unshift({value:packStyle,label:styles.current.name,note:genStyleFromText(styles.current.from)});
     // 无画风 is 'no-style' (the prompt as written): not a menu item but the field's empty state, reached with 清除画风.
     const plain=style==='no-style';
     if(style&&styles&&!plain&&!styleOptions.some(o=>o.value===style))styleOptions.push({value:style,label:'这个画风不在了，请另选'});
+    // The default's source is grey text after its value (来自卡 / 来自素材包 / 来自配图插件).
     const styleRow=mode!=='edit'&&anyGen&&style&&h(InlineField,{key:'style',kind:'menu',label:'画风',help:h(Help,{text:GEN_HELP.style,label:'画风 说明'}),className:'ap-gen-row ap-gd-row is-style',value:style,
       options:styleOptions,onCommit:setStyle,placeholder:'无画风',
-      trail:h(React.Fragment,null,!plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
-        style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
+      trail:h(React.Fragment,null,style===packStyle&&styles?.current&&h('span',{className:'ap-gd-style-from'},genStyleFromText(styles.current.from)),
+        !plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
+        style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style,styles?.current?.use).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
     let fields,side=null,footChecks=null;
     if(adding){
       // 添加服装: the 服装设定图 slot on the left (将生成, or an uploaded one); the fields on the right; a
@@ -29661,7 +29931,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       genWhere(figure.name,outfit.label,row?.label,mode==='redraw'?'重画':mode==='edit'?'改图':'');
     const head=h('header',{className:'ap-gen-sheet-head'},h('h2',null,title),h('span',{className:'ap-gen-sheet-meta'},sub),settei&&h(Help,{text:fig?GEN_HELP.figure:GEN_HELP.outfit,label:(fig?'人物设定图':'服装设定图')+' 说明'}),
       h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:close}));
-    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},footChecks,target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styles?.styles.find(s=>s.id===id)?.name||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
+    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},footChecks,target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styleOptions.find(o=>o.value===id)?.label||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
       h(Button,{disabled:busy,onClick:close},'取消'),h(Button,{primary:true,className:'ap-primary ap-gd-go',disabled:busy||!!reason,title:reason||'Ctrl+Enter',onClick:submit},verb!=='添加'&&h(Glyph,{name:'spark'}),verb));
     return h(Modal,{title:title+' · '+sub,className:'ap-gen-dialog',frame:{'data-mode':mode},onClose:close,busy,head,foot,initialFocus:'dialog'},
       h('div',{className:'ap-gd-body','data-mode':mode,onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target?.blur?.();setTimeout(()=>submitRef.current(),0);}}},
@@ -30074,7 +30344,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       head('差分',rows.length),
       h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
-    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),outfits,wall,dialogs,viewer);
+    // 画风 above 服装: what this figure's pictures paint in, from where (the pack window's menu; asset-pack-style-ui.js).
+    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),h(GenStyleLine,{uses:['figure','sheet']}),outfits,wall,dialogs,viewer);
   }
 
             // 舞台设置 — the per-card page of the 「Tavern 舞台」 tab.
@@ -30458,7 +30729,7 @@ const pressRowJump=row=>row.querySelector('.ap-kind-jump')?.click();
 // service list. The voice plugin switched off is the one problem of the whole card ({ref:null}). A synthesis result, a
 // pack/engine or a pointer change re-reads in place — the previous answer stays until the new one arrives, so the ⚠ never
 // blinks between reads.
-const STAGE_VOICE_REASONS={SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
+const STAGE_VOICE_REASONS={VOICE_UNSET:'还没选声音',MISSING_REFERENCE:'还没有参考音频',SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
 const STAGE_VOICE_LINES=5;
 const sameRef=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
 function useStageVoiceProblems(ctx) {
@@ -30899,8 +31170,10 @@ function StagePackSection({ctx,ready,state}) {
 // encrypting, the browser's for saving), never a bare 「请重试」.
 // The one 导出 for every format: 导出格式 is a menu (DSH 人物卡 by default; what each carries is in its 「?」); a DSH
 // card has 设置密码: typed, the export is encrypted (the button says 加密导出); empty, a plain one; and, with packs ticked,
-// 压缩素材 (off by default; ⚠ when the ticked packs are over the import limit): the host converts their media as it exports
-// (export-compress.js), the bar says 正在压缩 first, and when done the sheet says the packs' size before and after.
+// 压缩素材, a menu like 导出格式 (压缩 by default, 主人 11-26; ⚠ on 不压缩 when the ticked packs are over the import
+// limit): the host converts their media as it exports (export-compress.js; media already compressed goes as it is), the
+// bar says 正在压缩 first, and when done the sheet says the packs' size before and after and how many it left as they were.
+// Rows: 导出格式 → 导出方式 → 版本 → 设置密码 → 压缩素材 (主人 11-26).
 // 素材包 go with a DSH card only; 世界书 with every format (JSON / PNG go through the card-export route with the chosen books,
 // saved with their bytes counted). `hasImage` false: the card has no cover, so no PNG.
 const DSHCARD_FORMATS={dshcard:{label:'DSH 人物卡',note:'带素材包、插件和世界书，可以加密、压缩素材',extension:'.dshcard',description:'DSH 人物卡'},
@@ -30909,7 +31182,11 @@ const DSHCARD_FORMATS={dshcard:{label:'DSH 人物卡',note:'带素材包、插�
 // the asset library's import budget (budget.js PACK_BUDGET.spoolBytes; tests/export-compress.test.mjs keeps them equal).
 const DSHCARD_IMPORT_LIMIT=8*1024**3;
 // the rates are export-compress.js EXPORT_AUDIO_KBPS (the same test keeps them equal).
-const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。';
+const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。已经压缩过的素材原样带走，不会再压一次。';
+const DSHCARD_COMPRESS_OPTIONS=[{value:'on',label:'压缩'},{value:'off',label:'不压缩'}];
+// A card's 自动素材 pack (the library marks it `automatic`: its autoWrite names the card) starts unticked (主人 11-26):
+// what the stage wrote while playing is the player's own, not the card's; ticking it sends it along.
+const dshCardPackStartsLeft=pack=>pack.automatic===true;
 const DSHCARD_FAILURE={TAVERN_NOT_FOUND:'找不到这张人物卡。',REVISION_CONFLICT:'人物卡刚刚改过，请再导出一次。'};
 // a failed save says its own cause and what helps with that cause (pack-transport.js saveExportFile). The browser may
 // leave its 「….crswap」 working file beside the target; the page cannot reach it, so the sentence names it.
@@ -30921,7 +31198,7 @@ const dshCardFailure=(error,saving)=>DSHCARD_FAILURE[error?.code]||(error?.step?
     +'没写完的文件已删除；如果文件夹里留下了同名的 .crswap 文件，可以直接删掉。'
   :playerErrorText(error,{fallback:'导出时出错：'+String(error?.message||error)}));
 const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
-// 导出为: 完整包, or an 更新包 on top of a release the card was exported as before (card-files.js listCardReleases): it
+// 导出方式: 完整包, or an 更新包 on top of a release the card was exported as before (card-files.js listCardReleases): it
 // leaves out the pack files that release brought, and the player who has it updates the card with it (更新这张卡).
 // A file sent before releases were recorded becomes one through 「用以前发出的文件作基础…」 (only its pack lists are read).
 // 版本 is the card's character_version; after a release it suggests the next one (1.0 → 1.1), saved when exporting.
@@ -30974,10 +31251,11 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     });
     return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)})),version:releases.version,releases:releases.releases};
   },[path]);
-  const [leftPacks,setLeftPacks]=React.useState(()=>new Set()),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
+  // leftPacks: the packs that stay home; null until the player ticks one, the 自动素材 packs meanwhile (dshCardPackStartsLeft).
+  const [leftChoice,setLeftPacks]=React.useState(null),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
   const {work,problem,saved}=useDshCardJob(path);
   const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
-  const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(false);
+  const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(true);
   const [base,setBase]=React.useState(''),[typedVersion,setVersion]=React.useState(null),[adding,setAdding]=React.useState(false),[estimate,setEstimate]=React.useState(null);
   const baseFile=React.useRef(null);
   // a password typed is the encryption (主人 11-24): none, no encryption.
@@ -30986,8 +31264,9 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const close=()=>{const current=dshCardJobs.get(path);if(current&&!current.view.work)dshCardJobs.delete(path);onClose();};
   const value=state.value,packs=value?.packs||[],books=value?.books||[];
   // every pack the card binds goes along unless unticked (主人 11-24); a widget-only one is chosen in the 模组 section and goes, without a switch.
-  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
   const switchable=packs.filter(p=>!p.required&&!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
+  const leftPacks=leftChoice??new Set(packs.filter(p=>switchable.includes(p.manifest.id)&&dshCardPackStartsLeft(p)).map(p=>p.manifest.id));
+  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
   const sizes=packs.map(stagePackBytes),total=picked.reduce((sum,pack)=>sum+(stagePackBytes(pack)||0),0);
   const compressing=dsh&&compress&&picked.length>0;
   const releases=value?.releases||[],release=releases.find(r=>r.id===base)||null,updating=dsh&&!!release&&picked.length>0;
@@ -31014,7 +31293,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     finally{setAdding(false);}
   }
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
-  const flipPack=id=>setLeftPacks(current=>toggle(current,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
+  const flipPack=id=>setLeftPacks(toggle(leftPacks,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
   const allPacks=leftPacks.size===0,allBooks=leftBooks.size===0;
   // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
   const picking=React.useRef(false);
@@ -31051,7 +31330,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
       tell(done.picked?'saved':'download-started',result.bytes);
       const shrunk=result.compressed;
       const update=result.update?'这是相对 '+(result.update.base?'v'+result.update.base:'上一版')+' 的更新包，省掉了对方已有的 '+result.update.omitted+' 个文件。':'';
-      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+update+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
+      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+update+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.skipped?'已跳过 '+shrunk.skipped+' 个已压缩素材。':'')+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
       put({saved:{...done,said:done.said+detail}});
     }catch(error){
       tell(current.cancelled?'cancelled':'failed',current.view.work?.total,current.cancelled?'':(error?.name?error.name+' ':'')+String(error?.message||error));
@@ -31068,14 +31347,14 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const formats=Object.entries(DSHCARD_FORMATS).map(([key,f])=>({value:key,label:f.label,...(key==='png'&&hasImage===false?{disabled:true,title:'这张卡没有封面'}:{})}));
   const options=h('div',{className:'ap-dshcard-options'},
     h(InlineField,{kind:'menu',label:'导出格式',help:h(Help,{text:Object.values(DSHCARD_FORMATS).map(f=>h('span',{key:f.label},f.label+'：'+f.note+'。')),label:'导出格式 说明'}),value:format,options:formats,disabled:!!work,onCommit:setFormat,className:'ap-dshcard-field'}),
-    dsh&&h(InlineField,{kind:'text',label:'版本',value:version,placeholder:'例如 1.0',disabled:!!work,live:true,onCommit:setVersion,className:'ap-dshcard-field'}),
-    dsh&&packs.length>0&&h(InlineField,{kind:'menu',label:'导出为',help:h(Help,{text:DSHCARD_BASE_HELP,label:'导出为 说明'}),value:base,disabled:!!work||adding,onCommit:chooseBase,className:'ap-dshcard-field',
+    dsh&&packs.length>0&&h(InlineField,{kind:'menu',label:'导出方式',help:h(Help,{text:DSHCARD_BASE_HELP,label:'导出方式 说明'}),value:base,disabled:!!work||adding,onCommit:chooseBase,className:'ap-dshcard-field',
       options:[{value:'',label:'完整包'},...releases.map(r=>({value:r.id,label:dshCardReleaseLabel(r)})),{value:DSHCARD_BASE_FILE,label:'用以前发出的文件作基础…'}],
       trail:adding?h('span',{className:'ap-pack-size'},'正在读取文件…'):updating&&estimate?h('span',{className:'ap-pack-size'},estimate.bytes?'新素材约 '+stageBytesText(estimate.bytes):'素材没有变化'):null}),
+    dsh&&h(InlineField,{kind:'text',label:'版本',value:version,placeholder:'例如 1.0',disabled:!!work,live:true,onCommit:setVersion,className:'ap-dshcard-field'}),
     dsh&&h('input',{ref:baseFile,type:'file',accept:'.dshcard',hidden:true,tabIndex:-1,'aria-hidden':true,onChange:e=>{const file=e.target.files?.[0];e.target.value='';void addBaseFile(file);}}),
     dsh&&h(InlineField,{kind:'text',secret:true,label:'设置密码',help:h(Help,{text:'填写密码时会加密角色卡后导出，导入时要输这个密码，忘了就打不开。留空时放弃加密。',label:'设置密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-field ap-dshcard-password'}),
-    dsh&&picked.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
-      status:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议开启'):null}));
+    dsh&&picked.length>0&&h(InlineField,{kind:'menu',label:'压缩素材',help:h(Help,{text:DSHCARD_COMPRESS_HELP,label:'压缩素材 说明'}),value:compress?'on':'off',options:DSHCARD_COMPRESS_OPTIONS,disabled:!!work,onCommit:next=>setCompress(next==='on'),className:'ap-dshcard-field',
+      trail:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议压缩'):null}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
     dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+picked.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
       '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',

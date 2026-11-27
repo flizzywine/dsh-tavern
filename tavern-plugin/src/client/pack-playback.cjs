@@ -286,7 +286,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         const index = queue.findIndex(job => job.key === key);
         if (index > 0) queue.unshift(queue.splice(index, 1)[0]);
     }
-    let bytes = 0, current = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
+    let bytes = 0, current = null, ended = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
     const recordingSource = {};
     const available = service => !disposed && (service === recordingSource || enabled && service?.available());
     // Streamed clips replaced by their complete line while they still play; disposed once they stop.
@@ -324,7 +324,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
     function cancelPending(keep = new Set()) {
         for (const [key, job] of pending) if (!keep.has(key)) { pending.delete(key); job.abort.abort(); }
     }
-    function stop() { retire(false); cancelPending(); emit(); }
+    function stop() { ended = null; retire(false); cancelPending(); emit(); }
     function invalidate() {
         generation++; failures.clear(); stop();
         for (const clip of clips.values()) { release(clip.audio); disposeAudio(clip.audio); clip.audio.src = ''; urls.revokeObjectURL(clip.url); }
@@ -380,8 +380,8 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             if (descriptor.browser) {
                 if (!createSpeech) throw new Error('voice-unavailable');
                 // a line over covered words (input.maskedText) is read without them: no mixer reaches the system's speech
-                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language});
-                prepareAudio(audio, null, {});
+                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language, background:input.background === true});
+                prepareAudio(audio, null, {}, input);
                 const clip = {url:'', audio, size:0, key:null};
                 remember(key, clip);
                 return clip;
@@ -389,7 +389,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             // A line the host already synthesized (台词朗读 speechForLine) arrives as its audio URL.
             if (descriptor.url) {
                 const audio = createAudio(descriptor.url);
-                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}, input); audio.load?.();
                 const clip = {url:'', audio, size:0, key:null};
                 remember(key, clip);
                 return clip;
@@ -399,7 +399,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 if (abort.signal.aborted || epoch !== generation) return;
                 const audio = createAudio(live.url);
                 // The voice's known loudness (if any) levels the first play; the complete line brings its own.
-                audio.preload = 'auto'; prepareAudio(audio, null, live); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, null, live, input); audio.load?.();
                 stream = {url:live.url, audio, size:0, key:null};
                 remember(key, stream); playable(stream);
             }});
@@ -410,7 +410,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             let clip;
             try {
                 const audio = createAudio(url);
-                audio.preload = 'auto'; prepareAudio(audio, blob, result); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, blob, result, input); audio.load?.();
                 clip = {url, audio, size:blob.size, key:result.key};
             } catch (e) { urls.revokeObjectURL(url); throw e; }
             remember(key, clip);
@@ -440,7 +440,14 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         get() { return current; },
         blocked() { return blocked; },
         getError(input) { return input ? failures.get(keyOf(input))?.code || null : null; }, stop, invalidate,
-        stopPlayback() { retire(false); emit(); },
+        hasEnded(input) { return ended !== null && ended.owner === input.owner && ended.id === input.id; },
+        stopPlayback(owner) {
+            const clear = ended && (owner === undefined || ended.owner === owner);
+            const stop = owner === undefined || current?.owner === owner;
+            if (clear) ended = null;
+            if (stop) retire(false);
+            if (clear || stop) emit();
+        },
         setEnabled(value) { enabled = value === true; if (!enabled) stop(); },
         setRate(rate) { for (const clip of clips.values()) { clip.audio.preservesPitch = true; clip.audio.playbackRate = rate; } },
         cancelPrefetch(items = []) { const keep = new Set(items.map(keyOf)); if (current) keep.add(current.requestKey); cancelPending(keep); },
@@ -455,6 +462,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             const requestKey = keyOf(input), cached = clips.get(requestKey);
             if (input.automatic) { if (!canRetry(input)) return false; }
             else failures.delete(requestKey);
+            ended = null;
             retire(input.handoff === true && cached?.audio !== current?.audio);
             const entry = { loading: true, audio: null, owner:input.owner, id:input.id, requestKey };
             current = entry; emit();
@@ -471,7 +479,11 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 // input.volume / input.rate: a caller's own level and speed for this line (有声书's panel); the stage leaves both.
                 clip.audio.volume = input.volume ?? 1;
                 if (input.rate) { clip.audio.preservesPitch = true; clip.audio.playbackRate = input.rate; }
-                clip.audio.onended = () => { if (current === entry) { retire(false); emit(); } };
+                clip.audio.onended = () => {
+                    if (current !== entry) return;
+                    ended = {owner:entry.owner, id:entry.id};
+                    retire(false); emit();
+                };
                 clip.audio.onpause = clip.audio.onplay = emit;
                 // covered words (input.masks, a stage line's text marks): the covers still shut as it starts; a clip covered
                 // before and now played without them is heard as is again

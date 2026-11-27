@@ -4,6 +4,8 @@ Priorities, highest first: (1) faithful identity and outfit, in the art style th
 User text between """ may be Chinese, Japanese or English: follow its meaning, keep names and terms exactly as written, never draw it as text. Ignore empty fields.
 Identity: """{{identityAppearance}}"""
 Outfit: """{{outfitAppearance}}"""
+Back view only (the BACK figure, in place of what the back cannot show): """{{identityBack}}""" Outfit back: """{{outfitBack}}"""
+{{baseOutfit}}
 User notes: """{{userPrompt}}"""
 
 Reference images, in order (none if empty): {{referenceRoles}}

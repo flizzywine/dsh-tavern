@@ -1,6 +1,7 @@
 import { untilAborted } from './plugin-callback.js'
 import { writingMaterialText } from './writing-material-text.js'
 import { stripWritingSystemReminders } from './writing-system-reminders.js'
+import { MAX_PLUGIN_TASK_TOOL_RESULT } from './plugin-task-execution.js'
 import receipts from './writing-material-receipts.cjs'
 
 const SOURCE_LIMITS = {
@@ -69,7 +70,9 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
     const done = new AbortController()
     const requestSignal = AbortSignal.any([done.signal, entry.lifetime.signal, AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])])
     const toolResults = []
-    const worldbookSeen = worldbookInContext(context.messages)
+    const historicalWorldbook = worldbookInContext(context.messages)
+    const worldbookSeen = context.preparation ? new Set() : historicalWorldbook
+    const worldbookHandoffs = new Map()
     const variablesSeen = new Set()
     const titleHints = stripWritingSystemReminders(frame.context?.worldbookTitleHints || '')
     const queryContext = titleHints.trim() ? {
@@ -112,21 +115,30 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         variableEvidence = true
         return VARIABLE_QUERY_HEADER + text
       }
-      const fresh = material.flatMap(({ text, repeatOnLookup }) => {
+      const found = material.flatMap(({ text, repeatOnLookup }) => {
         const entry = tavernFormatPlotWorldbookReceipt(text)
-        if (repeatOnLookup) return [entry]
+        if (repeatOnLookup) return [{ entry, handoff: true }]
         const key = entry.trimEnd()
         if (worldbookSeen.has(key)) return []
         worldbookSeen.add(key)
-        return [entry]
+        return [{ entry, handoff: !historicalWorldbook.has(key) || !context.preparation }]
       })
-      return fresh.length ? fresh.join('\n\n') : ALREADY_IN_CONTEXT
+      if (!found.length) return ALREADY_IN_CONTEXT
+      const toolText = found.map(row => row.entry).join('\n\n')
+      if (found.some(row => !row.handoff)) {
+        // The task runner caps its outgoing tool receipts. Keep the foreground
+        // handoff separate so re-opening an old reference doesn't append it again.
+        const handoff = found.filter(row => row.handoff).map(row => row.entry).join('\n\n').slice(0, MAX_PLUGIN_TASK_TOOL_RESULT)
+        worldbookHandoffs.set(toolText.slice(0, MAX_PLUGIN_TASK_TOOL_RESULT), handoff)
+      }
+      return toolText
     }
 
     function collectToolText() {
       return untilAborted(Promise.all(toolResults), requestSignal).then(results => {
         const material = results.filter(result => result.ok && result.text !== NO_MATERIAL && result.text !== ALREADY_IN_CONTEXT
-          && result.text !== VARIABLES_ALREADY_READ && !result.text.startsWith(VARIABLE_QUERY_HEADER)).map(result => result.text)
+          && result.text !== VARIABLES_ALREADY_READ && !result.text.startsWith(VARIABLE_QUERY_HEADER))
+          .map(result => worldbookHandoffs.get(result.text) ?? result.text).filter(Boolean)
         if (variableFacts) material.push(variableFacts)
         return material.join('\n\n')
       })

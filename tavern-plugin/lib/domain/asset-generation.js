@@ -9,9 +9,11 @@ import {imageCost, addCost} from './asset-generation-cost.js'
 import spriteEmotions from '../../shared/sprite-emotions.cjs'
 import {validateUuid, validateHash, validateShortId, validateStateId} from '../../packages/dsh-asset-library/lib/asset-packs/common.js'
 import {validateIdentitySettei} from '../../packages/dsh-asset-library/lib/asset-packs/identity-settei.js'
-import {packGenStyle, validGenStyle} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
+import {validGenStyle} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
+import {createAssetGenStyle, genStyleUse, NO_STYLE, PACK_BACKGROUND_STYLE} from './asset-generation-style.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
 import {coverImageType, coverImageAsPng} from './card-cover-image.js'
+import {figureBaseSettei, figureDefaultOutfit} from './figure-sprite-reference.js'
 
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json', CHANNELS = ROOT + 'channels.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -156,7 +158,8 @@ export function composeAssetPrompt(template, values) {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value
 function authority(ctx, kind) {
   if (['background','identity-settei'].includes(kind)) return null
-  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
+  const base = figureBaseSettei(ctx.figure)
+  return JSON.stringify(canonical({identity:base && base.outfitKey !== ctx.outfit?.key ? base : null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
 }
 function inspectImage(bytes, mediaType, max) {
   assert(bytes.length > 0 && bytes.length <= max, 'LIMIT_EXCEEDED', '图片为空或过大')
@@ -171,7 +174,8 @@ function inspectImage(bytes, mediaType, max) {
 /** One profile owner. Network work never occupies the short mutation gate. */
 export function createAssetGeneration({store, imageProvider = () => null, getLibrary, now = Date.now,
   readTemplate = kind => readFile(new URL(`../../presets/asset-gen/templates/${kind}.md`, import.meta.url), 'utf8'),
-  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null}) {
+  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null, readCardStyle = async () => null}) {
+  const genStyle = createAssetGenStyle({imageProvider, getLibrary, readCardStyle})
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
@@ -312,8 +316,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (target.kind === 'avatar-sheet') target.emotionIds = ctx.emotions.map(emotion => emotion.id)
       // 方案甲: a figure's 外貌 lives only in its 配图 人物库 record; without one the prompt has no 外貌 text.
       const linked = ctx.figure && await linkedAppearance({packId:target.packId, figureId:target.figureId, outfitKey:target.outfitKey})
-      if (ctx.figure) ctx.figure = {...ctx.figure, identityAppearance:linked?.identityAppearance || ''}
-      if (ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked?.outfitAppearance || ''}
+      if (ctx.figure) ctx.figure = {...ctx.figure, identityAppearance:linked?.identityAppearance || '', identityBack:linked?.identityBack || ''}
+      if (ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked?.outfitAppearance || '', outfitBack:linked?.outfitBack || '', base:figureDefaultOutfit(ctx.figure)?.key === ctx.outfit.key}
       if(target.imageId)assert(ctx.outfit.sprite?.imagePools?.[target.emotionId]?.imageIds.includes(target.imageId),'TARGET_CHANGED','Selected image is no longer an active candidate')
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
@@ -351,14 +355,18 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // descends from is left out (the 设定图 is the outfit's authority) instead of blocking the request.
       // `omit` leaves out a default reference the user switched off in the dialog.
       const omit = new Set(Array.isArray(input.omit) ? input.omit : [])
-      if (!['background','identity-settei'].includes(target.kind) && !omit.has('identity')) {
-        const identity = ctx.figure.identitySettei, stale = !!identity && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== identity.version
-        // The identity board wears a sample outfit, unless it is also this outfit's own settei (a character settei
-        // registered on both): then it is this outfit's clothing authority too.
-        const worn = !!identity && identity.board === ctx.outfit?.settei
-        if (identity && !stale) await packImage(identity.board, worn ? roles.identityOutfit : roles.identity, 'identity-settei')
-        // An outfit settei is drawn from both sheets of the identity settei; a 差分 takes the outfit's own two sheets below.
-        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, worn ? roles.setteiParts : roles.identityParts, 'identity-settei')
+      // The person comes from the base settei (figureBaseSettei: the default outfit's, else an older identity board). The
+      // default outfit's own settei is not its own reference; its 差分 take it below as this outfit's settei.
+      const base = ctx.figure && figureBaseSettei(ctx.figure)
+      if (base && !['background','identity-settei'].includes(target.kind) && !omit.has('identity') && base.outfitKey !== ctx.outfit?.key) {
+        // an identity board an outfit settei no longer descends from is left out (the settei is the outfit's authority)
+        const stale = base.outfitKey === null && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== base.version
+        // The base wears another outfit (a sample), unless it is also this outfit's own settei (a board registered on both).
+        const worn = base.board === ctx.outfit?.settei
+        const role = worn ? roles.identityOutfit : base.outfitKey === null ? roles.identity : roles.defaultOutfit
+        if (!stale) await packImage(base.board, role, 'identity-settei')
+        // An outfit settei is drawn from both sheets of the base; a 差分 takes the outfit's own two sheets below.
+        if (base.parts && target.kind === 'settei') await packImage(base.parts, worn ? roles.setteiParts : roles.identityParts, 'identity-settei')
       }
       let anchor
       if (['sprite','avatar','avatar-sheet'].includes(target.kind)) {
@@ -390,7 +398,12 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
           if (!refs.some(r => r.hash === meta.hash)) { images.push({data:bytes,mediaType:meta.mediaType}); refs.push({hash:meta.hash,role}) }
         }
       }
-      if (target.kind === 'background') for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
+      // 画风: this request's choice, else the chain (素材包 → its card when it is the card's 自动素材 pack → 配图插件); the image
+      // plugin adds the preset's text for this kind's use. The pack's own background style replaces the preset for its backgrounds.
+      assert(input.style === undefined || validGenStyle(input.style), 'INVALID_ARGUMENT', '未知的画风')
+      const use = assetStyleUse(target.kind), styled = genStyle.resolve(await genStyle.links({pack}), genStyleUse(use), input.style)
+      const ownBackground = styled.id === PACK_BACKGROUND_STYLE ? pack.manifest.backgroundStyle : undefined, style = ownBackground ? NO_STYLE : styled.id
+      if (target.kind === 'background') for (const hash of ownBackground?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
       // Four pictures at most: a second settei sheet gives way first (an eight-face sheet also takes its 立绘 and 头像).
       for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > 4 && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
@@ -409,12 +422,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (['identity-settei','settei'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请提供外貌文字或参考图')
       if (['sprite','avatar'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请写一句描述，或加一张参考图')
       if (target.kind === 'background' && !input.redrawOf) assert(userPrompt, 'INVALID_ARGUMENT', '请描述需要的背景')
-      // 画风: this request's style preset, else the pack's default (manifest.genStyle), else the default; the image plugin
-      // adds its text for this kind's use. A pack's own background style replaces the preset for its backgrounds.
-      assert(input.style === undefined || validGenStyle(input.style), 'INVALID_ARGUMENT', '未知的画风')
-      const style = target.kind === 'background' && pack.manifest.backgroundStyle ? 'no-style' : packGenStyle(input.style ?? pack.manifest.genStyle), use = assetStyleUse(target.kind)
       if (!preview && source.presets) assert(source.presets().some(item => item.id === style), 'INVALID_ARGUMENT', '这个画风不在了：配图插件里找不到「' + style + '」，请另选一个画风')
-      const values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,figure:ctx.figure,outfit:ctx.outfit,
+      const values = assetPromptValues({kind:target.kind,backgroundStyle:ownBackground,figure:ctx.figure,outfit:ctx.outfit,
         emotions:ctx.emotions,emotion:ctx.emotion,userPrompt,references:refs})
       let prompt = composeAssetPrompt(await readTemplate(target.kind), values)
       let basePrompt = prompt, backgroundName = [...(userPrompt.split(/[\n，。；！？、,.;!?]/).map(s => s.trim()).find(Boolean) || '')].slice(0,16).join('') || '新背景'
@@ -431,9 +440,9 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         }
         backgroundName = original.backgroundName || backgroundName
         basePrompt = original.basePrompt || original.prompt
-        if (target.kind === 'background' && (pack.manifest.backgroundStyle || original.references?.some(ref => ref.purpose === 'background-style'))) {
-          for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
-          basePrompt = composeAssetPrompt(await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,userPrompt:original.userPrompt || userPrompt,references:refs}))
+        if (target.kind === 'background' && (ownBackground || original.references?.some(ref => ref.purpose === 'background-style'))) {
+          for (const hash of ownBackground?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
+          basePrompt = composeAssetPrompt(await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:ownBackground,userPrompt:original.userPrompt || userPrompt,references:refs}))
         }
         prompt = basePrompt + '\n' + (await readTemplate('redraw-note')).replace('<note>',note)
         if (input.useCandidateReference === true) {
@@ -533,21 +542,34 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       } finally { controllers.delete(key) }
     },
     // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same templates as the asset pictures. figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
-    // (the text the 选角助理 wrote, before the record has it). fromSettei: the one image sent is the figure's 人设图.
-    async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', style}) {
+    // Before the record exists, appearance comes from the assistant. 画风 follows the card and its 自动素材 pack.
+    async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', cardPath}) {
       assert(['identity-settei','sprite'].includes(kind), 'INVALID_ARGUMENT', '未知素材类型')
-      const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
+      const chain = await genStyle.links({cardPath})
+      const drawn = kind === 'identity-settei' ? 'settei' : kind
+      const use = assetStyleUse(drawn), style = genStyle.resolve(chain, genStyleUse(use)).id
+      // A figure with no enabled outfit uses the character record's default.
+      const stored = (await getLibrary()?.getPackSnapshot({packId:figure.ref.packId}))?.figures?.[figure.ref.figureId]
+      const enabled = stored?.outfits.find(row => row.enabled)
+      const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId, outfitKey:enabled?.key ?? null})
       const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
-      const values = assetPromptValues({kind, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
-        emotion, userPrompt, references:fromSettei ? [{role:kind === 'identity-settei' ? roles.identity : roles.identityOutfit}] : []})
-      return {prompt:composeAssetPrompt(await readTemplate(kind), values), output:assetOutput(kind), promptPreset:packGenStyle(style), usage:assetStyleUse(kind)}
+      const values = assetPromptValues({kind:drawn, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance, identityBack:linked?.identityBack || ''},
+        outfit:{label:enabled?.label || linked?.outfitName, outfitAppearance:linked?.outfitAppearance || '', outfitBack:linked?.outfitBack || '', base:true},
+        emotion, userPrompt, references:fromSettei ? [{role:roles.identityOutfit}] : []})
+      return {prompt:composeAssetPrompt(await readTemplate(drawn), values), output:assetOutput(drawn), promptPreset:style === PACK_BACKGROUND_STYLE ? NO_STYLE : style, usage:use}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),
-    // The image plugin's style presets for the 画风 menu (id, name, stable/experimental, the uses with their own text).
-    // The 画风 menu lists the image plugin's presets that add a painting style (its addsStyle): not 'no-style' (the menu's
-    // 清除画风 is that) nor the structured scene templates.
-    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:(imageProvider()?.presets?.() ?? []).filter(s => s.addsStyle)}),
+    // The 画风 menu of a pack (packId) or a card (cardPath): the styles it may choose (the card's and the pack's own, the image
+    // plugin's that add a painting style), its stored values and what each use resolves to now, with where it comes from.
+    // `kind` (an asset kind) adds `current`: the generation dialog's default for it, and its use.
+    async styles({packId, cardPath, kind} = {}) {
+      assert(!packId !== !cardPath, 'INVALID_ARGUMENT', '请指定素材包或人物卡')
+      const chain = await genStyle.links(packId ? {pack:await library().getPackSnapshot({packId})} : {cardPath})
+      const menu = genStyle.menu(chain), use = kind && genStyleUse(assetStyleUse(kind))
+      return use ? {...menu, current:{...menu.resolved[use], use}} : menu
+    },
+    cardImageStyle: cardPath => genStyle.cardImageStyle(cardPath),
     get: ({jobId}) => serial(() => publicJob(find(jobId))),
     list: ({packId}) => serial(() => { validateUuid(packId); return Object.values(jobs).filter(j => j.target.packId === packId).map(publicJob) }),
     read: ({jobId,emotionId,forImport = false}) => serial(async () => {

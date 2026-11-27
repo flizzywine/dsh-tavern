@@ -79,7 +79,7 @@ export function frozenActors(extension, snapshots, state, globalEnabledPackIds =
       const spriteAnatomy = Object.fromEntries(Object.entries(outfit.sprite?.anatomy || {}).map(([id, a]) => [id, derive(a)]))
       const anatomy = form === 'sprite' ? Object.values(spriteAnatomy) : [outfit[form]?.anatomy].filter(Boolean).map(derive)
       // the outfit's 使用情景 travels with it; empty adds nothing.
-      return [{key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:{heightCm:figure.heightCm ?? 150,
+      return [{key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:{heightCm:figure.heightCm ?? figureScale.FIGURE_DISPLAY.DEFAULT_HEIGHT_CM,
         headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0}}]
     })
     // figure order initializes outfits; carry keeps valid story state.

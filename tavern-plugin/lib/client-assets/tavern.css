@@ -6158,7 +6158,7 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 .ap-ui button.ap-icon-button.dsh-card-more { margin-left: auto; }
 .ap-ui .dsh-card-name { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; font-size: var(--fork-fs-title); font-weight: 600; line-height: 1.35; }
 .dsh-card-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(104px, 28%, 168px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
+.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(120px, 30%, 192px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
 .dsh-card-cover-wrap { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--fork-radius-lg); box-shadow: 0 6px 20px color-mix(in srgb, #000 28%, transparent), 0 0 0 1px var(--fork-hairline); }
 .ap-ui button.dsh-card-cover, .dsh-card-cover { display: block; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--fork-accent) 12%, var(--fork-surface)); cursor: zoom-in; }
 .dsh-card-cover > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
@@ -6224,7 +6224,7 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
 @container (max-width: 560px) {
   .ap-ui.dsh-card-detail { padding: 0 12px 24px; }
   .dsh-card-banner { left: -12px; right: -12px; height: 150px; }
-  .dsh-card-hero { grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
+  .dsh-card-hero { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
   .dsh-card-fold-row, .ap-ui.dsh-card-detail button.dsh-card-fold-head { min-height: 40px; }
 }
 

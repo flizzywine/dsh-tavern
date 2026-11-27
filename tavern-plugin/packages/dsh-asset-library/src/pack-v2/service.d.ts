@@ -17,7 +17,7 @@ export interface ExportCompressSummary { beforeBytes: number; afterBytes: number
 export declare function compressExportPacks<T extends PackExportSnapshot>(packs: T[], options: {directory: string; onProgress?: (progress: {done: number; total: number; pack: string}) => void}): Promise<{packs: T[]; rewrite: <V>(value: V) => V; summary: ExportCompressSummary}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
 /** Shared immutable host view. Copy only the fields needed for authoring. */
-export type PackSnapshot = ReadonlyPackValue<{ automatic?: true; privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;
+export type PackSnapshot = ReadonlyPackValue<{ automatic?: true; /** The card an automatic pack belongs to (its autoWrite). */ automaticCardId?: string; privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;
 export interface PackListError { packId: string; error: {code: string; message: string} }
 export interface ScriptRisk { packId: string; packName: string; path: string; widgetId?: string; widgetName?: string; variables?: {reads: Array<{id: string; source: string; path: string; includesChildren: boolean}>; writes: Array<{id: string; source: string; path: string; ops: string[]; scope?: string; includesChildren: boolean}>} }
 export interface PackChange { packId: string; revision: string | null; kinds: string[]; figures: string[] }
@@ -115,6 +115,8 @@ export interface CardBundleAdapter {
   remapRaw(raw: unknown, mappings: Array<PackMapping & {from: string}>): unknown;
   /** the same raw with these packs appended to the card's bound packs (card export of global packs). */
   bindRaw(raw: unknown, packIds: string[]): unknown;
+  /** Keep only the selected bindings and the card's config pack binding in the export. */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
   /** Keep only the selected pack bindings in an exported card. */

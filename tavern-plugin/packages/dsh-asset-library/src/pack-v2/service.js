@@ -97,7 +97,7 @@ function voiceRows(pack) {
       revision:pack.local.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}, users, ...(figures[0] ? {previewFigureId:(users[0] || figures[0]).id} : {})}
   })}
 }
-const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
+const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true,automaticCardId:pack.local.autoWrite.cardId}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
 // what a list row reads — name, revision, counts, size and a few picture refs.
 // No files, blobs, sprites, figure or widget documents (the full list was 19 MB for 30 packs); details are per pack.
 const SUMMARY_PICTURE_KINDS = ['backgrounds','cg','items','props'], SUMMARY_PICTURES = 8
@@ -188,19 +188,7 @@ export function createAssetPackService(options) {
   // A pack/set import keys its uploadHash on the whole archive (one hash per transfer); a card bundle reads none.
   async function archiveFile(file) {
     const archive = await localArchive(file), hash = createHash('sha256')
-    const handle = await open(file, 'r')
-    try {
-      const buffer = Buffer.allocUnsafe(256 * 1024)
-      let size = 0
-      for (;;) {
-        const {bytesRead} = await handle.read(buffer)
-        if (!bytesRead) break
-        size += bytesRead
-        check(size <= archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-        hash.update(buffer.subarray(0, bytesRead))
-      }
-      check(size === archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-    } finally { await handle.close() }
+    for await (const chunk of createReadStream(file)) hash.update(chunk)
     return {...archive, archiveSha256:hash.digest('hex')}
   }
   const blankManifest=(id,name,description)=>({format:'dsh-asset-pack',schemaVersion:1,id,name,...(description===undefined?{}:{description}),contentHash:'0'.repeat(64),assets:[],figures:[],sprites:{},bundles:{},blobs:{},files:[]})
@@ -548,10 +536,7 @@ export function createAssetPackService(options) {
   // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
   // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
-    return readZipEntries(await openZip(file, limits), archiveBytes, extraBytes, signal)
-  }
-  async function readZipEntries(zip, archiveBytes, extraBytes, signal) {
-    const files = new Map()
+    const zip = await openZip(file, limits), files = new Map()
     guardArchive(zip.entries)
     const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
     check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
@@ -949,8 +934,8 @@ export function createAssetPackService(options) {
         for (const key of Object.keys(patch)) check(!['id','format','schemaVersion','contentHash','files'].includes(key), '$.patch.' + key, 'Identity/hash fields cannot be patched')
         // Metadata probing and the full transaction each trim their own resource closure.
         Object.assign(manifest, copy(patch))
-        // An optional author field patched to undefined is removed.
-        for (const [key, value] of Object.entries(patch)) if (value === undefined) delete manifest[key]
+        // An optional author field patched to undefined (null over RPC, where undefined is dropped) is removed.
+        for (const [key, value] of Object.entries(patch)) if (value === undefined || value === null) delete manifest[key]
         for (const [name, bytes] of updates) {
           check(!name.startsWith('mods/') || bytes === null && retiredModIds.some(id => name.startsWith('mods/'+id+'/')),'$.fileUpdates','Only retired mod namespaces can be removed here','UNKNOWN_FIELD')
           if (name.startsWith('figures/') && bytes !== null) check(manifest.figures.includes(name.slice(8, -5)), '$.fileUpdates', 'Figure document is not in the manifest')
@@ -1757,7 +1742,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':ext==='css'?'text/css':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}

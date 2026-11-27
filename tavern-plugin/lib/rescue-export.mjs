@@ -3,12 +3,14 @@
 // 生成的包与酒馆内「导出」格式完全一致（不含 API Key 与账号），可直接用酒馆的「导入」恢复。
 //
 // 用法：
-//   node tavern-plugin/lib/rescue-export.mjs --out <文件.dshtransfer> [--dsh-home <dir>] [--data-root <dir>] [--no-images]
+//   node tavern-plugin/lib/rescue-export.mjs --list [--dsh-home <dir>] [--data-root <dir>]
+//   node tavern-plugin/lib/rescue-export.mjs --out <文件.dshtransfer> [--dsh-home <dir>] [--data-root <dir>] [--selection-file <json>] [--selection <json>] [--no-images]
 // 输出协议（供 Android TavernService 解析，与 source-update.mjs 一致）：
 //   DSH_STATUS <中文进度描述>
 //   DSH_PROGRESS <0..100>
-//   RESULT {"kind":"ok"|"error",...}
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+//   RESULT {"kind":"ok"|"list"|"error",...}
+import { realpathSync } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createCardPreparation } from './domain/card-preparation.js'
@@ -33,7 +35,7 @@ import { createTavernExtensionSettings } from './domain/tavern-extension-setting
 import { presentTavernSettings } from './domain/tavern-settings.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTransferAssets } from './domain/transfer-assets.js'
-import { buildTransferManifest, packTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from './domain/transfer-bundle.js'
+import { buildTransferManifest, createTransferBundleWriter, packTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from './domain/transfer-bundle.js'
 import { createTransferCatalog } from './domain/transfer-catalog.js'
 import { createTransferChats } from './domain/transfer-chats.js'
 import { createTransferFonts } from './domain/transfer-fonts.js'
@@ -446,9 +448,70 @@ export async function createRescueTransferCatalog(options = {}) {
   return { catalog, dataRoot, tavernVersion, warnings }
 }
 
+// 这几个板块多项会合并写进同一个 JSON 文件（且本身很小），按整板块收集；
+// 其余板块（对话、人物卡、素材包、插件、世界书、预设等）逐项收集并立即流式落盘，避免大库 OOM。
+const WHOLE_PART_KINDS = new Set(['profile', 'regex', 'prompts', 'settings'])
+
 /**
- * 离线导出整份 .dshtransfer 救援包。
- * 遇到单个损坏项时记录告警并继续救出其余完好项，不因局部损坏让整次救援失败。
+ * 离线扫描所有可救援导出的板块与条目（只读，不打包）。
+ * 供启动页弹出与酒馆「导出」一致的分组/逐项勾选界面。
+ */
+export async function listRescueParts(options = {}) {
+  const onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {}
+  const warnings = []
+  onStatus('正在扫描可导出的存档与资源')
+  const { catalog, dataRoot, tavernVersion } = await createRescueTransferCatalog({ ...options, warnings })
+  const listed = await catalog.listParts()
+  const parts = listed.parts
+    .filter(part => part.supported && !part.exportOnly)
+    .map(part => ({
+      kind: part.kind,
+      group: part.group,
+      label: part.label,
+      unit: part.unit || '项',
+      note: part.note || '',
+      privacy: part.privacy || '',
+      bytes: Number(part.bytes) || 0,
+      items: (Array.isArray(part.items) ? part.items : []).map(item => ({
+        key: str(item.key),
+        title: str(item.title || item.key),
+        meta: str(item.meta),
+        bytes: Number(item.bytes) || 0
+      }))
+    }))
+  return {
+    groups: listed.groups || [],
+    parts,
+    tavernVersion,
+    dataRoot,
+    warnings
+  }
+}
+
+function resolveTargets(listedParts, selection) {
+  const candidates = listedParts.filter(part => part.supported && !part.exportOnly && Array.isArray(part.items) && part.items.length > 0)
+  if (selection === undefined || selection === null) return candidates
+  if (typeof selection !== 'object' || Array.isArray(selection)) throw new Error('导出选区格式无效')
+  const targets = []
+  for (const part of candidates) {
+    const picked = selection[part.kind]
+    if (picked === true || (Array.isArray(picked) && picked.includes('*'))) {
+      targets.push(part)
+      continue
+    }
+    if (!Array.isArray(picked) || picked.length === 0) continue
+    const wanted = new Set(picked.map(str).filter(Boolean))
+    const items = part.items.filter(item => wanted.has(str(item.key)))
+    if (items.length > 0) targets.push({ ...part, items })
+  }
+  return targets
+}
+
+/**
+ * 离线导出 .dshtransfer 救援包。
+ * - 支持 selection 局部选择（板块级或逐项 key）与 includeImages 开关，与酒馆「导出」页一致；
+ * - 提供 outFile 时采用逐项收集 + 流式写盘，写完即释放条目 Buffer，避免大库 OOM；
+ * - 遇到单个损坏项时记录告警并继续救出其余完好项，不因局部损坏让整次救援失败。
  */
 export async function exportRescueBundle(options = {}) {
   const onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {}
@@ -459,23 +522,32 @@ export async function exportRescueBundle(options = {}) {
   const { catalog, tavernVersion } = await createRescueTransferCatalog({ ...options, warnings })
   const listed = await catalog.listParts()
 
-  // 救援包默认带上所有可导入板块，跳过 exportOnly（诊断日志）和空板块。
-  const targets = listed.parts.filter(part => part.supported && !part.exportOnly && Array.isArray(part.items) && part.items.length > 0)
+  const hasSelection = options.selection !== undefined && options.selection !== null
+  const targets = resolveTargets(listed.parts, options.selection)
   const totalItems = targets.reduce((sum, part) => sum + part.items.length, 0)
-  if (totalItems === 0) throw new Error('没有找到可导出的存档或资源')
+  if (totalItems === 0) {
+    throw new Error(hasSelection ? '所选板块或条目没有可导出的内容' : '没有找到可导出的存档或资源')
+  }
+
+  // 与正常「导出」一致：同包已包含世界书/预设时，不在每局对话存档里重复嵌入整份副本，大幅减小体积与内存占用。
+  const embedWorldbook = !targets.some(part => part.kind === 'worldbooks')
+  const embedPreset = !targets.some(part => part.kind === 'presets')
+  const includeImages = options.includeImages !== false
 
   const parts = []
-  const files = new Map()
+  const usedEntries = new Set()
+  const files = options.outFile ? null : new Map()
+  const writer = options.outFile ? await createTransferBundleWriter(options.outFile) : null
   let doneItems = 0
 
   function report(label, itemTitle) {
-    const pct = totalItems > 0 ? Math.min(95, Math.round(doneItems * 90 / totalItems)) : 0
+    const pct = totalItems > 0 ? Math.min(95, Math.round(doneItems * 92 / totalItems)) : 0
     onProgress(pct)
     onStatus(`正在救援导出：${label}${itemTitle ? ' · ' + itemTitle : ''}（${doneItems}/${totalItems}）`)
   }
 
-  // 把一次 collect 的产物合并进最终列表，并避免条目路径重名。
-  function mergeCollected(collected) {
+  // 把一次 collect 的产物直接流式写盘（或记录进内存 Map），避免条目路径重名。
+  async function emitCollected(collected) {
     for (const part of collected.parts) {
       let existing = parts.find(row => row.kind === part.kind)
       if (!existing) {
@@ -486,91 +558,95 @@ export async function exportRescueBundle(options = {}) {
         const content = collected.files.get(item.entry)
         if (content === undefined) continue
         let entry = item.entry
-        if (files.has(entry)) {
+        if (usedEntries.has(entry)) {
           const parsed = path.posix.parse(entry)
           let n = 2
-          while (files.has(path.posix.join(parsed.dir, `${parsed.name} (${n})${parsed.ext}`))) n += 1
+          while (usedEntries.has(path.posix.join(parsed.dir, `${parsed.name} (${n})${parsed.ext}`))) n += 1
           entry = path.posix.join(parsed.dir, `${parsed.name} (${n})${parsed.ext}`)
         }
-        files.set(entry, content)
+        usedEntries.add(entry)
+        if (writer) await writer.addEntry(entry, content)
+        else files.set(entry, content)
         existing.items.push({ ...item, entry })
       }
     }
   }
 
-  for (const part of targets) {
-    const keys = part.items.map(item => item.key)
-    const before = doneItems
-    try {
-      const collected = await catalog.collect({ [part.kind]: keys }, {
-        images: options.includeImages !== false,
-        onProgress: step => {
-          doneItems = before + Math.min(keys.length, Number(step?.items) || 0)
-          report(part.label, step?.itemTitle || '')
+  try {
+    for (const part of targets) {
+      const collectOpts = { images: includeImages, embedWorldbook, embedPreset }
+      if (WHOLE_PART_KINDS.has(part.kind)) {
+        const keys = part.items.map(item => item.key)
+        report(part.label, '')
+        let collected
+        try {
+          collected = await catalog.collect({ [part.kind]: keys }, collectOpts)
+        } catch (partError) {
+          warnings.push(`${part.label}导出失败（已跳过）：${str(partError?.message || partError)}`)
+          doneItems += keys.length
+          report(part.label, '')
+          continue
         }
-      })
-      mergeCollected(collected)
-      doneItems = before + keys.length
-      report(part.label, '')
-    } catch (partError) {
-      // 整个板块失败时退回逐项导出，跳过损坏的那一项，尽量救出其余完好数据。
-      if (keys.length <= 1) {
-        warnings.push(`${part.label}导出失败（已跳过）：${str(partError?.message || partError)}`)
-        doneItems = before + keys.length
+        await emitCollected(collected)
+        doneItems += keys.length
         report(part.label, '')
         continue
       }
-      doneItems = before
+
       for (const item of part.items) {
+        const title = item.title || item.key
+        report(part.label, title)
+        let collected
         try {
-          const collected = await catalog.collect({ [part.kind]: [item.key] }, {
-            images: options.includeImages !== false
-          })
-          mergeCollected(collected)
+          collected = await catalog.collect({ [part.kind]: [item.key] }, collectOpts)
         } catch (itemError) {
-          warnings.push(`${part.label}「${item.title || item.key}」导出失败（已跳过）：${str(itemError?.message || itemError)}`)
+          warnings.push(`${part.label}「${title}」导出失败（已跳过）：${str(itemError?.message || itemError)}`)
+          doneItems += 1
+          report(part.label, title)
+          continue
         }
+        // writer.addEntry 抛出的超限/磁盘空间不足属于致命错误，不再静默跳过。
+        await emitCollected(collected)
         doneItems += 1
-        report(part.label, item.title || '')
+        report(part.label, title)
       }
     }
-  }
 
-  if (!parts.length) throw new Error('所有板块均导出失败：' + (warnings[0] || '未知错误'))
+    if (!parts.length) throw new Error('所有板块均导出失败：' + (warnings[0] || '未知错误'))
 
-  onProgress(96)
-  onStatus('正在打包压缩 .dshtransfer')
-  const name = safeTransferFileName(str(options.name) || 'DSH酒馆救援备份-' + stamp(), 'DSH酒馆救援备份')
-  const manifest = buildTransferManifest({
-    name,
-    source: { tavern: str(tavernVersion), platform: process.platform },
-    parts
-  })
-  const buffer = packTransferBundle({ manifest, files })
-  const filename = manifest.name + TRANSFER_EXTENSION
+    onProgress(96)
+    onStatus('正在写入清单并完成打包 .dshtransfer')
+    const name = safeTransferFileName(str(options.name) || 'DSH酒馆救援备份-' + stamp(), 'DSH酒馆救援备份')
+    const manifest = buildTransferManifest({
+      name,
+      source: { tavern: str(tavernVersion), platform: process.platform },
+      parts
+    })
+    const filename = manifest.name + TRANSFER_EXTENSION
 
-  if (options.outFile) {
-    const outPath = path.resolve(options.outFile)
-    await mkdir(path.dirname(outPath), { recursive: true })
-    const tmp = outPath + '.tmp-' + process.pid
-    try {
-      await writeFile(tmp, buffer)
-      await rename(tmp, outPath)
-    } catch (error) {
-      await unlink(tmp).catch(() => {})
-      throw error
+    let buffer
+    let bytes = 0
+    if (writer) {
+      const written = await writer.finalize(manifest)
+      bytes = written.bytes
+    } else {
+      buffer = packTransferBundle({ manifest, files })
+      bytes = buffer.length
     }
-  }
 
-  onProgress(100)
-  return {
-    buffer,
-    filename,
-    name: manifest.name,
-    bytes: buffer.length,
-    totals: manifest.totals,
-    parts: manifest.parts.map(p => ({ kind: p.kind, label: p.label, items: p.items.length, bytes: p.bytes })),
-    warnings
+    onProgress(100)
+    return {
+      ...(buffer ? { buffer } : {}),
+      filename,
+      name: manifest.name,
+      bytes,
+      totals: manifest.totals,
+      parts: manifest.parts.map(p => ({ kind: p.kind, label: p.label, items: p.items.length, bytes: p.bytes })),
+      warnings
+    }
+  } catch (error) {
+    if (writer) await writer.abort()
+    throw error
   }
 }
 
@@ -578,26 +654,62 @@ function parseArgs(argv) {
   const out = {}
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--no-images') out.includeImages = false
+    if (arg === '--list') out.list = true
+    else if (arg === '--no-images') out.includeImages = false
+    else if (arg === '--images') out.includeImages = true
     else if (arg.startsWith('--') && i + 1 < argv.length) out[arg.slice(2)] = argv[++i]
   }
   return out
 }
 
+async function readSelectionArg(args) {
+  if (args['selection-file']) {
+    const text = await readFile(args['selection-file'], 'utf8')
+    return JSON.parse(text)
+  }
+  if (args.selection) {
+    return JSON.parse(args.selection)
+  }
+  return undefined
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
+  if (args.list) {
+    try {
+      const listed = await listRescueParts({
+        dshHome: args['dsh-home'],
+        dataRoot: args['data-root'],
+        sourceRoot: args['source-root'],
+        onStatus: msg => console.log('DSH_STATUS ' + msg)
+      })
+      console.log('RESULT ' + JSON.stringify({
+        kind: 'list',
+        groups: listed.groups,
+        parts: listed.parts,
+        tavernVersion: listed.tavernVersion,
+        warnings: listed.warnings
+      }))
+    } catch (error) {
+      console.log('RESULT ' + JSON.stringify({ kind: 'error', error: str(error?.message || error) }))
+      process.exitCode = 1
+    }
+    return
+  }
   if (!args.out) {
     console.log('RESULT ' + JSON.stringify({ kind: 'error', error: '缺少 --out 参数' }))
     process.exitCode = 1
     return
   }
   try {
+    const selection = await readSelectionArg(args)
     const res = await exportRescueBundle({
       outFile: args.out,
       dshHome: args['dsh-home'],
       dataRoot: args['data-root'],
       sourceRoot: args['source-root'],
       name: args.name,
+      selection,
       includeImages: args.includeImages !== false,
       onStatus: msg => console.log('DSH_STATUS ' + msg),
       onProgress: pct => console.log('DSH_PROGRESS ' + pct)
@@ -618,6 +730,14 @@ async function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isMainEntry() {
+  if (!process.argv[1]) return false
+  const self = fileURLToPath(import.meta.url)
+  const argv = path.resolve(process.argv[1])
+  if (argv === self) return true
+  try { return realpathSync(argv) === realpathSync(self) } catch { return false }
+}
+
+if (isMainEntry()) {
   await main()
 }

@@ -34,6 +34,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   const worldbookPath = join(root, '少林.md')
   await writeFile(worldbookPath, '少林门规原文')
   const worldbookProjections = []
+  let worldbook = { prefixContext: '常驻：旅店规矩', foregroundContext: '' }
   class Model extends LlmAdapter {
     async resolveModel(provider, model) { return { provider, id: model, name: model } }
     async *stream(input) {
@@ -92,7 +93,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   const makeRunner = () => createBackgroundAgentRunner({ agents: ctx.agents, backgroundTools: [],
     settlementItems: () => settlementItems,
     resolveWorldbookSkills: async () => true,
-    resolveCurrentWorldbook: async input => { worldbookProjections.push(input.task); return { prefixContext: '常驻：旅店规矩', foregroundContext: '' } },
+    resolveCurrentWorldbook: async input => { worldbookProjections.push(input.task); return worldbook },
     resolveForegroundWorldbookReads: async input => input.task === 'settlement' ? '【前台本轮完整查阅的世界书资料】\n少林门规只读快照' : '',
     resolveStablePrefix: async () => '固定背景：雨夜旅店', flushSession: session => ctx.sessions.flush(session) })
   runner = makeRunner()
@@ -180,4 +181,30 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   assert.equal(descriptors.length, 1)
   assert.equal(descriptors[0].data.label, '酒馆后台 Agent')
   assert.equal(descriptors[0].data.mode, 'continuable')
+
+  // Runtime snapshots change in the task history while the system prefix stays reusable.
+  const staticPrefix = worldbook.prefixContext
+  const project = snapshots => ({ staticPrefix, snapshots, prefixContext: [staticPrefix, snapshots].filter(Boolean).join('\n\n') })
+  worldbook = project('<status_current_variables>门已锁</status_current_variables>')
+  await run(first.traceSessionId)
+  const locked = requests.at(-1)
+  assert.match(currentText(locked), /<lorebook_current_snapshot>[\s\S]*门已锁/)
+  assert.doesNotMatch(locked.system, /status_current_variables/)
+  worldbook = project('<status_current_variables>门已开</status_current_variables>')
+  await run(first.traceSessionId)
+  const opened = requests.at(-1)
+  assert.equal(opened.system, locked.system)
+  assert.match(currentText(opened), /<lorebook_current_snapshot>[\s\S]*门已开/)
+  assert.doesNotMatch(currentText(opened), /门已锁/)
+  await run(first.traceSessionId)
+  assert.match(currentText(requests.at(-1)), /<lorebook_snapshot_reference>[\s\S]*remains in effect/)
+  assert.doesNotMatch(currentText(requests.at(-1)), /门已开|<lorebook_current_snapshot>/)
+  worldbook = project('')
+  await run(first.traceSessionId)
+  const cleared = requests.at(-1)
+  assert.equal(cleared.system, locked.system)
+  assert.match(currentText(cleared), /<lorebook_current_snapshot>[\s\S]*There is no current dynamic lorebook snapshot/)
+  assert.match(JSON.stringify(cleared.messages.slice(0, -1)), /门已开/)
+  await run(first.traceSessionId)
+  assert.match(currentText(requests.at(-1)), /<lorebook_snapshot_reference>[\s\S]*There is no current dynamic lorebook snapshot/)
 })

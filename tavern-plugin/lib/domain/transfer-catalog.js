@@ -375,8 +375,12 @@ export function createTransferCatalog(deps) {
     if (chats && chatKeys.length) {
       // 同一个包里已经带上世界书时，局里的开局世界书副本就是重复：每局各存一份整本 JSON，
       // 11 局能占掉几十兆。导入后这局跟随刚装回来的那本书（卡绑定的世界书）。
-      const embedWorldbook = selected(selection, 'worldbooks').length === 0
-      const embedPreset = selected(selection, 'presets').length === 0
+      const embedWorldbook = typeof options.embedWorldbook === 'boolean'
+        ? options.embedWorldbook
+        : selected(selection, 'worldbooks').length === 0
+      const embedPreset = typeof options.embedPreset === 'boolean'
+        ? options.embedPreset
+        : selected(selection, 'presets').length === 0
       const exports = await collectSubItems('chats', '对话与存档', chatKeys, onItem =>
         chats.collect(chatKeys, { images: options.images !== false, embedWorldbook, embedPreset, ...(onProgress ? { onItem } : {}) })
       )

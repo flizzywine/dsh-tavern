@@ -53,24 +53,6 @@ function emotionUpsert(emotions, value, random) {
     item.id = newEmotionId(list.map(entry => entry.id), random);
     return list.concat([item]);
 }
-// Characters that have an image (avatar variant or full-size) for this emotion.
-function emotionUsers(config, id) {
-    return ((config && config.characters) || []).filter(item => item && ((item.moods && item.moods[id]) || (item.full && item.full[id]))).map(characterLabel);
-}
-// Remove an emotion and the characters' images for it.
-function emotionRemove(config, id) {
-    const strip = map => { if (!map || !(id in map)) return map; const next = { ...map }; delete next[id]; return next; };
-    return { ...config, emotions: customEmotions(config).filter(item => item.id !== id),
-        characters: ((config && config.characters) || []).map(item => item && ((item.moods && id in item.moods) || (item.full && id in item.full)) ? { ...item, moods: strip(item.moods), full: strip(item.full) } : item) };
-}
-
-// 简单 → 自动演出: one switch for the director (automatic scene changes) and the music together.
-function autoStageState(stage) {
-    const director = Boolean(stage && stage.director === true), music = Boolean(stage && stage.music === true);
-    return { on: director || music, partial: director !== music };
-}
-function autoStagePatch(on) { return { director: Boolean(on), music: Boolean(on) }; }
-
 // The stage fields the settings panels write. The retired worldview and the derived protagonist are never
 // sent back (characters carry offstage now); the old tag filters went with the asset-library sources.
 // Sources always go out in the new shape.

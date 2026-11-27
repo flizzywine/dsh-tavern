@@ -7,6 +7,10 @@ import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/do
 import { registerModelStreamHooks } from '../tavern-plugin/lib/hooks/model-stream.js'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
+import { createServerTemplateFixture } from './fixtures/server-template-runtime.mjs'
+import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
+import { foregroundFrameInputs } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 
 function memoryLog() {
   const files = new Map()
@@ -20,6 +24,68 @@ function memoryLog() {
     now: () => ++stamp, id: () => 'r' + stamp
   })
 }
+
+test('普通模式和白手套模式都把渲染后的预设按前中后顺序交给正文模型', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const received = []
+  const host = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    modelStream: async function * (input) {
+      received.push(input)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  })
+  const templates = createServerTemplateFixture()
+  t.after(async () => { await host.dispose(); await templates.dispose() })
+  const sessionId = host.target.agent.session.id
+  const entry = phase => ({ role: 'system', content: phase + '·<%= 2 + 3 %>' })
+  const preset = { front: { entries: [entry('预设前段')] }, middle: { entries: [entry('预设中段')] }, back: { entries: [entry('预设后段')] } }
+  const chat = { id: 'preset-parity', mode: 'story', requestMode: 'dsh', runtimePresetSnapshot: preset }
+  const user = { id: 'fixture-input', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '玩家输入' }] }
+  const session = { id: sessionId, append() {} }
+  const frameBuilder = createForegroundFrameBuilder()
+  let whiteGlove = false
+  const strategies = createForegroundOrchestrationStrategies({ nativePlay: {
+    async modeFor() { return 'story' }, async visibleTools() { return [] }, controlledToolNames: new Set(),
+    filterMessages: messages => messages,
+    resolvePreset: async () => preset,
+    prepareTurn: async ({ turn, runtimePresetSnapshot }) => ({ frame: frameBuilder.build({
+      chatId: chat.id, branchId: 'branch', basedOnRevision: turn, operationId: 'turn-' + turn, turn,
+      inputs: foregroundFrameInputs({ sections: [{ kind: 'base', text: '固定正文规则' }] }, '玩家输入', '玩家输入', runtimePresetSnapshot, chat)
+    }) }),
+    recordFrame() {},
+    appendFrame: createForegroundFrameSessionAdapter().append,
+    writingPreparation: { forGame: async () => whiteGlove ? {} : null, prepare: async () => '白手套资料' }
+  } })
+  registerModelStreamHooks({
+    ctx: host.ctx, sessionStore: host.ctx.sessions, agentRegistry: host.ctx.agents,
+    backgroundAgentRunner: { owns: () => false, requestContext: () => undefined },
+    chatHeaderForSession: async () => chat, chatForSession: async () => chat, foregroundStrategies: strategies,
+    fullTemplateRuntime: { forSession: () => ({ projectRequestProjection: templates.projectRequest }) },
+    modelRequestLog: memoryLog(), worldbookRecallLog: { requested: async () => {} }, requestCoordinates: new Map(),
+    str: value => typeof value === 'string' ? value : ''
+  })
+  for (const turn of [1, 2]) {
+    whiteGlove = turn === 2
+    const assembly = await strategies.assembleSystemPrompt({ sections: [], tools: [] }, { sessionId, chat, pureWriter: whiteGlove, fixedSystemSections: [] })
+    const decision = await strategies.prepareStep({ sessionId, chat, payload: { agent: { session }, turn, step: 1, messages: [user] },
+      decision: { kind: 'enter', messages: [user] } })
+    const system = assembly.sections.map(section => section.text).join('\n\n')
+    const result = await Array.fromAsync(host.ctx.llm.stream({ sessionId, provider: 'initialization-fixture', model: 'text', system, messages: decision.messages }))
+    assert.equal(result.at(-1)?.reason?.kind, 'stop', JSON.stringify(result.at(-1)))
+  }
+  assert.equal(received.length, 2)
+  for (const input of received) {
+    const system = input.system ?? ''
+    const prompt = input.messages.flatMap(message => message.content.map(block => block.text)).join('\n')
+    assert.match(system, /预设前段·5/)
+    assert.doesNotMatch(system, /预设中段|预设后段/)
+    assert.match(prompt, /玩家输入[\s\S]*预设中段·5[\s\S]*预设后段·5$/)
+    assert.doesNotMatch(system + prompt, /<%=/)
+    for (const phase of ['预设前段', '预设中段', '预设后段']) assert.equal((system + prompt).split(phase).length, 2)
+  }
+  const whiteGloveInput = received[1].messages.flatMap(message => message.content.map(block => block.text)).join('\n')
+  assert.match(whiteGloveInput, /白手套资料[\s\S]*预设后段·5$/)
+  assert.ok(received[1].messages.some(message => message.source?.form === 'inject'))
+})
 
 test('Tavern sends and logs the same request after a template renders blank prompts', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const log = memoryLog()

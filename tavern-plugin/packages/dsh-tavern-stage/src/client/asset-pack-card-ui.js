@@ -118,7 +118,7 @@ function useStageWriter(binding,path,state,sessionId) {
   // `rows` are the list summaries (every installed pack); `packs` the full documents
   // of the packs this page reads entries of (lit for this card, or holding 模组: stageDetailRows), read per pack by revision.
   if(state.value&&store.current?.loadedFrom!==state.value)store.current={loadedFrom:state.value,server:state.value.card,engine:state.value.engine,reading:state.value.reading,autoCast:state.value.autoCast,pending:[],layers:[],rows:state.value.packs.filter(p=>!p.error),
-    packs:new Map((state.value.details||[]).map(p=>[p.manifest.id,p])),asked:new Map((state.value.details||[]).map(p=>[p.manifest.id,p.revision]))};
+    packs:new Map(),asked:new Map()};
   const s=store.current,render=()=>bump(n=>n+1);
   const conflict=e=>e?.code==='REVISION_CONFLICT'||/REVISION_CONFLICT|Card changed/i.test(String(e?.message||''));
   const apply=(base,fn)=>({...base,...fn(base)});
@@ -134,7 +134,7 @@ function useStageWriter(binding,path,state,sessionId) {
     const done=enqueue(job).finally(()=>{s.layers=s.layers.filter(item=>item!==layer);render();});
     done.catch(()=>{});return done;
   }
-  async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path});s.server={...s.server,...fresh};render();return fresh;}
+  async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path,metadataOnly:true});s.server={...s.server,...fresh};render();return fresh;}
   async function refetchRows(){const list=await loadPackRows(binding);s.rows=list.filter(p=>!p.error);render();return list;}
   // Mark revisions before awaiting so re-renders share the same bounded read.
   async function ensureDetails(){
@@ -218,14 +218,16 @@ function useStageWriter(binding,path,state,sessionId) {
 }
 
 function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,takeEngineFocus,onJudge,onCommands}) {
+  // One round of small reads draws the page: the card's binding state (metadataOnly: the page reads its cardId, extension
+  // and revision, never the bound figures' documents), the pack list summaries and the settings layers. The full
+  // documents of the packs it reads entries of come after the first draw (writer.ensureDetails below); the sections that
+  // need them wait on their own (人物's placeholders).
   const state=useLoad(binding,async()=>{
-    const card=await binding.rpc('getCardAssetBindings',{path});
-    if(!ready)return {card,packs:[],details:[],engine:null,reading:null,autoCast:null};
-    await binding.loadSettings?.();
+    const card=binding.rpc('getCardAssetBindings',{path,metadataOnly:true});
+    if(!ready)return {card:await card,packs:[],engine:null,reading:null,autoCast:null};
     // reading: the tts plugin's tts.reading (旁白配音's global layer); null while the plugin is off.
-    const [packs,engine,reading,autoCast]=await Promise.all([loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null),binding.tts?binding.tts.call('reading').catch(()=>null):null,binding.rpc('getAutoCastSettings').catch(()=>null)]);
-    const details=await stageReadDetails(binding,stageDetailRows(packs,binding.globalEnabledPackIds||[],card.extension?.assetBindings?.boundPackIds||[]));
-    return {card,packs,details,engine,reading,autoCast};
+    const [loaded,packs,engine,reading,autoCast]=await Promise.all([card,loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null),binding.tts?binding.tts.call('reading').catch(()=>null):null,binding.rpc('getAutoCastSettings').catch(()=>null),binding.loadSettings?.()]);
+    return {card:loaded,packs,engine,reading,autoCast};
   },[path,ready]);
   const writer=useStageWriter(binding,path,state,sessionId);
   // A pack lit after the load (or a changed revision) is read in full; the page renders again when it arrives.
@@ -379,7 +381,7 @@ const pressRowJump=row=>row.querySelector('.ap-kind-jump')?.click();
 // service list. The voice plugin switched off is the one problem of the whole card ({ref:null}). A synthesis result, a
 // pack/engine or a pointer change re-reads in place — the previous answer stays until the new one arrives, so the ⚠ never
 // blinks between reads.
-const STAGE_VOICE_REASONS={SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
+const STAGE_VOICE_REASONS={VOICE_UNSET:'还没选声音',MISSING_REFERENCE:'还没有参考音频',SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
 const STAGE_VOICE_LINES=5;
 const sameRef=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
 function useStageVoiceProblems(ctx) {
@@ -563,7 +565,7 @@ function StageVoicePage({ctx,onBack}) {
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageVoiceProblems,{ctx}),
     // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice. A voice is edited where it is
-    // used (its row ›, the figure's 声音 page) and deleted from its row's ⋯; there is no separate 声音库.
+    // used (its row ›, the figure's 声音 page) and deleted from its row's ⋯; there is no separate 声音库 (主人 11-22).
     h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:stageVoiceBackendLink(ctx)},
       h(StagePointedVoice,{ctx,row:pointed.rows?.[0],onChanged:pointed.reload})),
     // 旁白's four-state switch sits in its section head; its figure under it while it speaks.
@@ -820,8 +822,10 @@ function StagePackSection({ctx,ready,state}) {
 // encrypting, the browser's for saving), never a bare 「请重试」.
 // The one 导出 for every format: 导出格式 is a menu (DSH 人物卡 by default; what each carries is in its 「?」); a DSH
 // card has 设置密码: typed, the export is encrypted (the button says 加密导出); empty, a plain one; and, with packs ticked,
-// 压缩素材 (off by default; ⚠ when the ticked packs are over the import limit): the host converts their media as it exports
-// (export-compress.js), the bar says 正在压缩 first, and when done the sheet says the packs' size before and after.
+// 压缩素材, a menu like 导出格式 (压缩 by default, 主人 11-26; ⚠ on 不压缩 when the ticked packs are over the import
+// limit): the host converts their media as it exports (export-compress.js; media already compressed goes as it is), the
+// bar says 正在压缩 first, and when done the sheet says the packs' size before and after and how many it left as they were.
+// Rows: 导出格式 → 导出方式 → 版本 → 设置密码 → 压缩素材 (主人 11-26).
 // 素材包 go with a DSH card only; 世界书 with every format (JSON / PNG go through the card-export route with the chosen books,
 // saved with their bytes counted). `hasImage` false: the card has no cover, so no PNG.
 const DSHCARD_FORMATS={dshcard:{label:'DSH 人物卡',note:'带素材包、插件和世界书，可以加密、压缩素材',extension:'.dshcard',description:'DSH 人物卡'},
@@ -830,7 +834,11 @@ const DSHCARD_FORMATS={dshcard:{label:'DSH 人物卡',note:'带素材包、插�
 // the asset library's import budget (budget.js PACK_BUDGET.spoolBytes; tests/export-compress.test.mjs keeps them equal).
 const DSHCARD_IMPORT_LIMIT=8*1024**3;
 // the rates are export-compress.js EXPORT_AUDIO_KBPS (the same test keeps them equal).
-const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。';
+const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。已经压缩过的素材原样带走，不会再压一次。';
+const DSHCARD_COMPRESS_OPTIONS=[{value:'on',label:'压缩'},{value:'off',label:'不压缩'}];
+// A card's 自动素材 pack (the library marks it `automatic`: its autoWrite names the card) starts unticked (主人 11-26):
+// what the stage wrote while playing is the player's own, not the card's; ticking it sends it along.
+const dshCardPackStartsLeft=pack=>pack.automatic===true;
 const DSHCARD_FAILURE={TAVERN_NOT_FOUND:'找不到这张人物卡。',REVISION_CONFLICT:'人物卡刚刚改过，请再导出一次。'};
 // a failed save says its own cause and what helps with that cause (pack-transport.js saveExportFile). The browser may
 // leave its 「….crswap」 working file beside the target; the page cannot reach it, so the sentence names it.
@@ -842,7 +850,7 @@ const dshCardFailure=(error,saving)=>DSHCARD_FAILURE[error?.code]||(error?.step?
     +'没写完的文件已删除；如果文件夹里留下了同名的 .crswap 文件，可以直接删掉。'
   :playerErrorText(error,{fallback:'导出时出错：'+String(error?.message||error)}));
 const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
-// 导出为: 完整包, or an 更新包 on top of a release the card was exported as before (card-files.js listCardReleases): it
+// 导出方式: 完整包, or an 更新包 on top of a release the card was exported as before (card-files.js listCardReleases): it
 // leaves out the pack files that release brought, and the player who has it updates the card with it (更新这张卡).
 // A file sent before releases were recorded becomes one through 「用以前发出的文件作基础…」 (only its pack lists are read).
 // 版本 is the card's character_version; after a release it suggests the next one (1.0 → 1.1), saved when exporting.
@@ -895,10 +903,11 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     });
     return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)})),version:releases.version,releases:releases.releases};
   },[path]);
-  const [leftPacks,setLeftPacks]=React.useState(()=>new Set()),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
+  // leftPacks: the packs that stay home; null until the player ticks one, the 自动素材 packs meanwhile (dshCardPackStartsLeft).
+  const [leftChoice,setLeftPacks]=React.useState(null),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
   const {work,problem,saved}=useDshCardJob(path);
   const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
-  const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(false);
+  const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(true);
   const [base,setBase]=React.useState(''),[typedVersion,setVersion]=React.useState(null),[adding,setAdding]=React.useState(false),[estimate,setEstimate]=React.useState(null);
   const baseFile=React.useRef(null);
   // a password typed is the encryption (主人 11-24): none, no encryption.
@@ -907,8 +916,9 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const close=()=>{const current=dshCardJobs.get(path);if(current&&!current.view.work)dshCardJobs.delete(path);onClose();};
   const value=state.value,packs=value?.packs||[],books=value?.books||[];
   // every pack the card binds goes along unless unticked (主人 11-24); a widget-only one is chosen in the 模组 section and goes, without a switch.
-  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
   const switchable=packs.filter(p=>!p.required&&!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
+  const leftPacks=leftChoice??new Set(packs.filter(p=>switchable.includes(p.manifest.id)&&dshCardPackStartsLeft(p)).map(p=>p.manifest.id));
+  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
   const sizes=packs.map(stagePackBytes),total=picked.reduce((sum,pack)=>sum+(stagePackBytes(pack)||0),0);
   const compressing=dsh&&compress&&picked.length>0;
   const releases=value?.releases||[],release=releases.find(r=>r.id===base)||null,updating=dsh&&!!release&&picked.length>0;
@@ -935,7 +945,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     finally{setAdding(false);}
   }
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
-  const flipPack=id=>setLeftPacks(current=>toggle(current,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
+  const flipPack=id=>setLeftPacks(toggle(leftPacks,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
   const allPacks=leftPacks.size===0,allBooks=leftBooks.size===0;
   // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
   const picking=React.useRef(false);
@@ -972,7 +982,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
       tell(done.picked?'saved':'download-started',result.bytes);
       const shrunk=result.compressed;
       const update=result.update?'这是相对 '+(result.update.base?'v'+result.update.base:'上一版')+' 的更新包，省掉了对方已有的 '+result.update.omitted+' 个文件。':'';
-      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+update+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
+      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+update+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.skipped?'已跳过 '+shrunk.skipped+' 个已压缩素材。':'')+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
       put({saved:{...done,said:done.said+detail}});
     }catch(error){
       tell(current.cancelled?'cancelled':'failed',current.view.work?.total,current.cancelled?'':(error?.name?error.name+' ':'')+String(error?.message||error));
@@ -989,14 +999,14 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const formats=Object.entries(DSHCARD_FORMATS).map(([key,f])=>({value:key,label:f.label,...(key==='png'&&hasImage===false?{disabled:true,title:'这张卡没有封面'}:{})}));
   const options=h('div',{className:'ap-dshcard-options'},
     h(InlineField,{kind:'menu',label:'导出格式',help:h(Help,{text:Object.values(DSHCARD_FORMATS).map(f=>h('span',{key:f.label},f.label+'：'+f.note+'。')),label:'导出格式 说明'}),value:format,options:formats,disabled:!!work,onCommit:setFormat,className:'ap-dshcard-field'}),
-    dsh&&h(InlineField,{kind:'text',label:'版本',value:version,placeholder:'例如 1.0',disabled:!!work,live:true,onCommit:setVersion,className:'ap-dshcard-field'}),
-    dsh&&packs.length>0&&h(InlineField,{kind:'menu',label:'导出为',help:h(Help,{text:DSHCARD_BASE_HELP,label:'导出为 说明'}),value:base,disabled:!!work||adding,onCommit:chooseBase,className:'ap-dshcard-field',
+    dsh&&packs.length>0&&h(InlineField,{kind:'menu',label:'导出方式',help:h(Help,{text:DSHCARD_BASE_HELP,label:'导出方式 说明'}),value:base,disabled:!!work||adding,onCommit:chooseBase,className:'ap-dshcard-field',
       options:[{value:'',label:'完整包'},...releases.map(r=>({value:r.id,label:dshCardReleaseLabel(r)})),{value:DSHCARD_BASE_FILE,label:'用以前发出的文件作基础…'}],
       trail:adding?h('span',{className:'ap-pack-size'},'正在读取文件…'):updating&&estimate?h('span',{className:'ap-pack-size'},estimate.bytes?'新素材约 '+stageBytesText(estimate.bytes):'素材没有变化'):null}),
+    dsh&&h(InlineField,{kind:'text',label:'版本',value:version,placeholder:'例如 1.0',disabled:!!work,live:true,onCommit:setVersion,className:'ap-dshcard-field'}),
     dsh&&h('input',{ref:baseFile,type:'file',accept:'.dshcard',hidden:true,tabIndex:-1,'aria-hidden':true,onChange:e=>{const file=e.target.files?.[0];e.target.value='';void addBaseFile(file);}}),
     dsh&&h(InlineField,{kind:'text',secret:true,label:'设置密码',help:h(Help,{text:'填写密码时会加密角色卡后导出，导入时要输这个密码，忘了就打不开。留空时放弃加密。',label:'设置密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-field ap-dshcard-password'}),
-    dsh&&picked.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
-      status:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议开启'):null}));
+    dsh&&picked.length>0&&h(InlineField,{kind:'menu',label:'压缩素材',help:h(Help,{text:DSHCARD_COMPRESS_HELP,label:'压缩素材 说明'}),value:compress?'on':'off',options:DSHCARD_COMPRESS_OPTIONS,disabled:!!work,onCommit:next=>setCompress(next==='on'),className:'ap-dshcard-field',
+      trail:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议压缩'):null}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
     dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+picked.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
       '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',

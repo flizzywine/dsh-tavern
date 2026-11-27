@@ -22,6 +22,9 @@ const skinFile = value => typeof value === 'string' && value.length <= 240 && /^
 // bundle images drawn as the textbox and on-stage buttons.
 // an image is a PNG / WebP or a static SVG (vector UI
 // art, sharp at any density; the pack checks its bytes as inert drawing - asset-library pack-v2/skin-svg.js).
+// a skin's performance page (assets named by the dsh.dice option performances): an HTML document the stage plays in a
+// sandboxed frame as it plays a card page performing (status-panel.cjs Performance), never trusted.
+const skinPage = value => typeof value === 'string' && value.length <= 240 && /^[a-z0-9/._-]+\.html$/.test(value) && !value.startsWith('/') && value.split('/').every(part => part && part !== '.' && part !== '..');
 const skinImage = value => typeof value === 'string' && value.length <= 240 && /^[a-z0-9/._-]+\.(png|webp|svg)$/.test(value) && !value.startsWith('/') && value.split('/').every(part => part && part !== '.' && part !== '..');
 const skinPx = skinNumber(-4096,4096);
 // One loading mark: a static image (spin / sway / pulse / none) or an equal-cell sheet played at fps.
@@ -517,7 +520,10 @@ const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
 // omitted = the shared title centred at the top of the game area.
 // clip false: no 导出片段 button beside the close (an original whose log has only its close); the export still starts from a row
 // (Shift-click, long press). Omitted = the button beside the drawn close.
-const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
+// latest false: no 跳到最新 control (an original whose log has none); the wheel and End still reach the end. Omitted = the control.
+// ground false: no panel ground round the sheet - a log card over the scene, the stage showing round it as through its clear parts.
+// Omitted = the panel ground fills the window round the sheet.
+const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,latest:value => value === false,ground:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
@@ -949,7 +955,7 @@ const STAGE_SKIN_DEVICE_KEYS = ['textbox','nameplate','font','textStyle','textFx
 const skinDevicePatch = skinObject(Object.fromEntries(STAGE_SKIN_DEVICE_KEYS.map(key => [key,value => value === null || typeof value === 'object' && !Array.isArray(value)])));
 const stageSkinShape = skinObject({
     schema:skinEnum(['dsh.skin/1']),id:skinId,label:skinText,
-    assets:skinMap(skinId,value => skinImage(value) || skinFile(value),64),mods:skinMap(skinModId,skinMod,64),
+    assets:skinMap(skinId,value => skinImage(value) || skinFile(value) || skinPage(value),64),mods:skinMap(skinModId,skinMod,64),
     ui:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onAccent:skinColor,border:skinColor,radius:skinNumber(0,40),textShadow:skinEnum(['none']),titleFont:skinId,veil:skinObject({color:skinColor,opacity:skinNumber(0,1)},['color','opacity']),texture:skinEnum(['halftone'])}),
     levels:value => value && typeof value === 'object' && !Array.isArray(value) && [1,2,3].includes(value.default) && Object.keys(value).every(key => ['1','2','3','default'].includes(key)),
     overlay:value => value && typeof value === 'object' && !Array.isArray(value),

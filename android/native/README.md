@@ -65,10 +65,12 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
   排除蜂窝网卡与公网 IP，展示带令牌链接并支持复制/分享/刷新地址）、后台运行设置、查看与分享日志、
   退出。默认服务就绪后直接进酒馆，在酒馆根页按返回键回到启动页；可关掉「打开应用后直接进入酒馆」。
   页底「高级」默认折叠，每次打开都收起：
-  - 「救援存档」：不用启动酒馆，直接停服后调用 `tavern-plugin/lib/rescue-export.mjs` 按 `dataRoot` 离线导出标准 `.dshtransfer` 备份包
-    （与酒馆内「导出」同源，不含 API key 与账号，可直接用酒馆「导入」恢复；局部文件损坏时跳过坏项并记录告警，尽量救出其余完好数据）。
-    Node 或源码损坏导致脚本跑不起来时，自动兜底用 Java 把 `files/t` 下所有非程序文件（`!isProgram`，跳过 `quarantine`、`tmp` 和静态缓存）
-    流式打成原始数据 `.zip`（含本机配置，弹窗提示妥善保管）。完成后通过系统 `ACTION_CREATE_DOCUMENT` 让用户选位置流式保存，
+  - 「救援存档」：不用启动酒馆，先只读调用 `tavern-plugin/lib/rescue-export.mjs --list` 扫描可导出目录，弹出与酒馆「导出」页一致的
+    分组/板块/逐项勾选界面（含「全部 / 设定与写法 / 清空」快捷选择与「含对话配图」开关，默认不带配图）。确认后停服并按选区
+    逐项流式写盘生成标准 `.dshtransfer`（同包带世界书/预设时不重复嵌入对话快照、已压缩条目直存、单包超限时直接提示分批导出；
+    局部损坏项跳过并记告警）。Node 或源码损坏导致脚本跑不起来时，自动兜底用 Java 把 `files/t` 下所有非程序文件（`!isProgram`，
+    跳过 `quarantine`、`tmp` 和静态缓存）流式打成原始数据 `.zip`（含本机配置，弹窗提示妥善保管）。完成后通过系统
+    `ACTION_CREATE_DOCUMENT` 让用户选位置流式保存，保存完成、关闭或丢弃后自动清理 `cache/rescue/` 释放空间；
     完整日志写进 `files/logs/rescue.log`（随「分享日志」一并带出），服务自动恢复导出前状态。
   - 「修复酒馆」（取代原来的「重置程序文件」）：停服 → 清掉 `src.next`、`update-backup`、`pnpm-store` →
     数据体检（`DataRepair.java`，跳过程序文件、`node_modules`、`backups`）→ 重新解出程序文件 → 启动并等就绪（最多 3 分钟）。

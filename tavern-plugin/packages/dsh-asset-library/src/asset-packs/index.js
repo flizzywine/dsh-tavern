@@ -1,4 +1,5 @@
 export * from './manifest.js'
+export { GEN_STYLE_USES, GEN_STYLE_LAYERS, NO_STYLE, FOLLOW_PLUGIN, PACK_BACKGROUND_STYLE, readGenStyle, writeGenStyle, resolveGenStyle, validateGenStyleValue, validateCarriedStyles } from './gen-style.js'
 export * from './keyword-hygiene.js' // explicit authoring gate
 export * from './figure.js'
 export * from './sprite.js'

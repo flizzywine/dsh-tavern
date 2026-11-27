@@ -49,8 +49,12 @@ export async function mountGallery(page, { items, imageUrl = null, pageSize = 10
           if (Number(stamp) !== state.stamp) throw Object.assign(new Error('CG gallery changed; reload'), { code: 'REVISION_CONFLICT' })
           start = Number(at)
         }
+        // the filter applies only while both kinds are listed (mixed); a 场景生图 cell is 自动生成 (scene), every other 卡自带.
+        const mixed = state.items.some(item => item.scene) && state.items.some(item => !item.scene), source = mixed ? args.source || 'all' : 'all'
+        const filtered = source === 'all' ? state.items : state.items.filter(item => !!item.scene === (source === 'scene'))
+        const listed = args.order === 'oldest' ? [...filtered].reverse().sort((a, b) => !a.unlocked - !b.unlocked) : filtered
         const end = start + pageSize
-        const result = { items: structuredClone(state.items.slice(start, end)), nextCursor: end < state.items.length ? `${state.stamp}:${end}` : null }
+        const result = { items: structuredClone(listed.slice(start, end)), nextCursor: end < listed.length ? `${state.stamp}:${end}` : null, mixed, source }
         if (!args.cursor && (stale === 'always' || stale === 'once' && !state.staled)) {
           state.staled = true; state.stamp++
           const n = state.items.length + 1

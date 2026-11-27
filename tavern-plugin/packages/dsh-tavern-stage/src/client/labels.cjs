@@ -3,6 +3,8 @@
 function stageTtsMessages() {
     return typeof ttsErrorMessage === 'function' ? {ttsErrorMessage} : require('../../../dsh-presentation-protocol/src/tts-messages.cjs');
 }
+// The resolver's answers for a voice the figure has not finished (dsh-tts sourceUnsetIssue): fixed on her 声音 page.
+const GAL_FIGURE_VOICE_CODES = new Set(["VOICE_UNSET", "MISSING_REFERENCE"]);
 function createStageLabels({React, Icon, document, getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame}) {
 // HUD change moments. One step per render for a top-left label
 // (place or track): the first value, a cleared label, a new session or a change outside live playback (history,
@@ -48,7 +50,8 @@ function GalHudLabels(props) {
 
 // Name plate of the text box: the name (classic: 【名字】 unless in film mode), the mood tag (other themes) and,
 // only when the line is voiced, a small replay button right after the name (V does the same).
-// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay() }.
+// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay(),
+// onOpenVoice() (opens this figure's 声音 page; absent when the stage cannot) }.
 // a name as [family lead, family rest, given lead, given rest] - the
 // given name is the longest of the figure's other names (aliases) that ends the name; without one the name is all family.
 function galNameParts(name, character) {
@@ -133,10 +136,14 @@ function GalNamePlate(props) {
         return () => { live = false; if (frame !== null) cancelAnimationFrame(frame); observer?.disconnect(); };
     }, [props.name, state]);
     // The player-facing sentence for the failure code (the 语音服务 message authority); a code without one stays generic.
-    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError) : null;
-    const label = state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
-    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
-        onClick: event => { event.stopPropagation(); props.onReplay(); },
+    // A voice not set up on the figure itself (GAL_FIGURE_VOICE_CODES) is no failure to retry: it says what to pick and the
+    // button opens her 声音 page.
+    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError, { name: props.name }) : null;
+    const unset = state === "error" && GAL_FIGURE_VOICE_CODES.has(props.voiceError), open = unset && props.onOpenVoice;
+    const label = unset ? (open ? reason.replace(/。$/, "") + "（点击打开）" : reason)
+        : state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
+    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" || open ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
+        onClick: event => { event.stopPropagation(); if (open) props.onOpenVoice(); else props.onReplay(); },
         // Enter / Space activate the focused button instead of turning the page (the stage listens on window).
         onKeyDown: event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); } }, state === "error" ? "⚠ 配音" : h("b", { className: "fork-gal-voice-glyph", "data-figure-ink": "4.5", "aria-hidden": true }, "\uE900")) : null;
     // The glyph stands right after the name, measured: centred on the name's ink and GAL_VOICE_GAP name em from it (galVoiceAlign).

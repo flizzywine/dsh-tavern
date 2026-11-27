@@ -1,6 +1,6 @@
 import type { JsonObject } from './index.js';
 export const FIGURE_ALGORITHM: 1;
-export const FIGURE_DISPLAY: Readonly<{ version: 6; FILL: 1.24; HEAD_TOP: 0.13; REF_MIN_CM: 150; curve: 'log-gap'; gapCap: 0.035; gapSlope: 0.45; tailSlope: 0.65; transitionMs: 1200; headLimit: 0.97 }>;
+export const FIGURE_DISPLAY: Readonly<{ version: 6; FILL: 1.24; HEAD_TOP: 0.13; REF_MIN_CM: 150; DEFAULT_HEIGHT_CM: 168; curve: 'log-gap'; gapCap: 0.035; gapSlope: 0.45; tailSlope: 0.65; transitionMs: 1200; headLimit: 0.97 }>;
 export type HeightBasis = 'standing' | 'seated';
 export interface FigureCharacter {
   heightCm?: number; heightBasis?: HeightBasis; heightNote?: string; placement?: { elevationCm: number };

@@ -36,12 +36,21 @@ function rebindPerformances(message, oldKey, newKey) {
 
 // Work on the renamed copy only. A failure/preview belongs to its round but never advances the record chain.
 export function rebindImportedStage(source, imported, reportSkip) {
+  return rebindStage(() => source, imported, reportSkip)
+}
+
+// sourceAt(index): the chat a round was directed in (its own text and the story before it), so rounds directed
+// before and after a rewrite of an earlier message can each be read against what they saw.
+// keepUnbound leaves a field that cannot be bound as it is instead of dropping it (a repair in place).
+// predecessorAt(index): the record digest a round's binding chained to when it was directed, when the rounds were
+// directed against different sources; by default the chain of the rounds already carried over.
+export function rebindStage(sourceAt, imported, reportSkip, { keepUnbound = false, predecessorAt = null } = {}) {
   let previousOld = null, previousNew = null
   imported.messages.forEach((message, index) => {
-    const original = source.messages[index]
+    const source = sourceAt(index), original = source.messages[index]
     if (![anchorField, recordField, failureField].some(field => original?.[field] != null)) return
     function skip(holder, field, label) {
-      delete holder[field]
+      if (!keepUnbound) delete holder[field]
       reportSkip(index, label)
     }
     let old, current
@@ -56,7 +65,8 @@ export function rebindImportedStage(source, imported, reportSkip) {
     }
     const rebind = binding => ({ ...binding, target: { ...binding.target, chatId: current.chatId, sessionId: current.sessionId,
       sourceKey: current.sourceKey, prefixDigest: current.prefixDigest, sourceDigest: current.sourceDigest, predecessorDigest: previousNew } })
-    const matches = target => target.sourceKey === old.sourceKey && target.predecessorDigest === previousOld
+    const expected = predecessorAt ? predecessorAt(index) : previousOld
+    const matches = target => target.sourceKey === old.sourceKey && target.predecessorDigest === expected
     const anchor = message[anchorField]
     if (anchor != null) {
       if (!anchor.sourceKey || !anchor.state || !anchor.digest) skip(message, anchorField, '舞台起点')

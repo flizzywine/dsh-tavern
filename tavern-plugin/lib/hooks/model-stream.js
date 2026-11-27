@@ -231,7 +231,8 @@ export function registerModelStreamHooks({
       const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
         'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
       ])
-      if (!pureWriting && !director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
+      const renderTemplate = !pureWriting || (!writingPreparation && Boolean(chat?.runtimePresetSnapshot))
+      if (renderTemplate && !director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
         const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
         yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
         return
