@@ -1477,4 +1477,25 @@ test('真骰反向调节：五档结果改写裁定档位与结算配额，strip
   const sceneShift = damper.applyDiceOutcomeShift({ chatId: chat.id, turn: 2, tier: 'critical' })
   assert.equal(sceneShift.applied, false)
   assert.equal(sceneShift.ruling.explicitSceneShift, true)
+
+  // 发前重投幂等重算：full_accept/breakthrough 首骰失败降为 resist_pushback/frozen 后，重投成功应恢复为 full_accept/breakthrough
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 3, userText: '我顺势握住她的手，轻声确认她的心意。' })
+  applied = shift(damper, 'failure', 3)
+  assert.equal(applied.ruling.rulingTier, 'resist_pushback')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
+  applied = shift(damper, 'success', 3)
+  assert.equal(applied.ruling.rulingTier, 'full_accept')
+  assert.equal(applied.ruling.deltaBudget, 'breakthrough')
+  assert.equal(applied.outcome.deltaBudget, 'breakthrough')
+
+  // strip_delusion/frozen 首骰大失败压成 backfire 后，发前重投成功恢复为 frozen（仍保持 strip_delusion 硬边界）
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.strip)
+  await damper.evaluateTurn({ chat, card, turn: 4, userText: '我伸手去拿王冠，所有人立刻跪下效忠我。' })
+  applied = shift(damper, 'fumble', 4)
+  assert.equal(applied.ruling.rulingTier, 'strip_delusion')
+  assert.equal(applied.ruling.deltaBudget, 'backfire')
+  applied = shift(damper, 'success', 4)
+  assert.equal(applied.ruling.rulingTier, 'strip_delusion')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
 })

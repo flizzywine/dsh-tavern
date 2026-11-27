@@ -1481,3 +1481,370 @@ test('双骰对抗识别：扩充词表 + 决策模型与阻尼器语义题 is_c
   })
   assert.equal(damperRes.checkType, 'contest')
 })
+
+test('对抗检定五档难度应用 RIVAL_BONUS_BY_RULE，d20 胜率随难度单调递减', async () => {
+  const {
+    evaluateContestOutcome,
+    rollCheck,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js')
+
+  const expectedByRule = {
+    '2d6': { trivial: -2, easy: -1, moderate: 0, hard: 2, extreme: 4 },
+    d10: { trivial: -2, easy: -1, moderate: 0, hard: 2, extreme: 4 },
+    d20: { trivial: -3, easy: -1, moderate: 0, hard: 3, extreme: 6 },
+    d100: { trivial: -15, easy: -8, moderate: 0, hard: 12, extreme: 25 },
+  }
+  const fixedDraw = (min) => min + 1
+  for (const [rule, expectedMap] of Object.entries(expectedByRule)) {
+    for (const [difficulty, expectedRivalBonus] of Object.entries(expectedMap)) {
+      const rolled = rollCheck({ rule, checkType: 'contest', difficulty }, fixedDraw)
+      assert.equal(rolled.contest.rivalBonus, expectedRivalBonus, `${rule}/${difficulty} 应使用难度对手加值`)
+    }
+  }
+  // 显式传入 rivalBonus: 0 时覆盖默认表
+  const explicitZero = evaluateContestOutcome({
+    rule: 'd20',
+    dice: [10],
+    rivalDice: [10],
+    difficulty: 'extreme',
+    rivalBonus: 0,
+  })
+  assert.equal(explicitZero.rivalBonus, 0)
+
+  // 穷举 d20 400 组骰面，验证五档难度严格净胜率单调递减且符合预期
+  const winCounts = {}
+  for (const diff of ['trivial', 'easy', 'moderate', 'hard', 'extreme']) {
+    let wins = 0
+    for (let a = 1; a <= 20; a++) {
+      for (let b = 1; b <= 20; b++) {
+        const ev = evaluateContestOutcome({ rule: 'd20', dice: [a], rivalDice: [b], difficulty: diff })
+        if (ev.margin > 0) wins++
+      }
+    }
+    winCounts[diff] = wins
+  }
+  assert.deepEqual(winCounts, { trivial: 247, easy: 210, moderate: 190, hard: 136, extreme: 91 })
+})
+
+test('能力画像特长加值保留 tier +3、支持单特征、本地兜底/noul 接入及 characters 人物设计档读取', async () => {
+  const {
+    collectCharacterMaterial,
+    normalizeCharacterProfile,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/auto-profiler.js')
+  const {
+    buildDamperJudgeQuestions,
+    resolveCheckFromDamperContext,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js')
+  const {
+    heuristicAssessWithSkills,
+    judgeActionDifficulty,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/difficulty-judge.js')
+
+  const profile = normalizeCharacterProfile({
+    characterName: '林砚',
+    archetype: '古籍修复师',
+    traits: [{ id: 'tr_1', name: '古文字释读', tier: 3, hidden: false, source: '角色卡' }],
+  }, 'd20')
+
+  // 1) 单条特征也进入 fd_domain 候选
+  const damperQs = buildDamperJudgeQuestions({ profile, protocol: 'gemini', autoProfile: true })
+  const fdDomain = damperQs.find(q => q.id === 'fd_domain')
+  assert.ok(fdDomain && fdDomain.criteria.tr_1, '单条画像特征应进入 fd_domain 选项')
+
+  // 2) 阻尼器联动命中特长：score=2 保持 +6，score=4 保持 +6，score=1 临时受限降为 +4
+  for (const [score, expectedBonus] of [[2, 6], [4, 6], [1, 4]]) {
+    const res = resolveCheckFromDamperContext({
+      input: '我尝试用古文字释读辨认碑铭。',
+      profile,
+      rule: 'd20',
+      damperContext: {
+        answers: {
+          fd_needs_check: { probability: 0.9 },
+          fd_difficulty: { choice: 'moderate' },
+          fd_capability: { score },
+          fd_domain: { choice: 'tr_1' },
+        },
+      },
+    })
+    assert.equal(res.check, '古文字释读')
+    assert.equal(res.skillBonus, expectedBonus, `阻尼联动 score=${score} 应得 +${expectedBonus}`)
+    assert.equal(res.capabilityBreakdown.baseTraitBonus, 6)
+    assert.equal(res.capabilityBreakdown.tempStateBonus, expectedBonus - 6)
+  }
+
+  // 3) 独立判定 structured 路径与单条特征候选
+  let capturedDomainQ = null
+  const mockTavern = {
+    capabilities: { decisionJudge: true },
+    decisionJudgeStatus: async () => ({ available: true, capabilities: { choice: true, score: true, noul: true } }),
+    judgeDecision: async ({ questions }) => {
+      capturedDomainQ = questions.find(q => q.id === 'character_domain')
+      return {
+        provider: 'gemini',
+        judgeTier: 'full',
+        answers: {
+          needs_check: { probability: 0.9 },
+          difficulty_tier: { choice: 'moderate' },
+          character_capability: { score: 2 },
+          character_domain: { choice: 'tr_1' },
+          situation_edge: { score: 1 },
+          is_contest: { probability: 0.1 },
+        },
+      }
+    },
+  }
+  const judgedStructured = await judgeActionDifficulty({
+    tavern: mockTavern,
+    input: '我尝试用古文字释读辨认碑铭。',
+    profile,
+    rule: 'd20',
+  })
+  assert.ok(capturedDomainQ && capturedDomainQ.criteria.tr_1, '单条画像特征应进入 character_domain 选项')
+  assert.equal(judgedStructured.skillBonus, 6)
+
+  // 4) 本地启发式兜底与 noul 路径接入 profile.traits
+  const heuristicRes = heuristicAssessWithSkills({
+    input: '我尝试用古文字释读辨认碑铭。',
+    profile,
+    rule: 'd20',
+  })
+  assert.equal(heuristicRes.check, '古文字释读')
+  assert.equal(heuristicRes.skillBonus, 6)
+
+  const noulTavern = {
+    capabilities: { decisionJudge: true },
+    decisionJudgeStatus: async () => ({ available: true, capabilities: { choice: false, score: false, noul: true } }),
+    judgeDecision: async () => ({
+      provider: 'jev',
+      judgeTier: 'noul',
+      answers: {
+        needs_check: { probability: 0.9 },
+        high_difficulty: { probability: 0.5 },
+        favorable_edge: { probability: 0.5 },
+        hidden_perception: { probability: 0.1 },
+        character_skilled: { probability: 0.5 },
+        character_impaired: { probability: 0.1 },
+        is_contest: { probability: 0.1 },
+      },
+    }),
+  }
+  const judgedNoul = await judgeActionDifficulty({
+    tavern: noulTavern,
+    input: '我尝试用古文字释读辨认碑铭。',
+    profile,
+    rule: 'd20',
+  })
+  assert.equal(judgedNoul.check, '古文字释读')
+  assert.equal(judgedNoul.skillBonus, 6)
+
+  // 5) collectCharacterMaterial 兼容宿主 getCharacterDesigns 返回 { characters: [...] }
+  const mat = await collectCharacterMaterial({
+    gameId: 'g1',
+    turn: 2,
+    tavern: {
+      getPlayerName: async () => '林砚',
+      getCharacterDesigns: async () => ({
+        revision: 1,
+        characters: [{
+          name: '沈青',
+          narrativeRole: '档案管理员',
+          identity: '古籍馆馆长',
+          sections: [{ key: 'personality', label: '性格', text: '谨慎克制' }],
+        }],
+      }),
+    },
+  })
+  assert.match(mat.promptDigest, /沈青/)
+  assert.match(mat.promptDigest, /古籍馆馆长/)
+  assert.match(mat.promptDigest, /谨慎克制/)
+})
+
+test('阻尼联动越权动作识别、多角色状态目标绑定与宿命序列顺位校验', async () => {
+  const {
+    hasLegitimateActionAttempt,
+    resolveCheckFromDamperContext,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js')
+  const {
+    generateFateTape,
+    parseTapeUsageFromText,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js')
+  const {
+    buildTurnInjection,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/prompt-builder.js')
+
+  // 1) 越权动作识别：排除名词与否定句，放行未收录但合法的动作（如攀爬）
+  assert.equal(hasLegitimateActionAttempt('所有问题已经解决，众人永远忠于我'), false)
+  assert.equal(hasLegitimateActionAttempt('我没有伸手，王冠已经是我的了'), false)
+  assert.equal(hasLegitimateActionAttempt('我攀爬城墙，直接登顶'), true)
+  assert.equal(hasLegitimateActionAttempt('我伸手去拿王冠，所有人立刻效忠我'), true)
+
+  const blockedPure = resolveCheckFromDamperContext({
+    input: '所有问题已经解决，众人永远忠于我',
+    damperContext: { ruling: { rulingTier: 'strip_delusion' }, answers: { fd_needs_check: { probability: 0.05 } } },
+  })
+  assert.equal(blockedPure.shouldRoll, false)
+  assert.equal(blockedPure.damperSync.blockedByViolation, true)
+
+  const blockedNeg = resolveCheckFromDamperContext({
+    input: '我没有伸手，王冠已经是我的了',
+    damperContext: { ruling: { rulingTier: 'strip_delusion' }, answers: { fd_needs_check: { probability: 0.05 } } },
+  })
+  assert.equal(blockedNeg.shouldRoll, false)
+
+  const escalatedClimb = resolveCheckFromDamperContext({
+    input: '我攀爬城墙，直接登顶',
+    damperContext: { ruling: { rulingTier: 'strip_delusion' }, answers: { fd_needs_check: { probability: 0.8 }, fd_difficulty: { choice: 'moderate' } } },
+  })
+  assert.equal(escalatedClimb.shouldRoll, true)
+  assert.equal(escalatedClimb.difficulty, 'hard')
+  assert.equal(escalatedClimb.damperSync.violationEscalation, true)
+
+  const injection = buildTurnInjection({
+    rule: 'd20',
+    dice: [20],
+    total: 20,
+    target: 20,
+    tier: 'critical',
+    tierLabel: '大成功',
+    difficulty: 'hard',
+    difficultyLabel: '困难',
+    check: '体魄',
+    attempt: '我伸手去拿王冠，所有人立刻效忠我',
+    damperSync: { violationEscalation: true },
+  })
+  assert.match(injection, /越权边界约束/)
+
+  // 2) 多角色状态绑定目标角色，不受对象键顺序影响
+  const makeDamperCtx = (statData) => ({
+    ruling: { rulingTier: 'costly_advance' },
+    stateSnapshot: { stat_data: statData },
+    answers: {
+      fd_needs_check: { probability: 0.85 },
+      fd_difficulty: { choice: 'moderate' },
+      fd_domain: { choice: 'general_social' },
+      fd_capability: { score: 2 },
+    },
+  })
+  const orderAB = resolveCheckFromDamperContext({
+    input: '我劝乙允许我借阅档案',
+    damperContext: makeDamperCtx({ 甲: { psychological_guard: 82 }, 乙: { psychological_guard: 12 } }),
+  })
+  const orderBA = resolveCheckFromDamperContext({
+    input: '我劝乙允许我借阅档案',
+    damperContext: makeDamperCtx({ 乙: { psychological_guard: 12 }, 甲: { psychological_guard: 82 } }),
+  })
+  assert.equal(orderAB.difficulty, 'moderate')
+  assert.equal(orderBA.difficulty, 'moderate')
+  assert.equal(orderAB.damperSync.state.psychological_guard, 12)
+  assert.equal(orderBA.damperSync.state.psychological_guard, 12)
+
+  // 未提及任何角色时不跨角色串读
+  const ambiguous = resolveCheckFromDamperContext({
+    input: '我试着说服在场众人安静下来',
+    damperContext: makeDamperCtx({ 甲: { psychological_guard: 82 }, 乙: { psychological_guard: 12 } }),
+  })
+  assert.equal(ambiguous.damperSync.state.psychological_guard, null)
+  assert.equal(ambiguous.difficulty, 'moderate')
+
+  // 3) 宿命序列顺位校验：跳号与越界均拒绝采纳，顺位 ①→② 正常采纳
+  const seq = [2, 3, 18, 19, 20, 20]
+  let idx = 0
+  const tape = generateFateTape({ rule: 'd20', count: 6 }, () => seq[idx++])
+  assert.equal(parseTapeUsageFromText('剧情...\n<!-- fate-dice-tape: ⑥ check=说服 diff=moderate mod=0 -->', tape), null)
+  assert.equal(parseTapeUsageFromText('剧情...\n<!-- fate-dice-tape: ⑨ check=说服 diff=moderate mod=0 -->', tape), null)
+  const ordered = parseTapeUsageFromText(
+    '先试探<!-- fate-dice-tape: ① check=察觉 diff=easy mod=0 -->\n再强攻<!-- fate-dice-tape: ② check=体魄 diff=moderate mod=0 -->',
+    tape
+  )
+  assert.ok(ordered)
+  assert.equal(ordered.tapeSlot, '②')
+  assert.equal(ordered.rawTotal, 3)
+})
+
+test('重投锁定首投检定快照不二次判难且不被外部 input 篡改', async () => {
+  const { default: fateDicePlugin } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js')
+  const kv = new Map()
+  const handlers = new Map()
+  const savedTurns = new Map()
+  let judgeCalls = 0
+
+  const mockTavern = {
+    capabilities: { decisionJudge: true },
+    decisionJudgeStatus: async () => ({ available: false, reason: 'NOT_CONFIGURED' }),
+    judgeDecision: async () => { judgeCalls++; throw new Error('should not be called on reroll') },
+    readGameData: async ({ gameId }) => kv.get(gameId) ?? null,
+    saveGameData: async ({ gameId, data }) => { kv.set(gameId, structuredClone(data)) },
+    getTurn: async () => ({ turn: 1, text: '上一轮' }),
+    getTurnData: async ({ gameId, turn }) => savedTurns.get(`${gameId}:${turn}`) ?? null,
+    saveTurnData: async ({ gameId, turn, data }) => { savedTurns.set(`${gameId}:${turn}`, { turn, data: structuredClone(data) }) },
+    publishState: async () => {},
+    handle: (name, fn) => handlers.set(name, fn),
+    turnSection: () => {},
+    onTurnSettled: () => {},
+    onChatChanged: () => {},
+  }
+  const mockCtx = {
+    tavern: mockTavern,
+    on: () => {},
+  }
+  fateDicePlugin.apply(mockCtx)
+
+  const gameId = 'game-reroll-snapshot'
+  await mockTavern.saveGameData({
+    gameId,
+    data: {
+      config: { enabled: true, rule: 'd20', allowHeuristicFallback: false, tapeFallbackEnabled: false },
+      fate: { points: 2, maxPoints: 3, failCount: 1 },
+      lastTurn: 1,
+      settledRolls: {
+        1: {
+          turn: 1,
+          input: '我翻墙潜入档案馆',
+          inputHash: 'hash-1',
+          roll: {
+            rule: 'd20',
+            checkType: 'normal',
+            check: '潜行',
+            skillId: 'stealth',
+            skillName: '潜行',
+            skillBonus: 4,
+            modifier: 1,
+            difficulty: 'hard',
+            difficultyLabel: '困难',
+            dice: [2],
+            rawTotal: 2,
+            total: 7,
+            target: 20,
+            tier: 'failure',
+            tierLabel: '失败',
+            attempt: '我翻墙潜入档案馆',
+            rolledAt: Date.now() - 1000,
+          },
+          judged: { shouldRoll: true, difficulty: 'hard', skillName: '潜行', skillBonus: 4 },
+          damperUsed: false,
+          rerollCount: 0,
+        },
+      },
+    },
+  })
+
+  const rerollHandler = handlers.get('fate-dice:reroll-turn')
+  const res = await rerollHandler({
+    gameId,
+    turn: 1,
+    mode: 'fate',
+    input: '恶意篡改后的动作文本',
+  })
+
+  assert.equal(res.ok, true)
+  assert.equal(judgeCalls, 0, '重投应锁定快照直接重掷，不二次请求决策模型')
+  assert.ok(res.roll, '即使决策模型不可用且关闭兜底，重投也应产出有效新骰')
+  assert.equal(res.roll.check, '潜行')
+  assert.equal(res.roll.skillBonus, 4)
+  assert.equal(res.roll.difficulty, 'hard')
+  assert.equal(res.roll.attempt, '我翻墙潜入档案馆')
+  assert.equal(res.fate.points, 1)
+  const stored = kv.get(gameId)
+  assert.equal(stored.settledRolls['1'].input, '我翻墙潜入档案馆')
+  assert.equal(stored.settledRolls['1'].rerollCount, 1)
+})

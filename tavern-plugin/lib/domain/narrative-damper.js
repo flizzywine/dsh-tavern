@@ -1753,12 +1753,23 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       if (!DAMPER_DICE_TIERS.includes(tier)) {
         throw error('DAMPER_INVALID_INPUT', 'tier 必须为 critical/success/costly/failure/fumble 之一')
       }
-      // 防吃书硬边界：越权剥离绝不能被真骰抬成成功；只有非写作模式的大失败能把冻结配额压成反弹
-      if (entry.ruling.rulingTier === 'strip_delusion') {
-        if (tier === 'fumble' && entry.ruling.judgeMode !== 'author' && entry.ruling.deltaBudget === 'frozen') {
-          entry.ruling.deltaBudget = 'backfire'
-          entry.outcome = { ...(entry.outcome || {}), deltaBudget: 'backfire' }
+      // 保留未受骰子改写前的原始阻尼裁定，保证发前重投等多次同步呈幂等重算而非累加降档
+      if (!entry.baseRulingBeforeDice) {
+        entry.baseRulingBeforeDice = {
+          rulingTier: str(entry.ruling.rulingTier),
+          deltaBudget: str(entry.ruling.deltaBudget)
         }
+      }
+      const baseRulingTier = entry.baseRulingBeforeDice.rulingTier
+      const baseDeltaBudget = entry.baseRulingBeforeDice.deltaBudget
+      // 防吃书硬边界：越权剥离绝不能被真骰抬成成功；只有非写作模式的大失败能把冻结配额压成反弹
+      if (baseRulingTier === 'strip_delusion') {
+        const nextBudget = (tier === 'fumble' && entry.ruling.judgeMode !== 'author' && baseDeltaBudget === 'frozen')
+          ? 'backfire'
+          : baseDeltaBudget
+        entry.ruling.rulingTier = baseRulingTier
+        entry.ruling.deltaBudget = nextBudget
+        entry.outcome = { ...(entry.outcome || {}), rulingTier: baseRulingTier, deltaBudget: nextBudget }
         return {
           applied: false,
           blockedByViolation: true,
@@ -1766,28 +1777,30 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           outcome: entry.outcome ? structuredClone(entry.outcome) : null
         }
       }
-      const prevRulingTier = str(entry.ruling.rulingTier)
-      const prevDeltaBudget = str(entry.ruling.deltaBudget)
-      const tierOf = prevRulingTier
-      const budgetOf = prevDeltaBudget
+      const prevRulingTier = baseRulingTier
+      const prevDeltaBudget = baseDeltaBudget
+      let nextRulingTier = baseRulingTier
+      let nextDeltaBudget = baseDeltaBudget
       if (tier === 'critical') {
-        if (tierOf === 'resist_pushback') entry.ruling.rulingTier = 'conflicted_half_step'
-        else if (tierOf === 'costly_advance' || tierOf === 'conflicted_half_step') entry.ruling.rulingTier = 'full_accept'
-        if (budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
-        else if (budgetOf === 'micro_step') entry.ruling.deltaBudget = 'breakthrough'
+        if (baseRulingTier === 'resist_pushback') nextRulingTier = 'conflicted_half_step'
+        else if (baseRulingTier === 'costly_advance' || baseRulingTier === 'conflicted_half_step') nextRulingTier = 'full_accept'
+        if (baseDeltaBudget === 'frozen' || baseDeltaBudget === 'backfire') nextDeltaBudget = 'micro_step'
+        else if (baseDeltaBudget === 'micro_step') nextDeltaBudget = 'breakthrough'
       } else if (tier === 'success') {
-        if (tierOf === 'resist_pushback') entry.ruling.rulingTier = 'costly_advance'
-        if (budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
+        if (baseRulingTier === 'resist_pushback') nextRulingTier = 'costly_advance'
+        if (baseDeltaBudget === 'frozen' || baseDeltaBudget === 'backfire') nextDeltaBudget = 'micro_step'
       } else if (tier === 'costly') {
-        if (tierOf === 'full_accept' || tierOf === 'resist_pushback') entry.ruling.rulingTier = 'costly_advance'
-        if (budgetOf === 'breakthrough' || budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
+        if (baseRulingTier === 'full_accept' || baseRulingTier === 'resist_pushback') nextRulingTier = 'costly_advance'
+        if (baseDeltaBudget === 'breakthrough' || baseDeltaBudget === 'frozen' || baseDeltaBudget === 'backfire') nextDeltaBudget = 'micro_step'
       } else if (tier === 'failure') {
-        if (tierOf === 'full_accept' || tierOf === 'conflicted_half_step' || tierOf === 'costly_advance') entry.ruling.rulingTier = 'resist_pushback'
-        entry.ruling.deltaBudget = 'frozen'
+        if (baseRulingTier === 'full_accept' || baseRulingTier === 'conflicted_half_step' || baseRulingTier === 'costly_advance') nextRulingTier = 'resist_pushback'
+        nextDeltaBudget = 'frozen'
       } else {
-        entry.ruling.rulingTier = 'resist_pushback'
-        entry.ruling.deltaBudget = entry.ruling.judgeMode === 'author' ? 'frozen' : 'backfire'
+        nextRulingTier = 'resist_pushback'
+        nextDeltaBudget = entry.ruling.judgeMode === 'author' ? 'frozen' : 'backfire'
       }
+      entry.ruling.rulingTier = nextRulingTier
+      entry.ruling.deltaBudget = nextDeltaBudget
       entry.ruling.diceShift = {
         owner: str(owner),
         tier,

@@ -122,6 +122,9 @@ export function buildTurnInjection(payload) {
   if (roll.hidden) {
     lines.push('- 暗骰约束：本次为暗骰。受控角色自身并不知晓具体骰点与成败裁定，正文只能描写角色主观能感知到的表象或误判，不得提前揭露尚未被发现的真相。')
   }
+  if (roll.damperSync?.violationEscalation) {
+    lines.push('- 越权边界约束：本轮玩家输入包含越权预设的结果或他人反应；本次检定仅裁定受控角色发起的动作尝试本身，输入中越权预设的他人态度、结果或既成事实仍不予采信。')
+  }
   if (roll.attempt) lines.push(`- 判定动作：${roll.attempt}`)
   return lines.join('\n')
 }

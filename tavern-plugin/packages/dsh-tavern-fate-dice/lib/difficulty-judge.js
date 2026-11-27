@@ -9,7 +9,9 @@ import {
   capabilityScoreToTier,
   findMatchingSkill,
   probabilitiesToTier,
+  profileTraitsToSkills,
   resolveDomainChoice,
+  resolveEffectiveCapability,
   tierToRuleBonus
 } from './auto-profiler.js'
 
@@ -102,7 +104,7 @@ function profileTraitList(profile) {
 function buildDomainQuestion(profile, skills) {
   const traits = profileTraitList(profile)
   const skillList = (Array.isArray(skills) ? skills : []).filter(item => item && item.name).slice(0, 24)
-  if (traits.length >= 2) {
+  if (traits.length >= 1) {
     const criteria = {}
     for (const trait of traits) {
       const sign = Number(trait.tier) >= 0 ? '+' : ''
@@ -143,33 +145,64 @@ function buildCapabilityQuestion() {
   }
 }
 
-function pickSkillForInput(input, skills) {
+function pickSkillForInput(input, skills, profile = null, rule = '2d6') {
   const text = String(input || '')
-  const list = Array.isArray(skills) ? skills.filter(item => item && item.name) : []
+  const traitSkills = profileTraitsToSkills(profile, rule)
+  const extraSkills = Array.isArray(skills) ? skills.filter(item => item && item.name) : []
+  const list = [...traitSkills, ...extraSkills]
   if (!list.length) return null
   const named = list
     .filter(item => text.includes(String(item.name)))
-    .sort((a, b) => String(b.name).length - String(a.name).length)
+    .sort((a, b) => (String(b.name).length - String(a.name).length) || (Number(Boolean(b.fromProfile)) - Number(Boolean(a.fromProfile))))
   if (named.length) return named[0]
   const hit = HEURISTIC_RULES.find(item => item.pattern.test(text))
   if (hit) {
     const sameCategory = list.filter(item => item.category === hit.key)
-    if (sameCategory.length) return sameCategory.find(item => !item.hidden) || sameCategory[0]
+    if (sameCategory.length) {
+      const profileHit = sameCategory.find(item => item.fromProfile)
+      return profileHit || sameCategory.find(item => !item.hidden) || sameCategory[0]
+    }
   }
   return null
 }
 
-function assess(input, sensitivity, allowHidden, skills) {
+function assess(input, sensitivity, allowHidden, skills, profile = null, rule = '2d6') {
   const text = String(input || '').trim()
   const threshold = SENSITIVITY_THRESHOLDS[sensitivity] ?? SENSITIVITY_THRESHOLDS.normal
-  const matchedSkill = pickSkillForInput(text, skills)
+  const matchedSkill = pickSkillForInput(text, skills, profile, rule)
+  const matchedProfileDomain = matchedSkill?.fromProfile
+    ? {
+        kind: 'trait',
+        trait: matchedSkill.trait,
+        name: matchedSkill.name,
+        tier: matchedSkill.tier,
+        category: matchedSkill.category,
+        hidden: Boolean(matchedSkill.hidden)
+      }
+    : null
+  const effectiveCap = resolveEffectiveCapability({
+    profileDomain: matchedProfileDomain,
+    capability: null,
+    fallbackSkillBonus: Number(matchedSkill?.bonus) || 0,
+    rule
+  })
   if (!text || text.length < 3) {
     return {
       shouldRoll: false,
       check: matchedSkill?.name || '行动',
       skillId: matchedSkill?.id || 'general',
       skillName: matchedSkill?.name || '行动',
-      skillBonus: Number(matchedSkill?.bonus) || 0,
+      skillBonus: effectiveCap.bonus,
+      capabilityTier: effectiveCap.tier,
+      capabilitySource: effectiveCap.source,
+      capabilityBreakdown: {
+        baseTraitTier: effectiveCap.baseTraitTier,
+        baseTraitBonus: effectiveCap.baseTraitBonus,
+        tempStateBonus: effectiveCap.tempStateBonus
+      },
+      profileDomain: matchedProfileDomain
+        ? { kind: 'trait', name: matchedProfileDomain.name, tier: matchedProfileDomain.tier, category: matchedProfileDomain.category }
+        : null,
       category: matchedSkill?.category || 'physical',
       difficulty: 'moderate',
       difficultyLabel: DIFFICULTY_LABELS.moderate,
@@ -182,7 +215,7 @@ function assess(input, sensitivity, allowHidden, skills) {
     }
   }
   const hit = HEURISTIC_RULES.find(item => item.pattern.test(text))
-  const hasActionVerb = Boolean(hit) || /[！!]|尝试|试着|打算|偷偷|硬生生|强行/.test(text)
+  const hasActionVerb = Boolean(hit) || Boolean(matchedSkill?.fromProfile && text.includes(matchedSkill.name)) || /[！!]|尝试|试着|打算|偷偷|硬生生|强行/.test(text)
   const category = matchedSkill?.category || hit?.key || 'physical'
   const meta = CATEGORY_META[category] || CATEGORY_META.physical
   const check = matchedSkill?.name || meta.label
@@ -190,7 +223,17 @@ function assess(input, sensitivity, allowHidden, skills) {
     check,
     skillId: matchedSkill?.id || 'general',
     skillName: check,
-    skillBonus: Number(matchedSkill?.bonus) || 0,
+    skillBonus: effectiveCap.bonus,
+    capabilityTier: effectiveCap.tier,
+    capabilitySource: effectiveCap.source,
+    capabilityBreakdown: {
+      baseTraitTier: effectiveCap.baseTraitTier,
+      baseTraitBonus: effectiveCap.baseTraitBonus,
+      tempStateBonus: effectiveCap.tempStateBonus
+    },
+    profileDomain: matchedProfileDomain
+      ? { kind: 'trait', name: matchedProfileDomain.name, tier: matchedProfileDomain.tier, category: matchedProfileDomain.category }
+      : null,
     category,
     difficultyLabel: DIFFICULTY_LABELS.moderate,
     edgeBonus: 0,
@@ -238,17 +281,19 @@ export function heuristicAssess({ input, sensitivity = 'normal', allowHidden = t
   return assess(input, sensitivity, allowHidden, [])
 }
 
-/** 带当前局技能表的启发式评估：支持对象参数或位置参数调用。 */
-export function heuristicAssessWithSkills(inputOrOpts, skills = [], sensitivity = 'normal', allowHidden = true) {
+/** 带当前局技能表/能力画像的启发式评估：支持对象参数或位置参数调用。 */
+export function heuristicAssessWithSkills(inputOrOpts, skills = [], sensitivity = 'normal', allowHidden = true, profile = null, rule = '2d6') {
   if (inputOrOpts && typeof inputOrOpts === 'object' && !Array.isArray(inputOrOpts)) {
     return assess(
       inputOrOpts.input,
       inputOrOpts.sensitivity ?? 'normal',
       inputOrOpts.allowHidden !== false,
-      inputOrOpts.skills ?? []
+      inputOrOpts.skills ?? [],
+      inputOrOpts.profile ?? null,
+      inputOrOpts.rule ?? '2d6'
     )
   }
-  return assess(inputOrOpts, sensitivity, allowHidden, skills)
+  return assess(inputOrOpts, sensitivity, allowHidden, skills, profile, rule)
 }
 
 function buildSkillChoiceQuestion(skills) {
@@ -285,7 +330,7 @@ export async function judgeActionDifficulty({
 } = {}) {
   const threshold = SENSITIVITY_THRESHOLDS[sensitivity] ?? SENSITIVITY_THRESHOLDS.normal
   const material = buildJudgeMaterial({ input, recentContext, characterMaterial })
-  const fallback = () => heuristicAssessWithSkills(input, skills, sensitivity, allowHidden)
+  const fallback = () => heuristicAssessWithSkills(input, skills, sensitivity, allowHidden, profile, rule)
   const skillList = Array.isArray(skills) ? skills.filter(item => item && item.name) : []
 
   if (!tavern?.capabilities?.decisionJudge || typeof tavern.decisionJudgeStatus !== 'function' || typeof tavern.judgeDecision !== 'function') {
@@ -359,7 +404,6 @@ export async function judgeActionDifficulty({
         matched = findMatchingSkill(skillList, ans.check_skill?.choice)
         if (matched.id === 'general') matched = null
       }
-      // 能力修正 100% 由 AI 依据人设/世界书/MVU/正文推演
       const rawCapabilityScore = ans.character_capability?.score ?? ans.character_capability?.value
       const capabilityScore = Number(rawCapabilityScore)
       const hasCapability = Number.isFinite(capabilityScore)
@@ -369,6 +413,12 @@ export async function judgeActionDifficulty({
         profileTraitList(profile).length ? profile : null,
         ans.character_domain?.choice || ans.check_skill?.choice || ans.check_category?.choice
       )
+      const effectiveCap = resolveEffectiveCapability({
+        profileDomain: domain,
+        capability: hasCapability ? { tier: capabilityTier, bonus: capabilityBonus, source: 'score' } : null,
+        fallbackSkillBonus: Number(matched?.bonus) || 0,
+        rule
+      })
       const catKey = Object.hasOwn(CATEGORY_META, ans.check_category?.choice) ? ans.check_category.choice : 'physical'
       const meta = CATEGORY_META[catKey]
       const edgeBonus = scoreToEdgeBonus(ans.situation_edge?.score)
@@ -393,9 +443,15 @@ export async function judgeActionDifficulty({
           ? String(domain.trait.id)
           : (domain?.kind === 'domain' ? String(domain.name) : (matched?.id || 'general')),
         skillName: check,
-        skillBonus: Number.isFinite(capabilityBonus) ? capabilityBonus : (Number(matched?.bonus) || 0),
-        capabilityTier: hasCapability ? capabilityTier : null,
+        skillBonus: effectiveCap.bonus,
+        capabilityTier: effectiveCap.tier,
         capabilityScore: hasCapability ? capabilityScore : null,
+        capabilitySource: effectiveCap.source,
+        capabilityBreakdown: {
+          baseTraitTier: effectiveCap.baseTraitTier,
+          baseTraitBonus: effectiveCap.baseTraitBonus,
+          tempStateBonus: effectiveCap.tempStateBonus
+        },
         profileDomain: domain
           ? { kind: domain.kind, name: domain.name, tier: domain.tier, category: domain.category }
           : null,
@@ -477,7 +533,16 @@ export async function judgeActionDifficulty({
 
     const edgeBonus = edgeProb >= 0.72 ? 1 : (edgeProb <= 0.28 ? -1 : 0)
     const isHidden = Boolean(allowHidden && hiddenProb >= 0.65)
-    const guessed = pickSkillForInput(String(input || ''), skillList)
+    const guessed = pickSkillForInput(String(input || ''), skillList, profile, rule)
+    const guessedDomain = guessed?.fromProfile
+      ? { kind: 'trait', trait: guessed.trait, name: guessed.name, tier: guessed.tier, category: guessed.category, hidden: Boolean(guessed.hidden) }
+      : null
+    const effectiveCap = resolveEffectiveCapability({
+      profileDomain: guessedDomain,
+      capability: { tier: capabilityTier, bonus: capabilityBonus, source: 'noul' },
+      fallbackSkillBonus: Number(guessed?.bonus) || 0,
+      rule
+    })
     const check = guessed?.name || (isHidden ? '察觉' : '行动')
     const category = guessed?.category || (isHidden ? 'insight' : 'physical')
     const finalHidden = Boolean(isHidden || (allowHidden && guessed?.hidden))
@@ -496,10 +561,18 @@ export async function judgeActionDifficulty({
       resistanceFactors,
       skillId: guessed?.id || 'general',
       skillName: check,
-      skillBonus: capabilityBonus,
-      capabilityTier,
+      skillBonus: effectiveCap.bonus,
+      capabilityTier: effectiveCap.tier,
       capabilityScore: null,
-      profileDomain: null,
+      capabilitySource: effectiveCap.source,
+      capabilityBreakdown: {
+        baseTraitTier: effectiveCap.baseTraitTier,
+        baseTraitBonus: effectiveCap.baseTraitBonus,
+        tempStateBonus: effectiveCap.tempStateBonus
+      },
+      profileDomain: guessedDomain
+        ? { kind: 'trait', name: guessedDomain.name, tier: guessedDomain.tier, category: guessedDomain.category }
+        : null,
       category,
       difficulty,
       difficultyLabel: DIFFICULTY_LABELS[difficulty],

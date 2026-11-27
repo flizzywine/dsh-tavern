@@ -182,15 +182,19 @@ function readDesigns(designs) {
   const list = Array.isArray(designs)
     ? designs
     : (designs && typeof designs === 'object'
-      ? (Array.isArray(designs.designs) ? designs.designs : (Array.isArray(designs.items) ? designs.items : []))
+      ? (Array.isArray(designs.characters)
+        ? designs.characters
+        : (Array.isArray(designs.designs) ? designs.designs : (Array.isArray(designs.items) ? designs.items : [])))
       : [])
   const parts = []
   for (const item of list.slice(0, 6)) {
     if (!item || typeof item !== 'object') continue
+    const sections = Array.isArray(item.sections) ? item.sections : []
+    const sectionText = key => sections.find(s => s && s.key === key)?.text || ''
     const name = clip(item.name || item.characterName || item.title || '', 24)
     const role = clip(item.narrativeRole || item.role || '', 40)
-    const identity = clip(item.identity || '', 90)
-    const personality = clip(item.personality || '', 90)
+    const identity = clip(item.identity || sectionText('identity') || '', 90)
+    const personality = clip(item.personality || sectionText('personality') || '', 90)
     const line = [name && `【${name}】`, role && `定位:${role}`, identity && `身份:${identity}`, personality && `性格:${personality}`]
       .filter(Boolean)
       .join(' ')
@@ -555,6 +559,83 @@ export function probabilitiesToTier({ skilled = 0, impaired = 0 } = {}) {
   if (i >= 0.65) return i >= 0.86 ? -2 : -1
   if (s >= 0.68) return s >= 0.86 ? 2 : 1
   return 0
+}
+
+/** 将画像特征转为可供本地兜底与 noul 路径检索的标准技能项。 */
+export function profileTraitsToSkills(profile, rule = '2d6') {
+  const traits = (Array.isArray(profile?.traits) ? profile.traits : []).filter(item => item && item.name)
+  return traits.map((trait, idx) => {
+    const tier = clamp(TIER_MIN, TIER_MAX, toInt(trait.tier, 0))
+    return {
+      id: String(trait.id || `tr_${idx + 1}`),
+      name: String(trait.name),
+      category: categoryFromTraitName(trait.name),
+      hidden: Boolean(trait.hidden),
+      tier,
+      bonus: tierToRuleBonus(tier, rule),
+      fromProfile: true,
+      trait
+    }
+  })
+}
+
+/**
+ * 融合「命中画像特征的基础档位」与「当轮临时能力评分」：
+ * - 命中画像特征时以 trait.tier（保留 -3..+3 完整范围）作为锚点基础；
+ * - 当轮评分仅作临时状态修正：正常(0)保持特征基准、受限(<0)下调、充沛(>0)同向取高不双倍叠加；
+ * - 未命中具体画像特征时，沿用当轮能力评分或回退技能加值。
+ */
+export function resolveEffectiveCapability({
+  profileDomain = null,
+  capability = null,
+  fallbackSkillBonus = 0,
+  rule = '2d6'
+} = {}) {
+  if (profileDomain?.kind === 'trait') {
+    const baseTier = clamp(TIER_MIN, TIER_MAX, toInt(profileDomain.tier, 0))
+    const baseBonus = tierToRuleBonus(baseTier, rule)
+    let effectiveTier = baseTier
+    let source = 'profile-trait'
+    if (capability && Number.isFinite(Number(capability.tier))) {
+      const capTier = clamp(-2, 2, toInt(capability.tier, 0))
+      if (capTier < 0) {
+        effectiveTier = baseTier < 0
+          ? Math.min(baseTier, capTier)
+          : clamp(TIER_MIN, TIER_MAX, baseTier + capTier)
+      } else if (capTier > 0) {
+        effectiveTier = Math.max(baseTier, capTier)
+      }
+      source = capability.source ? `trait+${capability.source}` : 'profile-trait'
+    }
+    const bonus = tierToRuleBonus(effectiveTier, rule)
+    return {
+      tier: effectiveTier,
+      bonus,
+      baseTraitTier: baseTier,
+      baseTraitBonus: baseBonus,
+      tempStateBonus: bonus - baseBonus,
+      source
+    }
+  }
+  if (capability && Number.isFinite(Number(capability.bonus))) {
+    return {
+      tier: Number.isFinite(Number(capability.tier)) ? toInt(capability.tier, 0) : null,
+      bonus: Number(capability.bonus),
+      baseTraitTier: null,
+      baseTraitBonus: 0,
+      tempStateBonus: Number(capability.bonus),
+      source: capability.source || 'score'
+    }
+  }
+  const fallback = Number(fallbackSkillBonus) || 0
+  return {
+    tier: null,
+    bonus: fallback,
+    baseTraitTier: null,
+    baseTraitBonus: 0,
+    tempStateBonus: 0,
+    source: 'skill-fallback'
+  }
 }
 
 /**

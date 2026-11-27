@@ -243,7 +243,8 @@ export function evaluateContestOutcome({
   const rivalRaw = rivalFaces.reduce((s, n) => s + n, 0)
   const skill = clampSkillBonus(skillBonus, activeRule)
   const mod = clampModifier(modifier)
-  const rBonus = Number.isFinite(Number(rivalBonus))
+  const hasExplicitRivalBonus = rivalBonus !== null && rivalBonus !== undefined && rivalBonus !== ''
+  const rBonus = hasExplicitRivalBonus && Number.isFinite(Number(rivalBonus))
     ? Math.trunc(Number(rivalBonus))
     : (RIVAL_BONUS_BY_RULE[activeRule][tierDifficulty] ?? 0)
 
@@ -469,18 +470,28 @@ export function generateFateTape({ rule = '2d6', count = 6 } = {}, draw = random
   }
 }
 
-/** 从模型输出正文中提取宿命序列使用标记，并换算为标准 roll 结果供胶囊登记。 */
+/** 从模型输出正文中提取宿命序列使用标记，严格校验从 ① 开始顺位连续取用，并换算为标准 roll 结果供胶囊登记。 */
 export function parseTapeUsageFromText(text, tape) {
   const raw = String(text || '')
   if (!raw || !tape || !Array.isArray(tape.slots) || !tape.slots.length) return null
   const matches = [...raw.matchAll(/<!--\s*fate-dice-tape:\s*([^>]+?)\s*-->/gi)]
   if (!matches.length) return null
-  const lastBody = matches.at(-1)[1]
-  const slotMatch = /([①②③④⑤⑥⑦⑧]|\d+)/.exec(lastBody)
-  if (!slotMatch) return null
-  const token = slotMatch[1]
-  const slot = tape.slots.find(s => s.symbol === token || String(s.index) === token) || tape.slots[0]
-  if (!slot) return null
+
+  let expectedIndex = 1
+  let lastValid = null
+  for (const match of matches) {
+    const body = String(match[1] || '')
+    const slotMatch = /([①②③④⑤⑥⑦⑧]|\d+)/.exec(body)
+    if (!slotMatch) break
+    const token = slotMatch[1]
+    const slot = tape.slots.find(s => s.symbol === token || String(s.index) === token)
+    if (!slot || slot.index !== expectedIndex) break
+    lastValid = { slot, body }
+    expectedIndex += 1
+  }
+  if (!lastValid) return null
+
+  const { slot, body: lastBody } = lastValid
   const checkMatch = /check=([^|;,\s]+)/i.exec(lastBody)
   const diffMatch = /diff=(trivial|easy|moderate|hard|extreme)/i.exec(lastBody)
   const modMatch = /mod=(-?\d+)/i.exec(lastBody)

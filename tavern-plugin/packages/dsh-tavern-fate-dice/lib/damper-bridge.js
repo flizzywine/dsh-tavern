@@ -16,6 +16,7 @@ import {
   findMatchingSkill,
   probabilitiesToTier,
   resolveDomainChoice,
+  resolveEffectiveCapability,
   tierToRuleBonus
 } from './auto-profiler.js'
 
@@ -35,8 +36,23 @@ const DIFFICULTY_CRITERIA = Object.freeze({
   extreme: '极难：以弱胜强、几乎违背常理或严密防线下的冒险一搏'
 })
 
-const ACTION_ATTEMPT_CUE = /尝试|试图|伸手|举起|抬|挥|冲|扑|奔|走|跑|摸|掏|拔|推|拉|踢|喊|低声|开口|靠近|转身|拔腿|按下|启动|施法|凝聚|瞄准|架|挡|躲|潜入|跟踪|观察|翻|撬|问|谈|劝|威胁|安抚|亲吻|抱住/
-const RESULT_DECLARATION_CUE = /已经|已然|成功|直接|立刻|瞬间|当场|所有人|全都|注定|必然|获得了|得到了|杀死了|击倒|说服了|逃出|通关|拿下/
+const ACTION_ATTEMPT_CUE = /尝试|试图|试着|打算|伸手|举起|抬起|抬手|挥舞|挥动|挥剑|挥刀|冲向|冲上|冲入|冲出|扑向|扑过去|奔向|奔跑|走向|走近|走出|跑向|跑开|逃跑|摸向|掏出|拔出|拔剑|拔刀|推开|推倒|拉开|拉住|踢开|踹开|喊出|高喊|大喊|低声|开口|靠近|转身|拔腿|按下|启动|施法|施展|发动|凝聚|瞄准|架住|格挡|挡住|抵挡|躲开|躲避|闪避|潜入|潜行|跟踪|观察|查看|翻找|翻越|攀爬|爬上|跃起|跳上|跳跃|撬开|开锁|破解|询问|追问|质问|打听|交谈|谈判|劝说|说服|威胁|安抚|亲吻|抱住|攻击|进攻|反击|刺向|砍向|劈向|射击|开枪|挣脱|按住|夺取|抢夺/g
+const NEGATION_PREFIX_CUE = /(?:没|没有|并未|未曾|不曾|不用|无需|不必|无须|从未|根本没|绝不|不去|不再|懒得|不打算|不准备)(?:去|再|曾|要|会)?\s*$/
+
+/** 判断越权输入中是否包含未被否定修饰的合法动作尝试。 */
+export function hasLegitimateActionAttempt(text) {
+  const raw = String(text || '')
+  if (!raw) return false
+  ACTION_ATTEMPT_CUE.lastIndex = 0
+  let match
+  while ((match = ACTION_ATTEMPT_CUE.exec(raw)) !== null) {
+    const before = raw.slice(Math.max(0, match.index - 10), match.index)
+    const clauseBefore = before.split(/[，,。！？!?；;\n]/).pop() || ''
+    if (NEGATION_PREFIX_CUE.test(clauseBefore)) continue
+    return true
+  }
+  return false
+}
 
 /** 阻尼器协议识别：低阶提供方只支持 is/is-not 并发题。 */
 export function resolveJudgeProtocol(status = {}) {
@@ -59,7 +75,7 @@ function hasUsableProfile(profile) {
 function buildDomainCriteria(profile, allowHidden) {
   const criteria = {}
   const traits = (Array.isArray(profile?.traits) ? profile.traits : []).filter(item => item && item.name).slice(0, 10)
-  if (traits.length >= 2) {
+  if (traits.length >= 1) {
     for (const trait of traits) {
       const suffix = [
         `[${signedTier(trait.tier)}]`,
@@ -194,18 +210,49 @@ function leverageToEdgeBonus(score) {
   return 0
 }
 
-function readStateValue(data, key, depth = 0) {
+function readNestedStateValue(data, key, depth = 0) {
   if (!data || typeof data !== 'object' || depth > 3) return undefined
-  const root = depth === 0 ? (data.stat_data || data) : data
-  if (root?.[key] !== undefined) {
+  if (data[key] !== undefined) {
+    const num = Number(data[key])
+    return Number.isFinite(num) ? num : undefined
+  }
+  for (const [childKey, value] of Object.entries(data)) {
+    if (childKey.startsWith('$')) continue
+    if (value && typeof value === 'object') {
+      const found = readNestedStateValue(value, key, depth + 1)
+      if (found !== undefined) return found
+    }
+  }
+  return undefined
+}
+
+function readStateValue(data, key, { targetText = '' } = {}) {
+  if (!data || typeof data !== 'object') return undefined
+  const root = data.stat_data && typeof data.stat_data === 'object' ? data.stat_data : data
+  if (root[key] !== undefined) {
     const num = Number(root[key])
     return Number.isFinite(num) ? num : undefined
   }
-  for (const value of Object.values(root)) {
-    if (value && typeof value === 'object') {
-      const found = readStateValue(value, key, depth + 1)
-      if (found !== undefined) return found
-    }
+  const candidates = []
+  for (const [childKey, value] of Object.entries(root)) {
+    if (childKey.startsWith('$') || !value || typeof value !== 'object') continue
+    const found = readNestedStateValue(value, key, 1)
+    if (found !== undefined) candidates.push({ name: childKey, value: found })
+  }
+  if (!candidates.length) return undefined
+  if (candidates.length === 1) return candidates[0].value
+  const text = String(targetText || '')
+  if (!text) return undefined
+  const matched = candidates
+    .filter(item => item.name && text.includes(item.name))
+    .sort((a, b) => b.name.length - a.name.length)
+  if (!matched.length) return undefined
+  if (matched.length === 1) return matched[0].value
+  // 若匹配到多个不同子对象，仅当最长名称严格唯一（如包含关系）或数值一致时采纳，避免跨角色串读
+  const topLen = matched[0].name.length
+  const topMatches = matched.filter(item => item.name.length === topLen)
+  if (topMatches.length === 1 && matched.every(item => matched[0].name.includes(item.name))) {
+    return topMatches[0].value
   }
   return undefined
 }
@@ -320,7 +367,7 @@ export function resolveCheckFromDamperContext({
 
   const ruling = context.ruling || {}
   if (isViolationTier(context.ruling) || isViolationTier(context)) {
-    const hasAttempt = ACTION_ATTEMPT_CUE.test(text)
+    const hasAttempt = hasLegitimateActionAttempt(text)
     if (!hasAttempt) {
       return {
         shouldRoll: false,
@@ -338,7 +385,7 @@ export function resolveCheckFromDamperContext({
     answerProbability(answers, 'fd_check')
   )
   const hasAnswers = Number.isFinite(needProb)
-  const fallback = heuristicAssessWithSkills(text, skillList, sensitivity, allowHidden)
+  const fallback = heuristicAssessWithSkills(text, skillList, sensitivity, allowHidden, profile, rule)
 
   let shouldRoll
   let needProbability
@@ -382,9 +429,12 @@ export function resolveCheckFromDamperContext({
     reason = `叙事阻尼器合并裁定：触发概率 ${Math.round(needProb * 100)}%`
   }
 
-  // 能力画像：AI 从 fd_domain 直接挑画像特征或通用能力域
+  // 能力画像：AI 从 fd_domain 直接挑画像特征或通用能力域；无 fd_domain（如 noul 路径）时允许从本地特征匹配补齐
   const domainKey = answerChoice(answers, 'fd_domain') || answerChoice(answers, 'fd_skill') || answerChoice(answers, 'check_skill') || ''
-  const profileDomain = resolveDomainChoice(hasUsableProfile(profile) ? profile : null, domainKey)
+  let profileDomain = resolveDomainChoice(hasUsableProfile(profile) ? profile : null, domainKey)
+  if (!profileDomain && !domainKey && fallback.profileDomain?.kind === 'trait' && hasUsableProfile(profile)) {
+    profileDomain = resolveDomainChoice(profile, fallback.profileDomain.name)
+  }
   if (profileDomain?.kind === 'trait') {
     matchedSkill = {
       id: profileDomain.trait.id,
@@ -407,8 +457,13 @@ export function resolveCheckFromDamperContext({
     category = profileDomain.category
     if (allowHidden && profileDomain.hidden) hidden = true
   }
-  // 能力加值 100% 来自 AI 判定的能力档位；无 AI 信号时才回退旧技能加值
-  const skillBonus = capability ? capability.bonus : (Number(matchedSkill?.bonus) || 0)
+  const effectiveCap = resolveEffectiveCapability({
+    profileDomain,
+    capability,
+    fallbackSkillBonus: Number(matchedSkill?.bonus) || 0,
+    rule
+  })
+  const skillBonus = effectiveCap.bonus
 
   const damperSync = {}
   let edgeBonus = 0
@@ -417,9 +472,9 @@ export function resolveCheckFromDamperContext({
     const leverageScore = Number(ruling.leverageScore ?? ruling.leverage_score ?? context.leverageScore ?? 0)
     edgeBonus = leverageToEdgeBonus(leverageScore)
     const snapshot = context.stateSnapshot?.data || context.stateSnapshot?.stat_data || context.stateSnapshot || null
-    const guard = readStateValue(snapshot, 'psychological_guard')
-    const trust = readStateValue(snapshot, 'intimacy_trust')
-    const tension = readStateValue(snapshot, 'arousal_or_tension')
+    const guard = readStateValue(snapshot, 'psychological_guard', { targetText: text })
+    const trust = readStateValue(snapshot, 'intimacy_trust', { targetText: text })
+    const tension = readStateValue(snapshot, 'arousal_or_tension', { targetText: text })
     const shifts = []
     const socialOrInsight = category === 'social' || category === 'insight'
     let next = normalizeDifficulty(difficulty)
@@ -464,11 +519,14 @@ export function resolveCheckFromDamperContext({
     damperSync.profile = {
       characterName: String(profile.characterName || ''),
       archetype: String(profile.archetype || '').slice(0, 140),
-      capabilityTier: capability ? capability.tier : null,
-      capabilitySource: capability ? capability.source : 'skill-fallback',
+      capabilityTier: effectiveCap.tier,
+      capabilitySource: effectiveCap.source,
       capabilityBonus: skillBonus,
+      baseTraitTier: effectiveCap.baseTraitTier,
+      baseTraitBonus: effectiveCap.baseTraitBonus,
+      tempStateBonus: effectiveCap.tempStateBonus,
       domain: profileDomain
-        ? { kind: profileDomain.kind, key: String(domainKey), name: profileDomain.name, tier: profileDomain.tier }
+        ? { kind: profileDomain.kind, key: String(domainKey || profileDomain.name), name: profileDomain.name, tier: profileDomain.tier }
         : null
     }
   }
@@ -508,11 +566,16 @@ export function resolveCheckFromDamperContext({
     skillId,
     skillName: check,
     skillBonus,
-    capabilityTier: capability ? capability.tier : null,
+    capabilityTier: effectiveCap.tier,
     capabilityScore: capability && Number.isFinite(capability.score) ? capability.score : null,
-    capabilitySource: capability ? capability.source : 'skill-fallback',
+    capabilitySource: effectiveCap.source,
+    capabilityBreakdown: {
+      baseTraitTier: effectiveCap.baseTraitTier,
+      baseTraitBonus: effectiveCap.baseTraitBonus,
+      tempStateBonus: effectiveCap.tempStateBonus
+    },
     profileDomain: profileDomain
-      ? { kind: profileDomain.kind, key: String(domainKey), name: profileDomain.name, tier: profileDomain.tier }
+      ? { kind: profileDomain.kind, key: String(domainKey || profileDomain.name), name: profileDomain.name, tier: profileDomain.tier }
       : null,
     category,
     rule,

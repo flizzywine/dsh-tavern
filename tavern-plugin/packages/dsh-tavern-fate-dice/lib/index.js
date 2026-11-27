@@ -970,7 +970,7 @@ export function apply(ctx) {
 
     // 「每轮必检定」：AI 判为低不确定性时也强制投骰（场景切换/越权拦截仍然跳过）
     if ((settings.alwaysRoll || rerollMode) && judged && judged.shouldRoll !== true) {
-      const hardSkip = !rerollMode && (judged.damperSync?.skipped === 'scene-shift' || judged.damperSync?.blockedByViolation === true)
+      const hardSkip = judged.damperSync?.skipped === 'scene-shift' || judged.damperSync?.blockedByViolation === true
       if (!hardSkip) {
         judged = {
           ...judged,
@@ -1019,6 +1019,7 @@ export function apply(ctx) {
       roll.resistanceFactors = resistanceFactors.slice(0, 6)
       roll.modifierBreakdown = {
         skillBonus,
+        capabilityBreakdown: judged.capabilityBreakdown || null,
         edgeBonus,
         varModifier: 0,
         matchedVars: mvuNow.highlights?.slice(0, 4).map(h => ({ label: h.key, value: h.value })) || [],
@@ -2288,11 +2289,11 @@ export function apply(ctx) {
     const chosenMode = requestedMode === 'auto' ? check.recommendedMode : requestedMode
 
     const sourceInput = String(
-      params.input
-      || activePending?.input
+      activePending?.input
       || settledLock?.input
       || storedTurn?.data?.input
       || currentRoll?.attempt
+      || params.input
       || ''
     ).trim()
     if (!sourceInput) {
@@ -2300,14 +2301,145 @@ export function apply(ctx) {
     }
 
     const wasSettled = Boolean((settledLock || storedTurn?.data?.roll || legacyRoll) && !activePending)
-    invalidateGameReadCaches(gameId, turn)
-    for (const key of [...turnCacheByGame.keys()]) {
-      if (key.startsWith(`${gameId}:${turn}:`)) turnCacheByGame.delete(key)
+    const settings = effectiveSettings(globalStore, game)
+    const existingJudged = activePending?.judged || settledLock?.judged || storedTurn?.data?.judged || null
+    const damperUsed = Boolean(
+      activePending?.damperUsed
+      ?? settledLock?.damperUsed
+      ?? storedTurn?.data?.damperUsed
+      ?? Boolean(currentRoll?.damperSync || currentRoll?.damper)
+    )
+    const damperTurn = activePending?.rawTurn ?? turn
+    const inputHash = activePending?.inputHash || settledLock?.inputHash || storedTurn?.data?.inputHash || hashText(sourceInput)
+
+    let record = null
+    if (currentRoll && typeof currentRoll === 'object') {
+      // 锁定首投已确立的检定快照（动作、技能、难度、加值），仅重掷骰面，避免二次判难耗时/失败或动作被篡改
+      const activeRule = normalizeRule(currentRoll.rule || settings.rule)
+      const checkType = currentRoll.checkType === 'contest' && !currentRoll.hidden ? 'contest' : 'normal'
+      const rerolled = rollCheck({
+        rule: activeRule,
+        checkType,
+        allowAutoSuccess: false,
+        forceRoll: true,
+        skillId: currentRoll.skillId,
+        skillName: currentRoll.skillName || currentRoll.check,
+        check: currentRoll.check,
+        skillBonus: Number(currentRoll.skillBonus) || 0,
+        difficulty: normalizeDifficulty(currentRoll.difficulty),
+        modifier: Number(currentRoll.modifier) || 0,
+        hidden: Boolean(currentRoll.hidden),
+        attempt: currentRoll.attempt || sourceInput.slice(0, 120),
+        reason: currentRoll.reason || existingJudged?.reason || '',
+        stakes: currentRoll.stakes || '成功推动预期进展；失败产生真实阻力与新变化',
+        rivalName: currentRoll.contest?.rivalName
+      })
+      if (Array.isArray(currentRoll.resistanceFactors)) {
+        rerolled.resistanceFactors = structuredClone(currentRoll.resistanceFactors)
+      }
+      if (currentRoll.modifierBreakdown) {
+        rerolled.modifierBreakdown = structuredClone(currentRoll.modifierBreakdown)
+      }
+      rerolled.judgeSource = currentRoll.judgeSource || existingJudged?.source || 'heuristic'
+      rerolled.judgeTier = currentRoll.judgeTier ?? existingJudged?.judgeTier ?? null
+      rerolled.retriedSafetyFallback = Boolean(currentRoll.retriedSafetyFallback)
+      rerolled.damperSync = currentRoll.damperSync ? structuredClone(currentRoll.damperSync) : (existingJudged?.damperSync ? structuredClone(existingJudged.damperSync) : null)
+      if (chosenMode === 'push') {
+        applyPushRollConsequences(rerolled)
+      } else if (chosenMode === 'fate') {
+        const fateLeft = Math.max(0, normalizeFateState(game.fate).points - 1)
+        rerolled.rerollMeta = {
+          count: 1,
+          mode: 'fate',
+          label: '逆命重投',
+          fateRemaining: fateLeft
+        }
+      }
+
+      const damperShiftResult = !wasSettled
+        ? await syncDamperQuotaWithRoll({
+            gameId,
+            turn: damperTurn || turn,
+            roll: rerolled,
+            judged: existingJudged,
+            damperUsed,
+            settings
+          })
+        : null
+
+      const encounterRoll = activePending?.encounterRoll || pendingEncounterByGame.get(gameId) || null
+      const baseInjection = buildTurnInjection(rerolled)
+      const encounterInjection = encounterRoll ? buildEncounterInjection(encounterRoll) : ''
+      const injection = [baseInjection, encounterInjection].filter(Boolean).join('\n\n')
+      const revealTiming = settings.revealTiming || 'immediate'
+
+      record = {
+        gameId,
+        turn,
+        rawTurn: damperTurn,
+        input: sourceInput,
+        inputHash,
+        injection,
+        roll: rerolled,
+        judged: existingJudged ? structuredClone(existingJudged) : null,
+        fateTape: null,
+        encounterRoll,
+        revealTiming,
+        damperUsed,
+        damperShiftResult,
+        rerollCount: 1,
+        forceReroll: true,
+        setupRequiredReason: '',
+        settings,
+        characterProfile: activePending?.characterProfile || storedTurn?.data?.characterProfile || game.characterProfile,
+        animation: settings.animation,
+        createdAt: Date.now()
+      }
+
+      invalidateGameReadCaches(gameId, turn)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:${turn}:`)) turnCacheByGame.delete(key)
+      }
+      const cacheKey = `${gameId}:${turn}:${inputHash}`
+      turnCacheByGame.set(cacheKey, record)
+      trimCache(gameId)
+      pendingByGame.set(gameId, record)
+
+      await tavern.publishState?.({
+        gameId,
+        name: 'live-roll',
+        data: {
+          id: `${turn}-${rerolled.rolledAt}`,
+          turn,
+          kind: 'check',
+          roll: rerolled,
+          revealTiming,
+          animation: settings.animation,
+          emittedAt: Date.now()
+        }
+      }).catch(() => {})
+    } else {
+      invalidateGameReadCaches(gameId, turn)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:${turn}:`)) turnCacheByGame.delete(key)
+      }
+      record = await computeTurn({ gameId, turn, storyTurn: turn, input: sourceInput, force: true, rerollMode: chosenMode })
+      record.forceReroll = true
+      record.rerollCount = 1
     }
 
-    const record = await computeTurn({ gameId, turn, storyTurn: turn, input: sourceInput, force: true, rerollMode: chosenMode })
-    record.forceReroll = true
-    record.rerollCount = 1
+    if (!record || !record.roll) {
+      return {
+        ok: false,
+        turn,
+        mode: chosenMode,
+        code: 'REROLL_NO_RESULT',
+        error: '重投未产出有效骰果，未扣减命运点',
+        fate: game.fate,
+        rerollState: check,
+        roll: null
+      }
+    }
 
     const baseFate = normalizeFateState(game.fate)
     const nextFate = chosenMode === 'fate'
@@ -2316,25 +2448,19 @@ export function apply(ctx) {
 
     if (wasSettled) {
       const nextSettledRolls = { ...(game.settledRolls || {}) }
-      if (record.roll) {
-        const cleanRoll = structuredClone(record.roll)
-        delete cleanRoll.reusedOnRegenerate
-        nextSettledRolls[turnKey] = {
-          turn,
-          input: record.input,
-          inputHash: record.inputHash,
-          roll: cleanRoll,
-          judged: record.judged ? structuredClone(record.judged) : null,
-          damperUsed: Boolean(record.damperUsed),
-          rerollCount: 1,
-          lockedAt: Date.now()
-        }
-      } else {
-        delete nextSettledRolls[turnKey]
+      const cleanRoll = structuredClone(record.roll)
+      delete cleanRoll.reusedOnRegenerate
+      nextSettledRolls[turnKey] = {
+        turn,
+        input: record.input,
+        inputHash: record.inputHash,
+        roll: cleanRoll,
+        judged: record.judged ? structuredClone(record.judged) : null,
+        damperUsed: Boolean(record.damperUsed),
+        rerollCount: 1,
+        lockedAt: Date.now()
       }
-      const nextSummary = record.roll
-        ? appendToSummary(game.summary, record.roll, turn, record.damperUsed, { replaceExistingTurn: true })
-        : game.summary
+      const nextSummary = appendToSummary(game.summary, record.roll, turn, record.damperUsed, { replaceExistingTurn: true })
       const nextGame = {
         ...game,
         fate: nextFate,
