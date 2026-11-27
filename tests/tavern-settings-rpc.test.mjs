@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {createSettingsHandlers} from '../tavern-plugin/lib/rpc/settings.js'
+import { createModelSlotRuntime } from '../tavern-plugin/lib/domain/model-slot-runtime.js'
 import { mkdtemp } from './helpers/temp-directory.mjs'
 
 function harness({settingsDelay = 0} = {}){
@@ -19,6 +20,29 @@ function harness({settingsDelay = 0} = {}){
   }
   return { handlers: createSettingsHandlers(deps), reads: () => reads, catalogCalls: () => catalogCalls }
 }
+
+test('模型槽按插件注册生命周期解析和验证会话选项', async () => {
+  const background = { provider: 'background', model: 'model' }
+  const validated = []
+  const runtime = createModelSlotRuntime({
+    readTavernSettings: async () => ({}),
+    backgroundConfigForSession: async () => ({ backgroundModelSelection: background }),
+    modelSelection: () => ({ provider: 'foreground', model: 'model' }),
+    llm: { resolveCallConfig: async selection => validated.push(selection) }
+  })
+  const remove = runtime.modelSlots.register('test', {
+    rows: () => [{ modId: 'mod', id: 'text', fallback: 'background' }, { modId: 'mod', id: 'roll', kind: 'scoring' }],
+    scoring: () => ({ provider: 'scoring', model: 'model' })
+  })
+  assert.deepEqual(await runtime.resolveSlot('mod', 'text', 'game'), background)
+  await runtime.checkSlotSelection({ modId: 'mod', slotId: 'text', selection: { ...background, reasoningEffort: null } })
+  assert.deepEqual(validated, [background])
+  await assert.rejects(runtime.checkSlotSelection({ modId: 'mod', slotId: 'roll', selection: background }), /请选择已配置/)
+  assert.deepEqual(runtime.scoringCatalog(), [{ provider: 'scoring', model: 'model' }])
+  remove()
+  await assert.rejects(runtime.resolveSlot('mod', 'text', 'game'), /模型槽未启用/)
+  assert.deepEqual(runtime.scoringCatalog(), [])
+})
 
 test('同时到达的设置读取只读一次，返回各自独立的对象', async () => {
   const h = harness({ settingsDelay: 10 })

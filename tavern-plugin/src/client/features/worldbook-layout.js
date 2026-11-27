@@ -710,6 +710,8 @@
 			const summary = layout && layout.summary ? layout.summary : { totalCount: 0, prefixCount: 0, tailCount: 0, totalTokens: 0, prefixTokens: 0, tailTokens: 0 };
 			const budget = layout && layout.budget ? layout.budget : { limit: 8192, used: 0, overflowed: false };
 			const books = layout && Array.isArray(layout.books) ? layout.books : [];
+			const activeBookIndexes = new Set(allItems.map(function (it) { return it.bookIndex; }));
+			const legendBooks = books.filter(function (book) { return activeBookIndexes.has(book.index); });
 			const maxTokens = Math.max.apply(null, [1].concat(allItems.map(function (it) { return it.tokens || 0; })));
 			const budgetPct = budget.limit > 0 ? Math.min(100, Math.round((budget.used / budget.limit) * 100)) : 0;
 			const evictedCount = tail.filter(function (it) { return it.budgetEvicted; }).length;
@@ -717,7 +719,7 @@
 			const titleText = layout && layout.cardName ? "常驻排布 · " + layout.cardName : "常驻排布 · 全局世界书";
 
 			function renderEntryRow(item) {
-				const barPct = Math.max(6, Math.round(((item.tokens || 0) / maxTokens) * 100));
+				const barPct = Math.max(2, Math.round(((item.tokens || 0) / maxTokens) * 100));
 				const colorIndex = item.bookIndex % WBL_BOOK_PALETTE_COUNT;
 				const isPlaceholder = dragUi && dragUi.id === item.id;
 				const isLanded = landed && landed.id === item.id;
@@ -861,7 +863,7 @@
 									tail.map(renderRibbonSegment)),
 								h("div", { className: "dsh-wbl-legend" },
 									h("div", { className: "dsh-wbl-legend-books" },
-										books.map(function (book) {
+										legendBooks.map(function (book) {
 											return h("span", { key: book.key, className: "dsh-wbl-legend-item", "data-book-color": book.index % WBL_BOOK_PALETTE_COUNT },
 												h("i", { className: "dsh-wbl-color-dot" }),
 												book.name,
@@ -914,9 +916,10 @@
 										h("span", { className: "dsh-wbl-zone-metric dsh-wbl-mono" + (budget.overflowed ? " is-danger" : "") }, "每轮 +" + wblFmtTokens(summary.tailTokens))),
 									h("div", { className: "dsh-wbl-budget" },
 										h("div", { className: "dsh-wbl-budget-meta" },
-											h("span", { className: "dsh-wbl-mono" }, "尾部预算 " + wblFmtTokens(budget.used) + " / " + wblFmtTokens(budget.limit)),
+											h("span", { className: "dsh-wbl-mono" }, "计入预算 " + wblFmtTokens(budget.used) + " / " + wblFmtTokens(budget.limit)),
 											h("span", { className: budget.overflowed ? "is-danger" : "" },
-												evictedCount ? evictedCount + " 条超出预算将被挤出" : "余量 " + wblFmtTokens(Math.max(0, budget.limit - budget.used)))),
+												evictedCount ? evictedCount + " 条超出预算将被挤出"
+													: (budget.used === 0 && summary.tailTokens > 0 ? "当前仅常驻动态条目，不占预算" : "余量 " + wblFmtTokens(Math.max(0, budget.limit - budget.used))))),
 										h("div", { className: "dsh-wbl-budget-track" },
 											h("div", { className: "dsh-wbl-budget-fill" + (budget.overflowed ? " is-over" : ""), style: { width: budgetPct + "%" } }))),
 									tail.length

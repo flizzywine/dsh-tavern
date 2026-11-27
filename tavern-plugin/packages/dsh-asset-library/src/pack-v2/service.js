@@ -57,7 +57,7 @@ import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigure
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
 import { openZip, writeZip, zipPath } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
-import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson } from '../asset-packs/common.js'
+import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson, spoolFileStamp } from '../asset-packs/common.js'
 
 import { channel } from 'node:diagnostics_channel'
 const readTiming = channel('dsh.asset.read')
@@ -188,7 +188,19 @@ export function createAssetPackService(options) {
   // A pack/set import keys its uploadHash on the whole archive (one hash per transfer); a card bundle reads none.
   async function archiveFile(file) {
     const archive = await localArchive(file), hash = createHash('sha256')
-    for await (const chunk of createReadStream(file)) hash.update(chunk)
+    const handle = await open(file, 'r')
+    try {
+      const buffer = Buffer.allocUnsafe(256 * 1024)
+      let size = 0
+      for (;;) {
+        const {bytesRead} = await handle.read(buffer)
+        if (!bytesRead) break
+        size += bytesRead
+        check(size <= archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
+        hash.update(buffer.subarray(0, bytesRead))
+      }
+      check(size === archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
+    } finally { await handle.close() }
     return {...archive, archiveSha256:hash.digest('hex')}
   }
   const blankManifest=(id,name,description)=>({format:'dsh-asset-pack',schemaVersion:1,id,name,...(description===undefined?{}:{description}),contentHash:'0'.repeat(64),assets:[],figures:[],sprites:{},bundles:{},blobs:{},files:[]})
@@ -516,7 +528,7 @@ export function createAssetPackService(options) {
       async take(zip, entry, index) {
         const file = path.join((await dir()).dir, index + path.posix.extname(entry.path)), hash = createHash('sha256')
         await zip.consume(entry, compose(new Transform({transform(chunk, encoding, callback) { hash.update(chunk); callback(null, chunk) }}), createWriteStream(file, {flags:'wx'})))
-        return new SpooledFile(entry.size, file, hash.digest('hex'))
+        return new SpooledFile(entry.size, file, hash.digest('hex'), spoolFileStamp(await stat(file, {bigint:true})))
       },
       retain() { users++ },
       // resolves when the last user's release has removed the spool; callers that can wait do, so nothing runs after them
@@ -536,7 +548,10 @@ export function createAssetPackService(options) {
   // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
   // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
-    const zip = await openZip(file, limits), files = new Map()
+    return readZipEntries(await openZip(file, limits), archiveBytes, extraBytes, signal)
+  }
+  async function readZipEntries(zip, archiveBytes, extraBytes, signal) {
+    const files = new Map()
     guardArchive(zip.entries)
     const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
     check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')

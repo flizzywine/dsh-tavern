@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { adaptedDshVersion, minimumNodeVersion } from './dsh-compatibility.mjs'
 
 const PACKAGE_FILE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WIKI_URL = 'https://github.com/flizzywine/dsh-tavern/wiki'
@@ -16,7 +17,7 @@ export const COMMANDS = [
       '安装酒馆，或把已安装的酒馆切换为指定宿主。',
       '',
       '宿主：',
-      '  cli       命令行版：自带独立 DSH 运行时，需要 Node.js 22.19+ 与',
+      `  cli       命令行版：自带独立 DSH 运行时，需要 Node.js ${minimumNodeVersion(adaptedDshVersion)}+ 与`,
       '            pnpm，默认安装到 ~/.dsh-tavern',
       '  desktop   官方 DeepSeek Harness 桌面版：安装后由桌面宿主启动',
       '  next      DSH NEXT：由应用管理安装、启动与切换；更新源码后重新运行',

@@ -57,7 +57,7 @@ import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigure
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
 import { openZip, writeZip, zipPath } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
-import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson } from '../asset-packs/common.js'
+import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson, spoolFileStamp } from '../asset-packs/common.js'
 
 import { channel } from 'node:diagnostics_channel'
 const readTiming = channel('dsh.asset.read')
@@ -528,7 +528,7 @@ export function createAssetPackService(options) {
       async take(zip, entry, index) {
         const file = path.join((await dir()).dir, index + path.posix.extname(entry.path)), hash = createHash('sha256')
         await zip.consume(entry, compose(new Transform({transform(chunk, encoding, callback) { hash.update(chunk); callback(null, chunk) }}), createWriteStream(file, {flags:'wx'})))
-        return new SpooledFile(entry.size, file, hash.digest('hex'))
+        return new SpooledFile(entry.size, file, hash.digest('hex'), spoolFileStamp(await stat(file, {bigint:true})))
       },
       retain() { users++ },
       // resolves when the last user's release has removed the spool; callers that can wait do, so nothing runs after them

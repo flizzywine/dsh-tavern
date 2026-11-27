@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { open, readFile } from 'node:fs/promises'
 import { PassThrough, Readable, Transform, Writable } from 'node:stream'
 import { finished } from 'node:stream/promises'
@@ -24,8 +25,16 @@ class FileReader extends Reader {
   }
 }
 
+const authenticatedArchives = new WeakMap()
+const authenticationKey = randomBytes(32)
+const passwordTag = password => createHmac('sha256', authenticationKey).update(password, 'utf16le').digest()
+async function archiveStamp(handle) {
+  const { dev, ino, size, mtimeNs, ctimeNs } = await handle.stat({ bigint: true })
+  return [dev, ino, size, mtimeNs, ctimeNs].join(':')
+}
+
 /** Plain archives keep the existing streamed ZIP reader. Encrypted entries authenticate before any import writes. */
-export async function openCardZip(file, { label = 'DSH 人物卡', password } = {}) {
+export async function openCardZip(file, { label = 'DSH 人物卡', password, authentication } = {}) {
   const metadata = await openZipFile(file, { label, allowEncrypted: true })
   if (![...metadata.entries.values()].some(entry => entry.encrypted)) return metadata
   const size = metadata.size
@@ -35,6 +44,11 @@ export async function openCardZip(file, { label = 'DSH 人物卡', password } = 
   const handle = await open(file, 'r')
   const reader = new ZipReader(new FileReader(handle, size, prefix), { useWebWorkers: false })
   try {
+    const stamp = await archiveStamp(handle)
+    const tag = passwordTag(password)
+    const previous = authenticatedArchives.get(authentication)
+    // The card importer also compares the archive's SHA-256 before passing this receipt from its preview.
+    const alreadyAuthenticated = previous?.file === file && previous.stamp === stamp && timingSafeEqual(previous.tag, tag)
     const items = await reader.getEntries()
     if (items.length > 50000) throw new Error('人物卡压缩包文件数量过多')
     const entries = new Map()
@@ -42,21 +56,28 @@ export async function openCardZip(file, { label = 'DSH 人物卡', password } = 
       const entryPath = zipEntryPath(item.filename)
       if (!entryPath || item.directory) continue
       if (!Number.isSafeInteger(item.uncompressedSize) || item.uncompressedSize < 0) throw new Error('人物卡文件长度无效')
-      // Check the complete archive, not just card.json: a later asset may have a different password or damaged authentication.
-      let seen = 0
-      await item.getData(new WritableStream({ write(chunk) {
-        seen += chunk.length
-        if (seen > item.uncompressedSize) throw new Error('人物卡解压长度超出声明值')
-      } }), { password, checkSignature: true, useWebWorkers: false })
-      if (seen !== item.uncompressedSize) throw new Error('人物卡解压长度不一致')
+      // Check the complete archive on its first open. A later asset can carry a different password or a damaged tag.
+      if (!alreadyAuthenticated) {
+        let seen = 0
+        await item.getData(new WritableStream({ write(chunk) {
+          seen += chunk.length
+          if (seen > item.uncompressedSize) throw new Error('人物卡解压长度超出声明值')
+        } }), { password, checkSignature: true, useWebWorkers: false })
+        if (seen !== item.uncompressedSize) throw new Error('人物卡解压长度不一致')
+      }
       entries.set(entryPath, { path: entryPath, size: item.uncompressedSize, compressedSize: item.compressedSize, item })
     }
+    if (await archiveStamp(handle) !== stamp) {
+      throw Object.assign(new Error('校验期间卡包已变更，请重新选择文件'), { code: 'TAVERN_ZIP_INVALID' })
+    }
+    const receipt = {}
+    authenticatedArchives.set(receipt, { file, stamp, tag })
     async function stream(entry) {
       const output = new PassThrough()
       void entry.item.getData(Writable.toWeb(output), { password, checkSignature: true, useWebWorkers: false }).catch(error => output.destroy(passwordError(error)))
       return output
     }
-    return { entries, size, prefix, stream, async readBuffer(entry, limit = 32 * 1024 * 1024) {
+    return { entries, size, prefix, stream, authentication: receipt, async readBuffer(entry, limit = 32 * 1024 * 1024) {
       if (entry.size > limit) throw new Error(label + '：' + entry.path + ' 超过读取上限')
       const chunks = []
       for await (const chunk of await stream(entry)) chunks.push(chunk)

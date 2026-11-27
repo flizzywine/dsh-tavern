@@ -1,0 +1,7 @@
+{
+  "name": "dsh-tavern-runtime-smoke-sidebar",
+  "private": true,
+  "dependencies": {
+    "dsh-better-sidebar": "0.33.0"
+  }
+}

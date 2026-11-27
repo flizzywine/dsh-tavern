@@ -4,12 +4,9 @@ import { readFile } from "node:fs/promises"
 import test from 'node:test'
 
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { createTavernSettingsRuntime } from '../tavern-plugin/lib/domain/tavern-settings-runtime.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { createConversationInitialization } from '../tavern-plugin/lib/domain/conversation-initialization.js'
-
-const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-
-// Exercise the real save/read call sites with durable storage, not a copied implementation.
 
 const settingsModuleSource = await readFile(new URL('../tavern-plugin/src/client/modules/global-settings.js', import.meta.url), 'utf8')
 
@@ -94,11 +91,14 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
     }]
   ])
 
-  const readTavernSettings = async () => presentTavernSettings(settingsDoc, {})
-  const updateTavernSettings = async patch => {
-    settingsDoc = applyTavernSettingsPatch(settingsDoc, patch)
-    return presentTavernSettings(settingsDoc, {})
-  }
+  const llm = { resolveCallConfig: async cfg => cfg }
+  const { readTavernSettings, updateTavernSettings } = await createTavernSettingsRuntime({ llm, profileData: {
+    readJson: async () => structuredClone(settingsDoc),
+    async updateJson(_path, update) {
+      settingsDoc = await update(structuredClone(settingsDoc))
+      return structuredClone(settingsDoc)
+    }
+  } })
   const handlers = createSettingsHandlers({
     str: v => v == null ? '' : String(v),
     groupOfMode: mode => mode === 'card' ? 'card' : 'play',
@@ -122,7 +122,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
     },
     readTavernSettings,
     updateTavernSettings,
-    llm: { resolveCallConfig: async cfg => cfg },
+    llm,
     sessionActivity: async () => ({ busy: false }),
     agentRegistry: { get: () => ({ phase: { kind: 'idle' } }) },
     presetLibrary: {

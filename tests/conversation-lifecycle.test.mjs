@@ -1,23 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import vm from './fixtures/client-vm.mjs'
 import { createResourceHandlers } from '../tavern-plugin/lib/rpc/resources.js'
-
-async function loadExports() {
-  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
-  vm.runInNewContext(source, sandbox)
-  return descriptor.factory(function () { return {} })
-}
-
-const client = await loadExports()
-const createConversationLifecycleModule = client.createConversationLifecycleModule
-
-const createPlayWorkspaceResolver = client.createPlayWorkspaceResolver
+import { createConversationAttemptStore, createConversationLifecycleModule, createPlayWorkspaceResolver } from '../tavern-plugin/src/client/runtime/conversation-lifecycle.js'
 
 function attemptStorage() {
   const values = new Map()
@@ -105,8 +92,8 @@ test('开场事件已写入后的刷新重试直接恢复 Chat，不重复选择
       if (chatCalls === 1) throw new Error('开场事件已提交，Chat 标记写入失败')
     }
   }
-  const first = harness({ ...adapters, attempts: client.createConversationAttemptStore(storage) })
-  const reloaded = harness({ ...adapters, attempts: client.createConversationAttemptStore(storage) })
+  const first = harness({ ...adapters, attempts: createConversationAttemptStore(storage) })
+  const reloaded = harness({ ...adapters, attempts: createConversationAttemptStore(storage) })
 
   await assert.rejects(first.module.start(request), /Chat 标记写入失败/)
   const recovered = await reloaded.module.start(request)
@@ -121,11 +108,11 @@ test('旧版失败记录没有 presetReady 时，模式锁定直接进入 Chat �
   const { values, storage } = attemptStorage()
   const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, openingId: 'primary', userName: '你' }
   const key = JSON.stringify([request.kind, request.targetMode, request.card.path, request.openingId, request.userName, request.requestMode, request.task, request.pending])
-  const legacy = client.createConversationAttemptStore(storage)
+  const legacy = createConversationAttemptStore(storage)
   legacy.set(key, { sessionId: 'session-1', initialized: false })
   const calls = []
   const { module } = harness({
-    attempts: client.createConversationAttemptStore(storage),
+    attempts: createConversationAttemptStore(storage),
     ensurePreset: async function () { throw new Error('This session has already started') },
     createChat: async function (_request, sessionId) { calls.push('recover:' + sessionId) }
   })
@@ -140,10 +127,10 @@ test('旧版失败记录没有 presetReady 时，模式锁定直接进入 Chat �
 test('刷新页面后可复用失败 Session，打开失败不重复初始化，成功后下次新建', async () => {
   const { values, storage } = attemptStorage()
   const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, preparationId: 'preview-1' }
-  const first = harness({ attempts: client.createConversationAttemptStore(storage), finishOpen: async () => { throw new Error('打开失败') } })
+  const first = harness({ attempts: createConversationAttemptStore(storage), finishOpen: async () => { throw new Error('打开失败') } })
   await assert.rejects(first.module.start(request), /打开失败/)
   assert.equal(values.size, 1)
-  const second = harness({ attempts: client.createConversationAttemptStore(storage) })
+  const second = harness({ attempts: createConversationAttemptStore(storage) })
   await second.module.start({ ...request, preparationId: 'preview-2' })
   assert.equal(second.calls.some(item => item.startsWith('connect:') || item.startsWith('chat:')), false)
   assert.equal(values.size, 0)
@@ -159,14 +146,14 @@ test('刷新后遇到失效的启动记录时只新建一次，第二次失败�
     const { values, storage } = attemptStorage()
     const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, preparedSessionId: 'session-stale' }
     const first = harness({
-      attempts: client.createConversationAttemptStore(storage),
+      attempts: createConversationAttemptStore(storage),
       async createChat() { throw new Error('旧版留下的失败记录') }
     })
     await assert.rejects(first.module.start(request), /旧版留下的失败记录/)
 
     const waited = []
     const reloaded = harness({
-      attempts: client.createConversationAttemptStore(storage),
+      attempts: createConversationAttemptStore(storage),
       async waitForSession(sessionId) {
         waited.push(sessionId)
         if (blockingError.code) throw Object.assign(new Error(blockingError.message), { code: blockingError.code })

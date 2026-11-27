@@ -843,22 +843,9 @@
 				connectWorkspace: function (targetWorkspaceId) { return props.conversationHost.connectWorkspace(targetWorkspaceId); },
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
-				createChat: async function (request, sessionId) {
-					const result = await call("startChat", {
-						path: request.card && request.card.path ? request.card.path : "",
-						sessionId: sessionId,
-						mode: request.targetMode,
-						cardTask: request.task || "",
-						openingId: request.openingId || "",
-						preparationId: request.preparationId || "",
-						userName: request.userName || (request.targetMode === "card" ? "你" : ""),
-						requestMode: "dsh"
-					});
-					// startChat already returned the new chat's complete first view. The
-					// conversation consumes it on first subscribe instead of projecting it twice.
-					if (result && result.view && typeof liveTavernView.seed === "function") liveTavernView.seed(sessionId, result.view);
-					return result;
-				},
+				createChat: createStartChatRequest({
+					call, seedView: (sessionId, view) => liveTavernView.seed?.(sessionId, view)
+				}),
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
 			});

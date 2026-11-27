@@ -174,6 +174,8 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   await assert.rejects(fresh.files.previewCardArchiveFile(roundTrip, 'round-trip.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
   const preview = await fresh.files.previewCardArchiveFile(roundTrip, 'round-trip.dshcard', { password: 'test-only-password' })
   assert.equal(preview.card.name, card.name)
+  await assert.rejects(fresh.files.importCardArchiveFile(roundTrip, 'round-trip.dshcard', { password: 'wrong', previewed: true }), { code: 'TAVERN_CARD_PASSWORD_INVALID' })
+  assert.deepEqual(await fresh.fileResources.list('card'), [])
   const restored = await fresh.files.importCardArchiveFile(roundTrip, 'round-trip.dshcard', { password: 'test-only-password', previewed: true })
   assert.equal(restored.name, card.name)
   assert.equal((await fresh.castAssets.read(restored.path)).plugins[0].enabled, true)

@@ -1,13 +1,12 @@
 # Private CLI runtime dependency lock
 
-The launcher runs `npm ci` against this manifest and lock inside a staging
-runtime. DSH publishes prerelease dependencies as ranges; locking only the
-`@deepseek-ai/dsh` entry package can select incompatible or unpublished sibling
-versions. Every DSH package in this graph is pinned to the adapted release, and
-all downloads retain npm integrity hashes.
+The launcher and the release startup check run `npm ci` against this manifest
+and lock. Every DSH package in this graph must resolve to the adapted release,
+and all downloads retain npm integrity hashes.
 
-When changing the supported host, update the manifest's version, dependency and
-DSH overrides together, then regenerate the lock from an empty directory using
+When changing the CLI host, update `adaptedDshVersion` in
+`config/dsh-compatibility.json` and the manifest's version and dependency.
+Regenerate the lock from an empty directory using
 `npm install --package-lock-only --ignore-scripts --registry https://registry.npmjs.org`.
 Validate a clean install and the actual session patch, browser, edit, regeneration
 and rollback flows before shipping. Do not regenerate from an installed linked

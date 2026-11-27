@@ -165,7 +165,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const stage = await inspectCardPacks(zip, archive.packs, hash)
       const packs = stage.ready.filter(({ preview }) => packConflict(preview)).map(({ pack, label, preview }) => ({ packId: pack.id, title: label, choices: preview.choices, removed: preview.removed || [] }))
       const timer = setTimeout(() => { void discardCardArchivePreview(file) }, 15 * 60000).unref()
-      preparedPacks.set(file, { ...stage, hash, timer })
+      preparedPacks.set(file, { ...stage, hash, timer, authentication: zip.authentication })
       return { card: { name: str(data.name), version: str(data.character_version).trim(), ...(coverBytes ? { cover: 'data:' + coverType + ';base64,' + coverBytes.toString('base64') } : {}) }, packs,
         ...(archive.base ? { base: archive.base } : {}),
         ...(stage.notices.length ? { packNotices: stage.notices } : {}) }
@@ -231,7 +231,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     // its packs are in the asset library (cards imported before the library came carry none there).
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
-    let zip = await openCardZip(file, { label, password })
+    const preview = preparedPacks.get(file)
+    let zip = await openCardZip(file, { label, password, authentication: preview?.hash === archiveSha256 ? preview.authentication : undefined })
     try {
       const archive = await readCardArchive(zip)
       zip = await completeUpdateArchive(zip, archive)

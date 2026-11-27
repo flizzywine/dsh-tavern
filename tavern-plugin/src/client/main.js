@@ -1173,7 +1173,10 @@ window.__ModuleLoader__.load({
 			return state;
 		}
 
-// @include runtime/conversation-lifecycle.js
+// @include-esm runtime/conversation-lifecycle.js as conversationLifecycleClient
+        const { createPlayWorkspaceResolver, createSessionListRecoveryModule, createConversationHostAdapter,
+            createConversationAttemptStore, createConversationLifecycleModule, createConversationPrewarmModule,
+            createStartChatRequest } = conversationLifecycleClient;
 
 // @include features/reasoning-stream.js
 

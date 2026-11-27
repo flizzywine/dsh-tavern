@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createTavernConversationRegistry } from '../tavern-plugin/lib/domain/tavern-conversation-registry.js'
+import { createConversationIndexStore } from '../tavern-plugin/lib/domain/conversation-index.js'
 
 function memoryStore(seed = {}) {
   let links = structuredClone(seed.links || {})
@@ -50,6 +51,43 @@ test('后台轮换写入轻量索引，恢复旧后台后重新成为当前，�
   assert.equal(row.backgroundSessionId, 'old')
   assert.deepEqual(row.backgroundHistoryIds, ['new'])
   assert.equal(store.snapshot().chatReads, 0)
+})
+
+test('会话索引复用磁盘快照，调用方修改和其他写入都能正确隔离', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { createProfileDataStore } = await import('../tavern-plugin/lib/profile-data-store.js')
+  const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-conversation-index-'))
+  t.after(() => rm(dataRoot, { recursive: true, force: true }))
+  const data = createProfileDataStore({ dataRoot })
+  const reads = []
+  const indexStore = createConversationIndexStore({ dataRoot, store: {
+    ...data, async readJson(file) { reads.push(file); return data.readJson(file) },
+  } })
+
+  assert.deepEqual(await indexStore.readIndex(), { cards: [], chats: [] })
+  await indexStore.writeIndex({ legacy: true, cards: [{ id: 'card' }], chats: [{ id: 'a' }] })
+  const view = await indexStore.readIndex()
+  view.cards.length = 0
+  view.chats.push({ id: 'temporary' })
+  view.legacy = false
+  assert.deepEqual(await indexStore.readIndex(), { legacy: true, cards: [{ id: 'card' }], chats: [{ id: 'a' }] })
+  await indexStore.updateIndex(current => ({ ...current, chats: [{ id: 'b' }] }))
+  assert.deepEqual((await indexStore.readIndex()).chats, [{ id: 'b' }])
+  assert.deepEqual(reads, ['index.json'])
+  await data.updateJson('index.json', current => ({ ...current, chats: [{ id: 'external' }] }))
+  assert.deepEqual((await indexStore.readIndex()).chats, [{ id: 'external' }])
+
+  await data.writeJson('sessions.json', { front: 'a' })
+  const links = await indexStore.readLinks()
+  links.front = 'temporary'
+  assert.deepEqual(await indexStore.readLinks(), { front: 'a' })
+  await indexStore.updateLinks(current => ({ ...current, other: 'b' }))
+  assert.deepEqual(await indexStore.readLinks(), { front: 'a', other: 'b' })
+  assert.deepEqual(reads, ['index.json', 'index.json', 'sessions.json'])
+  await data.remove('sessions.json')
+  assert.equal(await indexStore.readLinks(), undefined)
 })
 
 test('共享磁盘索引的并发发布、同步、打开和删除保留各自改动', async t => {

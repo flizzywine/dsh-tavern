@@ -67,6 +67,25 @@ test('回退后对账不会拿已回退轮次的输入给前一轮重写正文�
   assert.equal(report.aligned, true)
 })
 
+test('补写失败尾部后，已记录的宿主轮号映射参与存档对账', () => {
+  const { session, round } = game()
+  round(19)
+  round(21)
+  round(22)
+  const header = { nativeCommits: { 19: {}, 20: {}, 22: {} }, regeneratedDshTurns: { 20: 21 } }
+  const report = inspectStoryAlignment({ session, header, storyTurns: [19, 20, 22] })
+  assert.equal(report.aligned, true)
+  assert.deepEqual(report.adopt, [])
+  assert.deepEqual(report.rolledBackVisible, [])
+})
+
+test('对账优先采用投影正文携带的剧情轮号', () => {
+  const { session, round } = game()
+  round(21, 'completed', { kind: 'model', provider: 'test', model: 'test', tavernStoryTurn: 19 })
+  const report = inspectStoryAlignment({ session, header: { regeneratedDshTurns: { 20: 21 } }, storyTurns: [19, 20] })
+  assert.deepEqual(report.mismatch, { native: [19], story: [19, 20] })
+})
+
 test('只有模型回复的回合结束后才对账：回退、撤销回退、编辑这类 Tavern 自己的回合不触发', async () => {
   const { turnRepliedByModel } = await import('../tavern-plugin/lib/domain/story-alignment.js')
   const model = { kind: 'model', provider: 'fixture', model: 'fixture' }

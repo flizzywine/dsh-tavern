@@ -1891,6 +1891,8 @@ try {
   $PnpmCommand = Resolve-Command 'pnpm'
   $PnpmNeedsInstall = $false
   if ($InstallHost -eq 'cli') {
+    & node $CompatibilityScript --check $InstallHost $AdaptedDshVersion
+    Assert-LastCommand '当前 Node.js 版本不满足 CLI 运行时要求。'
     if ($null -eq $PnpmCommand) {
       $PnpmNeedsInstall = $true
     }

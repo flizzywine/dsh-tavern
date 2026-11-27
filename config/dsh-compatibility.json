@@ -1,5 +1,5 @@
 {
-  "adaptedDshVersion": "0.2.1-rc.2",
+  "adaptedDshVersion": "0.2.2-rc.5",
   "minDshVersion": "0.2.0-rc.2",
   "belowDshVersion": "0.3.0",
   "blockedDshVersions": [],
@@ -13,9 +13,9 @@
     },
     "0.2.2": {
       "dsh-better-sidebar": {
-        "version": "0.32.1",
+        "version": "0.33.0",
         "minDshVersion": "0.2.2-rc.2",
-        "patch": "patches/dsh-better-sidebar@0.32.1.patch"
+        "patch": "patches/dsh-better-sidebar@0.33.0.patch"
       }
     }
   },

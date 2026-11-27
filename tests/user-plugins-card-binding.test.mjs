@@ -1,4 +1,5 @@
 import { createCardPlugins } from '../tavern-plugin/lib/domain/card-plugins.js'
+import { createCardPluginRuntime } from '../tavern-plugin/lib/domain/card-plugin-runtime.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
@@ -8,7 +9,7 @@ import { castManifestPath } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { Context } from '@deepseek-ai/cordis'
 import { pathToFileURL } from 'node:url'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
-import { syncUserPlugins, readPatchedUserPlugins, reconcileUserPluginsAtStartup, reloadUpdatedCardPlugins, loaderReload, runningUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { syncUserPlugins, readPatchedUserPlugins, reconcileUserPluginsAtStartup, loaderReload, runningUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 import { nativeSettingsProfile } from './fixtures/native-settings-profile.mjs'
 
 const cardPath = 'cards/card-id-a.json'
@@ -110,7 +111,6 @@ test('真实 DSH 加载器在同一进程重载已提交的卡内插件和它的
   await f.bind('a')
   const initial = await f.sync()
   const [{id, entry}] = initial.plugins
-  const loaded = await readPatchedUserPlugins(f)
   const {ctx, ownerId} = await nativeSettingsProfile(t, {settings:false,
     ownerSource:'export function apply() {}', extraRows:[{id:'client-modules', name:'@deepseek-ai/dsh-client-modules'}, {id, name:pathToFileURL(entry).href}]})
   const owner = [...ctx.loader.entries()].find(row => row.options.id === ownerId).fiber
@@ -120,23 +120,36 @@ test('真实 DSH 加载器在同一进程重载已提交的卡内插件和它的
   const clientEntry = () => clientModules.graph().entries.find(row => row.id === name)
   const originalClient = clientEntry()
   assert.ok(originalClient)
-  const reload = loaderReload(ctx.loader, owner)
-  await f.bind('b')
-  await f.bind('a', true, otherCardPath)
-  assert.deepEqual(await reloadUpdatedCardPlugins({result:await f.sync(), names:[name], loaded, reload}),
-    {reloaded:[], restartRequired:[name]})
+  const runtime = await createCardPluginRuntime({ dataRoot: f.dataRoot, dshHome: f.dshHome,
+    cardPaths: async () => [cardPath, otherCardPath], loader: ctx.loader, fiber: owner })
+  const reloadCard = (_, reload) => reload([name])
+  assert.deepEqual(await runtime.commit(async () => {
+    await f.bind('b')
+    await f.bind('a', true, otherCardPath)
+  }, reloadCard), { reloaded: [], restartRequired: [name] })
   assert.equal(ctx.get('bindingVersion'), 'a')
-  await f.bind('a', false, otherCardPath)
-  const committed = await f.sync({beforePatch:async result => {
-    assert.deepEqual(await reloadUpdatedCardPlugins({result, names:[name], loaded, reload}),
-      {reloaded:[name], restartRequired:[]})
-  }})
+  const writing = Promise.withResolvers()
+  const resumeWrite = Promise.withResolvers()
+  const update = runtime.commit(async () => {
+    writing.resolve()
+    await resumeWrite.promise
+    await f.bind('a', false, otherCardPath)
+  }, reloadCard)
+  await writing.promise
+  let synced = false
+  const sync = runtime.sync().then(() => { synced = true })
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(synced, false, 'plugin synchronization waits for the active card update')
+  } finally { resumeWrite.resolve() }
+  assert.deepEqual(await update, { reloaded: [name], restartRequired: [] })
+  await sync
   assert.equal(ctx.get('bindingVersion'), 'b')
   await ctx.loader.await()
   assert.notEqual(clientEntry().rev, originalClient.rev, 'The same process publishes the new browser bundle')
   assert.match(await readFile(clientModules.clientPath(name),'utf8'), /__bindingVersion = 'b'/)
   assert.equal(oldFiber.uid, null)
-  assert.equal(loaded.get(id), committed.plugins[0].entry)
-  assert.deepEqual(await reloadUpdatedCardPlugins({result:committed, names:[name], loaded,
-    reload:() => assert.fail('Already loaded; no duplicate restart')}), {reloaded:[name], restartRequired:[]})
+  const newFiber = [...ctx.loader.entries()].find(row => row.options.id === id).fiber
+  assert.deepEqual(await runtime.commit(async () => {}, reloadCard), { reloaded: [name], restartRequired: [] })
+  assert.equal([...ctx.loader.entries()].find(row => row.options.id === id).fiber, newFiber, 'an unchanged plugin does not restart twice')
 })

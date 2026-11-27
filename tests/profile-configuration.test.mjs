@@ -134,9 +134,9 @@ test('侧栏版本和补丁跟随宿主，较早的 0.2.2 预发布版沿用旧�
     ['0.2.0-rc.2', '0.26.0'],
     ['0.2.1-rc.2', '0.28.0'],
     ['0.2.2-rc.1', '0.28.0'],
-    ['0.2.2-rc.2', '0.32.1'],
-    ['0.2.2-rc.5', '0.32.1'],
-    ['0.2.2', '0.32.1'],
+    ['0.2.2-rc.2', '0.33.0'],
+    ['0.2.2-rc.5', '0.33.0'],
+    ['0.2.2', '0.33.0'],
   ]) {
     const manifest = mergeProfileManifest({ ...options, dshVersion })
     assert.equal(manifest.dependencies['dsh-better-sidebar'], sidebar, dshVersion)

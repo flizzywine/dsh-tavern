@@ -68,14 +68,17 @@ test('failed encryption never overwrites an existing output, and a damaged authe
   assert.equal(await readFile(f.encrypted, 'utf8'), 'keep existing file')
   await rm(f.encrypted)
   await encryptCardArchiveFile(f.plain, f.encrypted, PASSWORD)
+  const validated = await openCardZip(f.encrypted, { password: PASSWORD })
+  const authentication = validated.authentication
+  await validated.close()
   const metadata = await openZipFile(f.encrypted, { allowEncrypted: true })
-  const first = metadata.entries.get('card.json')
+  const changed = metadata.entries.get('plugins/game/assets/state.bin')
   await metadata.close()
   const bytes = await readFile(f.encrypted)
-  const start = first.localOffset + 30 + bytes.readUInt16LE(first.localOffset + 26) + bytes.readUInt16LE(first.localOffset + 28)
-  bytes[start + first.compressedSize - 1] ^= 0x01
+  const start = changed.localOffset + 30 + bytes.readUInt16LE(changed.localOffset + 26) + bytes.readUInt16LE(changed.localOffset + 28)
+  bytes[start + changed.compressedSize - 1] ^= 0x01
   await writeFile(f.encrypted, bytes)
-  await assert.rejects(openCardZip(f.encrypted, { password: PASSWORD }), { code: CARD_PASSWORD_INVALID })
+  await assert.rejects(openCardZip(f.encrypted, { password: PASSWORD, authentication }), { code: CARD_PASSWORD_INVALID })
 })
 
 test('upload survives missing/wrong password retries, is removed after success, and can be cancelled explicitly', async t => {

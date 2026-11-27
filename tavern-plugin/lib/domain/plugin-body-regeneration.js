@@ -4,14 +4,15 @@ import { computeSceneTarget } from './scene-illustration.js'
 import { sessionEvents } from './session-events.js'
 import { isNewPlayerInput } from './session-turn-input.js'
 import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, surfaceTurnOfSeq } from './rollback-surface.js'
-import { assertPluginRegenerationTarget, replaceLastRound } from './last-round-replacement.js'
+import { assertPluginRegenerationTarget } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { findBodyRegenerationFrame } from './body-regeneration-materials.js'
 import { untilAborted } from './plugin-callback.js'
 import { projectPlayerContent } from './player-input-content.js'
-import { createRegenerationDiscard, regenerationAttemptMessages, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure, retainRegenerationFailure } from './regeneration-discard.js'
+import { restoreDiscardedRegeneration } from './regeneration-discard.js'
+import { commitRegeneratedRound } from './regenerated-round.js'
 import { frameUserInput } from './agent-input-frame.js'
 
 const text = value => typeof value === 'string' ? value : ''
@@ -40,7 +41,7 @@ const BACKGROUND_WRITE_KEYS = ['macroState', 'variables', 'posture', 'scriptStat
  * checkpoint rollback, replacement and new body checkpoint commit after validation.
  */
 export function createPluginBodyRegeneration(deps) {
-  const { chats, sessions, timeline, queueSettlement, replyCommitted, cancelSettlement,
+  const { chats, sessions, timeline, queueSettlement, finishRegeneratedRound, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
     recovery, acquireAgent, pendingRegenerations, pendingRollbacks, selectTarget } = deps
 
@@ -216,55 +217,31 @@ export function createPluginBodyRegeneration(deps) {
           event: { kind: 'commit', userText: text(originalUser?.text), nativeTurn: failedMode ? oldTurn : bodyTurn } })
         draft.scriptState = progressed.state
       }
-      const begun = timeline.apply({ chat: draft, detach: false, intent: { kind: 'body.begin', turn: bodyTurn, userText: text(originalUser?.text) } })
-      draft = begun.chat
-      const bodyOperation = draft.timeline.operations[begun.value.operationId]
-      // The new checkpoint must still return to the ORIGINAL pre-turn revision,
-      // never the old completed body that remained visible during generation.
-      bodyOperation.beforeRevision = checkpoint.beforeRevision || 0
-      bodyOperation.beforeParticipants = clone(checkpoint.participants || beforeChat.timeline?.participants || {})
-      if (frame) {
-        draft.foregroundFrames = { ...draft.foregroundFrames, [bodyOperation.id]: { ...clone(frame),
-          frameId: 'foreground:' + chatId + ':' + draft.timeline.branchId + ':' + bodyOperation.id,
-          operationId: bodyOperation.id, branchId: draft.timeline.branchId, basedOnRevision: bodyOperation.basedOn.revision,
-          ...(failedMode ? { turn: bodyTurn } : {}) } }
+      const baseline = {
+        revision: checkpoint.beforeRevision || 0,
+        participants: checkpoint.participants || beforeChat.timeline?.participants || {},
+        checkpointBefore: checkpoint.before
       }
-      const completed = timeline.complete({ chat: draft, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
-        outcome: { status: 'success' }, apply(current) {
-          if (failedMode) {
-            // A discarded attempt keeps the failed round's玩家输入 in the save; the
-            // tail row is then already that input.补写 only owes the body, otherwise
-            // the story shows the same input twice.
-            const tail = Array.isArray(original.messages) ? original.messages.at(-1) : null
-            const tailIsInput = tail?.role === 'user' && text(tail.text) === text(failedInput)
-            current.messages = clone(original.messages).concat(tailIsInput ? [row] : [originalUser, row])
-          }
-          else {
-            const replaced = replaceLastRound({ originalChat: original, regeneratedChat: current, replacement: row, assistantIndex: index, inputIndex })
-            if (replacedUid) replaced.chat.messages[index].messageUid = replacedUid
-            // A save-only row receives its new full or reply-only anchor during
-            // recovery; the stale anchor of the missing body must not survive.
-            if (saveOnly) delete replaced.chat.messages[index].nativeAnchor
-            current.messages = replaced.chat.messages
-          }
-          delete current.promptTemplateInput
-          current.settleStatus = 'pending'
-          current.settleError = null
-          current.lastSettle = null
-          current.foregroundError = null
-          current.presentationWarnings = clone(prose.projectionWarnings || [])
-        } })
-      if (completed.value.status !== 'committed') throw error('TAVERN_PLUGIN_STALE_VERSION', '正文提交条件已失效')
-      draft = completed.chat
+      // A failed attempt can leave its input as the last row. Only append that input if it is missing.
+      const tail = Array.isArray(original.messages) ? original.messages.at(-1) : null
+      const tailIsInput = tail?.role === 'user' && text(tail.text) === text(failedInput)
+      const replacement = failedMode
+        ? { appendMessages: clone(original.messages).concat(tailIsInput ? [row] : [originalUser, row]) }
+        : { originalChat: original, row, assistantIndex: index, inputIndex, messageUid: replacedUid, dropNativeAnchor: saveOnly }
+      draft = commitRegeneratedRound({
+        timeline, chat: draft, turn: bodyTurn, userText: text(originalUser?.text), baseline,
+        frame: frame ? clone(frame) : null, frameTurn: failedMode ? bodyTurn : undefined, replacement,
+        projectionWarnings: prose.projectionWarnings,
+        conflict: () => error('TAVERN_PLUGIN_STALE_VERSION', '正文提交条件已失效')
+      }).chat
       if (failedMode) {
         draft.suppressedDshTurns = [...new Set([...(original.suppressedDshTurns || []), oldTurn])].sort((a, b) => a - b)
         draft.nativeCommits = { ...draft.nativeCommits, [String(bodyTurn)]: { turn: bodyTurn, userText: failedInput, committedAt: Date.now() } }
         if (draft.userInputEdits?.[String(oldTurn)]) { draft.userInputEdits = { ...draft.userInputEdits }; delete draft.userInputEdits[String(oldTurn)] }
       }
-      if (checkpoint.before !== undefined) draft.timeline.checkpoints.at(-1).before = clone(checkpoint.before)
       projection.data.message.content = [{ type: 'text', text: prose.text }]
       signal?.throwIfAborted()
-      let saved = await attempt.commit({
+      const saved = await attempt.commit({
         projection,
         validate: validateProvider,
         apply(current) {
@@ -286,21 +263,11 @@ export function createPluginBodyRegeneration(deps) {
       committed = true
       const committedVersion = computeSceneTarget(saved, bodyTurn).key
       await phase('committed')
-      saved = await attempt.project() || saved
-      try { await notifyRegeneration?.(sessionId, { turn: bodyTurn }) } catch { /* The committed story must still reach settlement. */ }
-      try { await replyCommitted?.(sessionId, saved._storageRevision) } catch { /* Listeners do not own the story commit. */ }
-      await phase('settling')
-      try { await queueSettlement(chatId) }
-      catch (cause) {
-        await chats.update(chatId, current => {
-          // A later branch must not inherit this operation's settlement failure.
-          if (current.timeline?.branchId !== saved.timeline?.branchId || current.timeline?.revision !== saved.timeline?.revision) return current
-          current.settleStatus = 'failed'
-          current.settleError = String(cause?.message || cause)
-          return current
-        }, { source: 'settlement.plugin-regen-failed' })
-      }
-      const latest = await chats.read(chatId) || saved
+      const latest = await finishRegeneratedRound({
+        attempt, committed: saved, notify: () => notifyRegeneration?.(sessionId, { turn: bodyTurn }),
+        beforeSettlement: () => phase('settling'),
+        failureSource: 'settlement.plugin-regen-failed', failureMessage: cause => String(cause?.message || cause)
+      })
       return { gameId: sessionId, turn: bodyTurn, textVersion: committedVersion,
         text: prose.text, settlement: latest.settleStatus, ...(latest.settleError ? { settlementError: latest.settleError } : {}) }
     } catch (cause) {

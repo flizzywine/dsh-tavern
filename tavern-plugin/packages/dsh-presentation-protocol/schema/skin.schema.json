@@ -2300,8 +2300,177 @@
        ]
       },
       "clip": {
-       "description": "false = no 导出片段 button beside the close (an original whose log screen has only its close); the export still starts from a row (Shift-click, long press). Omitted = the button beside the drawn close.",
-       "const": false
+       "description": "false = no 导出片段 button beside the close (an original whose log screen has only its close); the export still starts from a row (Shift-click, long press). An object = the button drawn as the skin's own image, its top-left at x, y on the design screen at scale design px per image px; focus = under the pointer and keyboard focus, on = while the export mode is open. Omitted = the shared button beside the drawn close.",
+       "oneOf": [
+        {
+         "const": false
+        },
+        {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "image",
+          "x",
+          "y"
+         ],
+         "properties": {
+          "image": {
+           "$ref": "#/$defs/image"
+          },
+          "focus": {
+           "$ref": "#/$defs/image"
+          },
+          "on": {
+           "$ref": "#/$defs/image"
+          },
+          "scale": {
+           "$ref": "#/$defs/artScale"
+          },
+          "x": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          },
+          "y": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          }
+         }
+        }
+       ]
+      },
+      "help": {
+       "type": "object",
+       "description": "The ? help (how to use the log) drawn as the skin's own image, its top-left at x, y on the design screen at scale design px per image px; focus = under the pointer and keyboard focus. Needs a placed title. Pointer hover, keyboard focus and a tap open the same tip text. Omitted = the shared small ? beside the title.",
+       "additionalProperties": false,
+       "required": [
+        "image",
+        "x",
+        "y"
+       ],
+       "properties": {
+        "image": {
+         "$ref": "#/$defs/image"
+        },
+        "focus": {
+         "$ref": "#/$defs/image"
+        },
+        "scale": {
+         "$ref": "#/$defs/artScale"
+        },
+        "x": {
+         "type": "number",
+         "minimum": -4096,
+         "maximum": 4096
+        },
+        "y": {
+         "type": "number",
+         "minimum": -4096,
+         "maximum": 4096
+        }
+       }
+      },
+      "turn": {
+       "type": "object",
+       "description": "The current turn's number (the turn the 第 N 轮 · 本轮 rule marks) drawn in the box x, y, w, h (design px), centred, at font design px in ink (default the screen's ink); a number too long for w at that size is set smaller to keep inside it. Nothing while the log shows no turn (a borrowed scene).",
+       "additionalProperties": false,
+       "required": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "font"
+       ],
+       "properties": {
+        "x": {
+         "type": "number",
+         "minimum": -4096,
+         "maximum": 4096
+        },
+        "y": {
+         "type": "number",
+         "minimum": -4096,
+         "maximum": 4096
+        },
+        "w": {
+         "type": "number",
+         "minimum": 8,
+         "maximum": 1024
+        },
+        "h": {
+         "type": "number",
+         "minimum": 8,
+         "maximum": 1024
+        },
+        "font": {
+         "type": "number",
+         "minimum": 8,
+         "maximum": 256
+        },
+        "ink": {
+         "$ref": "#/$defs/color"
+        }
+       }
+      },
+      "decor": {
+       "type": "array",
+       "description": "Placed images over the sheet and under the list (no action, not focusable), each with an optional loop: pulse = a slow swell about its centre, ping = a ring growing out and fading, then resting; period seconds per loop, delay seconds before the first. Still under CONFIG 减少动态 and the system's reduced motion.",
+       "minItems": 1,
+       "maxItems": 16,
+       "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "image",
+         "x",
+         "y"
+        ],
+        "properties": {
+         "image": {
+          "$ref": "#/$defs/image"
+         },
+         "scale": {
+          "$ref": "#/$defs/artScale"
+         },
+         "x": {
+          "type": "number",
+          "minimum": -4096,
+          "maximum": 4096
+         },
+         "y": {
+          "type": "number",
+          "minimum": -4096,
+          "maximum": 4096
+         },
+         "motion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "kind",
+           "period"
+          ],
+          "properties": {
+           "kind": {
+            "enum": [
+             "pulse",
+             "ping"
+            ]
+           },
+           "period": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 30
+           },
+           "delay": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30
+           }
+          }
+         }
+        }
+       }
       },
       "latest": {
        "description": "false = no 跳到最新 control (an original whose log screen has none); the wheel and End still reach the end. Omitted = the control.",

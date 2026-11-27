@@ -3,6 +3,7 @@ export interface MediaRef { sha256: string; size: number }
 export interface MediaStore {
   /** ref reuses a validated byte input's identity; streams without ref are hashed once. */
   put(source: Uint8Array | AsyncIterable<Uint8Array>, options?: {maxBytes?: number; ref?: MediaRef}): Promise<MediaRef>;
+  putSpooled?(file: string, options: {maxBytes?: number; ref: MediaRef; stamp?: string}): Promise<MediaRef>;
   resolve(ref: MediaRef): Promise<{absolutePath: string; size: number} | undefined>;
   /** Creates a new path, never overwrites or mutates an existing inode. */
   materialize(ref: MediaRef, target: string): Promise<{mode: 'hardlink' | 'copy'; savedBytes: number}>;
