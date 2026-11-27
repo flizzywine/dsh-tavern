@@ -468,7 +468,9 @@ function galCreateScene(host, options, own) {
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks();
+        // (not while the picture enters through a transition: its own closed mouth covers the speech, and the talking loop
+        // still loading then is usually ready by its end)
+        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks() && !entry.video.entering();
         entry.video.update({on: moving && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
@@ -1293,6 +1295,7 @@ function galCreateScene(host, options, own) {
                     glow: round(entry.appearance.snapshot().glow, 2), shadow: round(entry.appearance.snapshot().shadow, 2), blur: round(entry.appearance.snapshot().blur, 2), filters: entry.filters.all().length,
                     light: entry.light ? { strength: round(entry.light[11], 2), side: round(entry.light[9], 2), contact: Boolean(entry.contact?.visible) } : null,
                     ...(entry.spineFigure ? { spine: entry.spineFigure.debug() } : {}),
+                    ...(entry.video ? { video: { ...entry.video.state(), shown: Boolean(entry.videoShown), entering: entry.video.entering(), fading: entry.fading.length, held: entry.fading.some(item => item.held) } } : {}),
                     // figure-life: warp on, the last tap reaction, the reaction still (size, on screen) and the emotions a tap can borrow.
                     life: { armed: round(entry.appearance.snapshot().armed, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),
                 lastTap: state.lastTap || null,
