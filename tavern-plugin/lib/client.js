@@ -19776,7 +19776,7 @@ try { installTavernDisableEnterSend(); } catch (error) { /* 保持默认关闭�
 
 // Shared synchronous public API semantics for script and message iframes.
 // Keep factories self-contained: the document builders serialize their source.
-function installTavernHelperContext({window, facade, context, readChat}) {
+function installTavernHelperContext({window, facade, context, readChat, readExtensionSettings = () => context().extensionSettings}) {
     function chatId() { return String(context().chatId || ''); }
     let source, chat;
     function readMessageChat() {
@@ -19815,6 +19815,12 @@ function installTavernHelperContext({window, facade, context, readChat}) {
     facade.getContext = () => facade;
     facade.eventSource = eventSource;
     window.getContext = () => window.SillyTavern.getContext();
+    window.EjsTemplate = Object.freeze({
+        getFeatures: () => ({
+            enabled: true, generate_enabled: true, render_enabled: true,
+            ...structuredClone(readExtensionSettings()?.EjsTemplate || {})
+        })
+    });
 }
 
 function isCurrentTavernHelperContext(current, incoming) {
@@ -34296,9 +34302,6 @@ function bindTavernFontZoom(node, win) {
                 return chatData.save();
             }
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
-			window.EjsTemplate = Object.freeze({
-				getFeatures: () => ({ enabled: true, generate_enabled: true, render_enabled: true, ...copy(extensionSettings.EjsTemplate || {}) })
-			});
 			// Tavern applies enabled card regexes without ST's per-avatar opt-in.
 			// Project that host-owned permission without persisting a fabricated setting.
 			const settingsView = (official = false) => new Proxy(extensionSettings, {
@@ -34447,7 +34450,7 @@ function bindTavernFontZoom(node, win) {
 				}
 			};
 			Object.defineProperty(sillyTavern, "chatMetadata", { enumerable: true, get: chatData.metadata });
-			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat });
+			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat, readExtensionSettings: () => extensionSettings });
 			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
 			const officialMvuContext = Object.freeze(Object.create(sillyTavern, {
@@ -49677,24 +49680,29 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 		    getItem: function (key) { return window.localStorage.getItem(key); },
 		    setItem: function (key, value) { window.localStorage.setItem(key, value); }
 		});
-		function TavernHostCompatibility() {
+		function useTavernHostCompatibility() {
 		    const [info, setInfo] = React.useState(null);
-		    const [dismissed, setDismissed] = React.useState(false);
 		    React.useEffect(function () {
 		        let active = true;
 		        hostCompatibilityNotice.load().then(function (value) {
 		            if (!active || !value) return;
-		            setInfo(value); setDismissed(hostCompatibilityNotice.dismissed(value));
+		            setInfo(value);
 		        });
 		        return function () { active = false; };
 		    }, []);
+		    return info;
+		}
+		function TavernHostCompatibility({info}) {
+		    const [dismissedVersion, setDismissedVersion] = React.useState(null);
 		    if (!info) return null;
+		    const version = info.version || 'unknown';
+		    const dismissed = dismissedVersion === version || hostCompatibilityNotice.dismissed(info);
 		    // An allowed host needs no sidebar line; blocked hosts and unread notices stay visible.
 		    if (info.status === 'allowed' && !(info.message && !dismissed)) return null;
 		    return React.createElement('div', { className: 'dsh-tavern-update-status' },
 		        React.createElement('div', null, 'DSH 核心 ' + (info.version || '版本未知') + ' · ' + (info.status === 'allowed' ? '在支持范围内' : '不可用') + ' · 支持版本 ' + (info.allowedRange || '')),
 		        info.message && !dismissed ? React.createElement('div', { role: 'status' }, info.message,
-		            React.createElement('button', { type: 'button', className: 'dsh-tavern-btn', onClick: function () { hostCompatibilityNotice.dismiss(info); setDismissed(true); } }, '此版本不再提示')) : null);
+		            React.createElement('button', { type: 'button', className: 'dsh-tavern-btn', onClick: function () { hostCompatibilityNotice.dismiss(info); setDismissedVersion(version); } }, '此版本不再提示')) : null);
 		}
 		// 「进入游戏时打开酒馆状态」的判定：什么时候算玩家离开了这一局。
 		//
@@ -50210,6 +50218,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				catch (err) { setError(String(err && err.message || err)); }
 			}
             const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
+            const hostCompatibility = useTavernHostCompatibility();
             const updater = React.useRef(null);
             React.useEffect(function () {
                 const controller = createUpdateStatusController({ call, confirm: askConfirm, errors: tavernErrorHub, browser: window });
@@ -51622,7 +51631,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			// 发现更新时同理：目标构建直接挂在版本行末尾，「发现新构建 ×××」不再单占一行。
-			// 手机侧栏放不下「DSH Tavern · DSH 0.2.1」那一串，改用缩短版（CSS 按断点切换）。
+			// 手机侧栏使用缩短版，由 CSS 按断点切换。
 			const latestBuildLabel = (updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "";
 			const updateAvailableQuiet = updateStatus.phase === "update-available" && !updateStatus.checkWarning && Boolean(latestBuildLabel);
 			const updateTargetLabel = updateAvailableQuiet ? " → " + latestBuildLabel : "";
@@ -51630,8 +51639,9 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 			// 发现新构建时缩短版版本行始终附带目标构建，避免隐藏详情行后看不到目标构建。
 			const updateTargetCompactLabel = updateStatus.phase === "update-available" && Boolean(latestBuildLabel) ? " → " + latestBuildLabel : "";
 			const mobileUpdateDetailVisible = ["running", "cancelling", "blocked", "completed", "failed", "repair-required", "installed-restart-required", "restart-required"].includes(updateStatus.phase);
-			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel + updateTargetLabel;
-			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : currentVersionLabel + " · " + currentCommitLabel + updateTargetCompactLabel;
+			const dshVersionLabel = hostCompatibility?.version ? " · DSH " + hostCompatibility.version : "";
+			const updateIdentityText = updateStatusLoading ? "DSH Tavern" : "DSH Tavern " + currentVersionLabel + dshVersionLabel + " · " + currentCommitLabel + updateTargetLabel;
+			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern" : currentVersionLabel + " · " + currentCommitLabel + updateTargetCompactLabel;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
@@ -51669,13 +51679,13 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
+				updateStatus.host === "desktop" ? h(TavernHostCompatibility, { info: hostCompatibility }) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
 						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel },
 							h("span", { className: "dsh-tavern-update-identity-wide" }, updateIdentityText),
 							h("span", { className: "dsh-tavern-update-identity-compact" }, updateIdentityCompactText)),
 						updateActions),
-                    h(TavernHostCompatibility),
+                    h(TavernHostCompatibility, { info: hostCompatibility }),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status", "data-mobile-update-detail": mobileUpdateDetailVisible ? "visible" : "hidden" }, updateMessage)
 				),
 				!collapsed ? portalOverlay(historyManagerPanel) : null,

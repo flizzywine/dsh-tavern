@@ -465,9 +465,6 @@
                 return chatData.save();
             }
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
-			window.EjsTemplate = Object.freeze({
-				getFeatures: () => ({ enabled: true, generate_enabled: true, render_enabled: true, ...copy(extensionSettings.EjsTemplate || {}) })
-			});
 			// Tavern applies enabled card regexes without ST's per-avatar opt-in.
 			// Project that host-owned permission without persisting a fabricated setting.
 			const settingsView = (official = false) => new Proxy(extensionSettings, {
@@ -616,7 +613,7 @@
 				}
 			};
 			Object.defineProperty(sillyTavern, "chatMetadata", { enumerable: true, get: chatData.metadata });
-			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat });
+			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat, readExtensionSettings: () => extensionSettings });
 			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
 			const officialMvuContext = Object.freeze(Object.create(sillyTavern, {

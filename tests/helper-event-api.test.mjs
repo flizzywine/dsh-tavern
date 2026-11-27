@@ -106,6 +106,9 @@ test('pagehide rejects pending waits and releases their subscriptions without la
 test('HelperPopup renders passive markup and the actual facade returns numeric popup results', async t => {
   const { window } = new JSDOM('', { runScripts: 'dangerously' })
   t.after(() => window.close())
+  window.structuredClone = structuredClone
+  const publicApiSource = await readFile(new URL('../tavern-plugin/src/client/runtime/helper-public-api.js', import.meta.url), 'utf8')
+  const installContext = window.eval(publicApiSource + '\ninstallTavernHelperContext')
   const declarations = parse(sharedSource, { ecmaVersion: 'latest' }).body
   function load(name) {
     const decl = declarations.find(node => node.type === 'FunctionDeclaration' && node.id.name === name)
@@ -115,7 +118,7 @@ test('HelperPopup renders passive markup and the actual facade returns numeric p
   const Popup = load('createTavernHelperPopup')({ document, parent: { postMessage() {} }, token: 'tok' })
   load('installTavernHelperFacade')({
     window, Popup, context: () => ({ extensionSettings: { EjsTemplate: { render_enabled: false } } }), copy: structuredClone, createChatData: () => ({}),
-    createLocalVariables: () => ({}), installCompatibility() {}, installContext() {},
+    createLocalVariables: () => ({}), installCompatibility() {}, installContext,
   })
   const api = window.SillyTavern
   const features = window.EjsTemplate.getFeatures()

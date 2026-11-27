@@ -756,6 +756,17 @@ test('正式会话支持分步 /send 与 /trigger await=true|false', async () =>
   assert.equal(calls[0][2], calls[1][2])
 })
 
+test('消息 iframe 的 EjsTemplate 读取当前上下文中的模板开关', () => {
+  const context = { messages: [], extensionSettings: { EjsTemplate: { generate_enabled: false } } }
+  const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', helperContext: context })
+  const script = html.match(/<script data-dsh-tavern-frame-chat-context>([\s\S]*?)<\/script>/)[1]
+  const window = { SillyTavern: {}, __dshTavernReadHelperContext: () => context }
+  vm.runInNewContext(script, { window, structuredClone })
+  assert.deepEqual({ ...window.EjsTemplate.getFeatures() }, { enabled: true, generate_enabled: false, render_enabled: true })
+  context.extensionSettings = { EjsTemplate: { enabled: false } }
+  assert.deepEqual({ ...window.EjsTemplate.getFeatures() }, { enabled: false, generate_enabled: true, render_enabled: true })
+})
+
 test('消息 iframe 在 /trigger 前触发 GENERATION_AFTER_COMMANDS 并排空 injectPrompts', async () => {
   const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', token: 'msg-prompt-token', helperContext: { messages: [] }, turn: 1 })
   const helperScript = html.match(/<script data-dsh-tavern-helper>([\s\S]*?)<\/script>/)[1]
