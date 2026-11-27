@@ -3908,6 +3908,10 @@ window.__ModuleLoader__.load({
 		    const root = PACK_ROOT, listeners = new Set(), unavailable = new Set(), jobs = new Set();
 		    let active = true, ready = false, sequence = 0, timer, events, stopWs;
 		    const failure = code => Object.assign(new Error(code), {code});
+		    // a refused request: the host's plain reason (download failures: the HTTP status) rides along as detail; `reason` is
+		    // the sentence a check wrote for the player (playerErrorText shows it instead of the code's).
+		    const refusal = result => Object.assign(failure(result?.error || 'ASSET_UNAVAILABLE'), {revision:result?.revision,
+		        ...(typeof result?.message === 'string' ? {detail:result.message} : {}), ...(typeof result?.reason === 'string' ? {reason:result.reason} : {})});
 		    async function send(path, options = {}, binary = false, timeoutMs = 30000) {
 		        if (!active) throw failure('ASSET_UNAVAILABLE');
 		        const controller = new AbortController(); jobs.add(controller);
@@ -3915,8 +3919,7 @@ window.__ModuleLoader__.load({
 		        try {
 		            const response = await request(root + path, {credentials:'same-origin', ...options, signal:controller.signal});
 		            const result = binary && response.ok ? new Uint8Array(await response.arrayBuffer()) : await response.json();
-		            // the host's plain reason (download failures: the HTTP status) rides along as detail.
-		            if (!response.ok) throw Object.assign(failure(result.error || 'ASSET_UNAVAILABLE'), {revision:result.revision, ...(typeof result.message === 'string' ? {detail:result.message} : {})});
+		            if (!response.ok) throw refusal(result);
 		            if (!active) throw failure('ASSET_UNAVAILABLE');
 		            return result;
 		        } finally { clearTimeout(timeout); jobs.delete(controller); }
@@ -3961,7 +3964,7 @@ window.__ModuleLoader__.load({
 		                done();
 		                let result = null;
 		                try { result = JSON.parse(xhr.responseText); } catch (_) {}
-		                if (xhr.status < 200 || xhr.status >= 300 || !result) { reject(Object.assign(failure(result?.error || 'ASSET_UNAVAILABLE'), {revision:result?.revision, ...(typeof result?.message === 'string' ? {detail:result.message} : {})})); return; }
+		                if (xhr.status < 200 || xhr.status >= 300 || !result) { reject(refusal(result)); return; }
 		                if (!active) { reject(failure('ASSET_UNAVAILABLE')); return; }
 		                resolve(result);
 		            };
@@ -5497,6 +5500,7 @@ window.__ModuleLoader__.load({
 		// 舞台设置 alert, the catalogue, 生图 cells and the sidebar 最新错误 say errors through this. A known code gets its sentence
 		// (the caller's table first, then the shared one); a host message that is already plain Chinese keeps its reason, minus
 		// the 「（HTTP 401）：provider text」 tail; anything else (English, a bare code, a uuid) is the caller's fallback.
+		// An error carrying `reason` (the sentence the failed check wrote for the player: what failed, how to fix it) says that.
 		// The raw text goes to the console (and the 调试视图's 最新错误) only.
 		const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
 		  DISK_FULL:'磁盘空间不够，没有完成，也没有留下半个文件；腾出素材库所在磁盘的空间后再试一次',
@@ -5525,7 +5529,7 @@ window.__ModuleLoader__.load({
 		  const code=typeof error==='string'?'':String(error.code||'')||(['AbortError','TimeoutError'].includes(name)?name:'');
 		  const key=code||(/^[A-Z][A-Z0-9_]+$/.test(message)?message:'');
 		  const named=key&&(codes?.[key]||PLAYER_ERRORS[key]);
-		  const said=named?(key==='PACK_UNAVAILABLE'&&error.packName?'这张卡用到的素材包「'+error.packName+'」找不到了，请在 舞台设置 › 素材包 里移除或重新安装它':named):playerPlain(message)||fallback;
+		  const said=typeof error.reason==='string'&&error.reason?error.reason:named?(key==='PACK_UNAVAILABLE'&&error.packName?'这张卡用到的素材包「'+error.packName+'」找不到了，请在 舞台设置 › 素材包 里移除或重新安装它':named):playerPlain(message)||fallback;
 		  const raw=[code,message].filter(Boolean).join(': ');
 		  if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
 		  return said;

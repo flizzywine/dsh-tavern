@@ -1222,7 +1222,8 @@ export function createAssetPackService(options) {
         check(source, '$.sourcePackId', 'Pack missing', 'ASSET_UNAVAILABLE')
         const before = fresh ? null : await load(packId)
         if (!fresh) { cas(before, target.expectedRevision); check(before, '$.target.packId', 'Pack missing', 'ASSET_UNAVAILABLE') }
-        const manifest = before ? copy(before.manifest) : {format:'dsh-asset-pack', schemaVersion:1, id:packId, name:target.newPackName, contentHash:'0'.repeat(64), assets:[], figures:[], sprites:{}, bundles:{}, blobs:{}, files:[]}
+        // a new pack takes the source's image schema, so the figures it receives fit it (copy-figure.js)
+        const manifest = before ? copy(before.manifest) : {...blankManifest(packId, target.newPackName), schemaVersion:source.manifest.schemaVersion ?? 1}
         const files = new Map(before?.files || [])
         // copied figures take their 配图 外貌 along; the host gives each a record of its own
         const extras = await figureImageExtras(options, source.manifest.id, input.itemRefs.filter(ref => ref.kind === 'figures').map(ref => ref.id))

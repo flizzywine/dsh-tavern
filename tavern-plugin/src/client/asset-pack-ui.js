@@ -33,6 +33,7 @@ function orderedPackItems(pack,kind) {
 // 舞台设置 alert, the catalogue, 生图 cells and the sidebar 最新错误 say errors through this. A known code gets its sentence
 // (the caller's table first, then the shared one); a host message that is already plain Chinese keeps its reason, minus
 // the 「（HTTP 401）：provider text」 tail; anything else (English, a bare code, a uuid) is the caller's fallback.
+// An error carrying `reason` (the sentence the failed check wrote for the player: what failed, how to fix it) says that.
 // The raw text goes to the console (and the 调试视图's 最新错误) only.
 const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
   DISK_FULL:'磁盘空间不够，没有完成，也没有留下半个文件；腾出素材库所在磁盘的空间后再试一次',
@@ -61,7 +62,7 @@ function playerErrorText(error,{codes,fallback='出错了，请稍后再试'}={}
   const code=typeof error==='string'?'':String(error.code||'')||(['AbortError','TimeoutError'].includes(name)?name:'');
   const key=code||(/^[A-Z][A-Z0-9_]+$/.test(message)?message:'');
   const named=key&&(codes?.[key]||PLAYER_ERRORS[key]);
-  const said=named?(key==='PACK_UNAVAILABLE'&&error.packName?'这张卡用到的素材包「'+error.packName+'」找不到了，请在 舞台设置 › 素材包 里移除或重新安装它':named):playerPlain(message)||fallback;
+  const said=typeof error.reason==='string'&&error.reason?error.reason:named?(key==='PACK_UNAVAILABLE'&&error.packName?'这张卡用到的素材包「'+error.packName+'」找不到了，请在 舞台设置 › 素材包 里移除或重新安装它':named):playerPlain(message)||fallback;
   const raw=[code,message].filter(Boolean).join(': ');
   if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
   return said;
