@@ -25,6 +25,16 @@ test('name plate fitting cancels pending frames and ignores late font readiness'
   ready(); await Promise.resolve()
   assert.equal(reads,before)
 })
+test('name plate voice failures read as Chinese sentences, never a code', () => {
+  const labels = createStageLabels({
+    React:{useRef:() => ({current:null}),useLayoutEffect:()=>{},createElement:(type,props,...children) => ({type,props,children})},
+  })
+  const label = voiceError => labels.NamePlate({name:'甲',classic:true,voiceState:'error',voiceError,onReplay:() => {}}).children[1].props['aria-label']
+  assert.equal(label('CREDENTIALS_REQUIRED'),'配音失败：语音服务缺少 API Key，请在语音后端填写对应服务的 API Key；点击重试')
+  for (const [code, words] of [['SERVICE_REQUIRED',/还没有可用的语音服务/],['BROWSER_SPEECH_UNAVAILABLE',/不支持朗读/],['PLAY_BLOCKED',/点任意处开启声音/],['SERVICE_OFFLINE',/无法连接语音服务/]])
+    assert.match(label(code),words)
+  for (const unknown of ['Failed to fetch','SOMETHING_NEW',null]) assert.equal(label(unknown),'配音失败，点此重试')
+})
 // A figure with no voice picked yet (an author's pack with only a voice description) is no service
 // failure: the plate names her and where to pick one, and its button opens her 声音 page instead of retrying.
 test('name plate: a figure with no voice picked says who and where, and opens her voice page', () => {
