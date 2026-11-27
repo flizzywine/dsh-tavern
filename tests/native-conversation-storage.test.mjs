@@ -200,7 +200,7 @@ test('fresh native gameplay writes pages, recovers variables and preserves histo
  assert.equal((await store.readWindow('a',{limit:1})).worldMessageUid,saved.messages[2].messageUid)
  assert.equal(head.messageCount,3)
  assert.ok(head.messages.every(r=>r.message.runtimeRef&&!Object.hasOwn(r.message,'variables')))
- assert.deepEqual((await readdir(join(root,'chats/a'))).sort(),['blocks','head.json'])
+ assert.deepEqual((await readdir(join(root,'chats/a'))).sort(),['chat.sqlite','head.json'])
  assert.deepEqual(await store.readRevision('a',initial._storageRevision),initial)
  const fresh=createChatJournalStore({dataRoot:root})
  assert.deepEqual(await fresh.read('a'),saved)

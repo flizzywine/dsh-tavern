@@ -137,7 +137,7 @@ async function assertNativeStorage() {
   const latest=[...chat.messages].reverse().find(row=>row.variables?.[row.swipeId||0])
   if(latest)assert.deepEqual(view.state.world.variables,latest.variables[latest.swipeId||0])
   const files=await readdir(join(data,'chats',chat.id))
-  assert.ok(files.includes('head.json')&&files.includes('blocks'))
+  assert.ok(files.includes('head.json')&&(files.includes('chat.sqlite')||files.includes('blocks')))
   if(!process.argv.includes('--upgrade-save'))assert.ok(!files.includes('snapshots')&&!files.includes('journals')&&!files.includes('storage-format.json'))
   report.nativeFormat={format:view.metadata.format,chatId:chat.id,messageCount:view.messageCount,revision:view.state.chatRevision,gold:view.state.world.variables.stat_data?.gold,files}
 }

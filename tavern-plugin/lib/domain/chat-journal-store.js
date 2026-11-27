@@ -582,7 +582,7 @@ export function createChatJournalStore(options = {}) {
 
   /** Exact-version internal commit; stale callers must use their existing merge path. */
   async function patch(chatId, expectedRevision, changes, metadata={}) {
-    return serialize(chatId,async()=>{
+    return serialize(chatId,()=>native.withSession(chatId,async()=>{
       if (!readCache.has(chatId) || Array.isArray(metadata.returnProjection)) {
         const cached=readCache.get(chatId)?.state
         const reusable=cached?.native && cached.revision===expectedRevision
@@ -640,7 +640,7 @@ export function createChatJournalStore(options = {}) {
         rememberChanges(recentChanges, frame.revision, changes))
       committed(chatId,frame.revision,metadata.source)
       return slice(next,[],metadata.returnProjection).chat
-    })
+    }))
   }
 
   async function readRevision(chatId, revision) {
@@ -653,7 +653,7 @@ export function createChatJournalStore(options = {}) {
   async function update(chatId, updater, metadata = {}) {
     if (typeof updater !== 'function') throw new Error('Chat Journal Store 缺少 updater')
     const site = options.wholeReadGuard?.site()
-    return await serialize(chatId, async function () {
+    return await serialize(chatId, () => native.withSession(chatId, async function () {
       const paths = layout(chatId)
       const currentState = await cachedState(paths.id)
       // The updater gets a copy of the whole Chat and the result is diffed against it.
@@ -729,7 +729,7 @@ export function createChatJournalStore(options = {}) {
         rememberChanges(recentChanges, revision, changes))
       committed(chatId, revision, metadata.source)
       return copyJsonTree(next)
-    })
+    }))
   }
 
   // Maintenance can recreate a deleted directory when taking its head lock.
@@ -753,6 +753,7 @@ export function createChatJournalStore(options = {}) {
         const paths = layout(chatId)
         forgetState(chatId)
         sessionMessages.forget(chatId)
+        native.close(chatId)
         await compatible?.remove(chatId)
         await rm(paths.root, { recursive: true, force: true })
         if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
@@ -797,5 +798,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, close: chatId => native.close(chatId), closeAll: () => native.closeAll(), detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
 }

@@ -5,6 +5,7 @@ import {createDurableFilePromotion} from '../durable-file-promotion.js'
 import {channel} from 'node:diagnostics_channel'
 import {performance} from 'node:perf_hooks'
 import {createConversationReadLanes,conversationReadLane} from './conversation-read-lanes.js'
+import {createConversationSqliteBackend,SQLITE_FORMAT} from './conversation-sqlite-store.js'
 const readMetrics=channel('dsh.chat.read')
 
 // Syncing every touched directory on every commit costs tens of milliseconds each on a phone.
@@ -39,9 +40,10 @@ export async function endRelaxedSync(){
 // append/point edits copy a bounded page and its radix-tree path.
 const PAGE_SIZE=64, FANOUT=32, FORMAT=1
 // Head pointer format. 2: blocks may live in block packs (any block kind,
-// several per file); older releases refuse it cleanly instead of misreading.
+// several per file); 3: blocks and head_id live in a single SQLite database
+// (chat.sqlite) so file count stays constant; older releases refuse it cleanly.
 const POINTER_FORMAT=2
-const readablePointer=format=>format===1||format===POINTER_FORMAT
+const readablePointer=format=>format===1||format===POINTER_FORMAT||format===SQLITE_FORMAT
 const PACK_BYTES=64*1024, PACK_ENTRIES=256
 const hash=value=>createHash('sha256').update(value).digest('hex')
 // The one record-block encoding. Callers that address records before
@@ -134,11 +136,14 @@ export function blockVisits(reads=[]){
 function conflict(){return Object.assign(new Error('Conversation revision conflict'),{code:'CONVERSATION_CONFLICT'})}
 function integer(value,min=0){return Number.isSafeInteger(value)&&value>=min}
 
+const noopIO=()=>{}
 export const supportsIndependentFiles = true
-export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unlinkFile=unlink}={}) {
+export function createConversationPageStore({root,onIO=noopIO,linkFile=link,unlinkFile=unlink,format=SQLITE_FORMAT,keepOpenMs=0}={}) {
+ if(format!==POINTER_FORMAT&&format!==SQLITE_FORMAT)throw Error('Unsupported conversation storage format')
  const independentFiles=process.env.DSH_STORAGE_COPY_ONLY==='1'
  if(!root)throw Error('Conversation store requires root')
  root=path.resolve(root)
+ const sqlite=createConversationSqliteBackend({onIO,keepOpenMs})
  // A live, slow writer must never lose its lock merely due to elapsed time.
  // Dead process recovery and pending head promotion use the existing protocol.
  const promotion=createDurableFilePromotion({writeLockStaleMs:Number.MAX_SAFE_INTEGER})
@@ -213,6 +218,20 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   if(typeof id!=='string'||!id||id==='.'||id==='..'||/[\\/\0]/.test(id))throw Error('Invalid conversation id')
   return path.join(root,id)
  }
+ async function detectBackend(dir,allowMissingHead=false){
+  const sessionBackend=sqlite.getSessionBackend(dir)
+  if(sessionBackend&&allowMissingHead)return {backend:sessionBackend,pointer:null}
+  const bytes=await promotion.read(path.join(dir,'head.json'))
+  if(bytes!==undefined){
+   const pointer=JSON.parse(bytes)
+   if(pointer.format===SQLITE_FORMAT){sqlite.setSessionBackend(dir,'sqlite');return {backend:'sqlite',pointer}}
+   if(pointer.format===1||pointer.format===POINTER_FORMAT){sqlite.setSessionBackend(dir,'files');return {backend:'files',pointer}}
+   throw Error('Unsupported conversation format')
+  }
+  if(!allowMissingHead)return {backend:null,pointer:null}
+  if(sqlite.hasDatabase(dir)){sqlite.setSessionBackend(dir,'sqlite');return {backend:'sqlite',pointer:null}}
+  return {backend:format===SQLITE_FORMAT?'sqlite':'files',pointer:null}
+ }
  function blobPath(dir,id){
   if(!/^[a-f0-9]{64}$/.test(id))throw Error('Invalid block reference')
   return path.join(dir,'blocks',id.slice(0,2),id+'.json')
@@ -273,19 +292,48 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   }
   return value
  }
- function reader(dir){
+ function readSqliteBlockSync(dir,id,lane,queueMs,chatId,cacheBlock){
+  const trackMetrics=readMetrics.hasSubscribers
+  const started=trackMetrics?performance.now():0
+  const raw=sqlite.readBlockRaw(dir,id)
+  if(!raw)throw Object.assign(Error('Block not found: '+id),{code:'ENOENT'})
+  const loaded=trackMetrics?performance.now():0
+  if(raw.encoding!==0)throw Error('Unsupported block encoding')
+  let value
+  const text=typeof raw.data==='string'?raw.data:Buffer.from(raw.data.buffer,raw.data.byteOffset,raw.data.byteLength).toString('utf8')
+  try{value=JSON.parse(text)}catch{throw Error('Invalid immutable block')}
+  if(!record(value)||typeof value.kind!=='string')throw Error('Invalid immutable block')
+  const byteLen=raw.byteLen??Buffer.byteLength(text)
+  if(cacheBlock&&byteLen<=64*1024)cachePacked(dir,[[id,value]],byteLen*2+128)
+  if(trackMetrics){
+   const parsed=performance.now()
+   const event={kind:'read',type:value.kind,bytes:byteLen,chatId,ref:id,lane:lane||conversationReadLane(),queueMs,readMs:loaded-started,decodeMs:parsed-loaded}
+   onIO(event)
+   readMetrics.publish({name:'chat.block',durationMs:parsed-started,...event})
+  }else if(onIO!==noopIO){
+   onIO({kind:'read',type:value.kind,bytes:byteLen,chatId,ref:id,lane:'',queueMs:0,readMs:0,decodeMs:0})
+  }
+  return value
+ }
+ function reader(dir,backendHint){
   // Reader-local references sit over a bounded immutable block cache.
   const cache=new Map()
-  return async function readBlock(id,kind){
+  let resolvedBackend=backendHint||sqlite.getSessionBackend(dir)
+  async function readBlock(id,kind){
    if(!cache.has(id)){
     const remembered=cachedBlock(dir,id)
     if(remembered)cache.set(id,remembered)
-    else {
+    else if((resolvedBackend||sqlite.getSessionBackend(dir))==='sqlite'){
+     resolvedBackend='sqlite'
+     cache.set(id,readSqliteBlockSync(dir,id,'',0,path.basename(dir),true))
+    }else {
      const key=dir+'/'+id
      let pending=loading.get(key)
      if(!pending){
       const queued=performance.now()
       pending=scheduleRead(async lane=>{
+       if(!resolvedBackend)resolvedBackend=(await detectBackend(dir,true)).backend
+       if(resolvedBackend==='sqlite')return readSqliteBlockSync(dir,id,lane,performance.now()-queued,path.basename(dir),true)
        const started=performance.now(),bytes=await readFile(blobPath(dir,id)),loaded=performance.now()
        const value=admitFile(dir,id,bytes)
        const parsed=performance.now()
@@ -303,6 +351,8 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
    if(kind&&value.kind!==kind)throw Error('Invalid block type')
    return value
   }
+  readBlock.setBackend=backend=>{resolvedBackend=backend}
+  return readBlock
  }
  function validateHead(head,id){
   if(head.format!==FORMAT||head.id!==id||!integer(head.revision,1)||!integer(head.count)||!integer(head.height)||head.height>10)throw Error('Invalid conversation head')
@@ -315,6 +365,13 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   if(bytes===undefined)return undefined
   const pointer=JSON.parse(bytes)
   if(!readablePointer(pointer.format))throw Error('Unsupported conversation format')
+  if(pointer.format===SQLITE_FORMAT){
+   read.setBackend?.('sqlite');sqlite.setSessionBackend(dir,'sqlite')
+   const headId=sqlite.getHeadId(dir)
+   if(!headId)throw Error('Invalid conversation head')
+   return {head:validateHead(await read(headId,'head'),id),headId}
+  }
+  read.setBackend?.('files');sqlite.setSessionBackend(dir,'files')
   return {head:validateHead(await read(pointer.headId,'head'),id),headId:pointer.headId}
  }
  async function leaf(read,root,height,page){
@@ -371,85 +428,127 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   const dir=directory(id),value=copy(input)
   if(!record(value.state)||!Array.isArray(value.messages??[])||!(value.messages??[]).every(record))throw Error('Invalid initial conversation')
   let result
-  await promotion.update(path.join(dir,'head.json'),async current=>{
+  await sqlite.withSession(dir,()=>promotion.update(path.join(dir,'head.json'),async current=>{
    if(current!==undefined)throw conflict()
    // Build the initial page/state/metadata/head graph in memory. One packed flush
    // replaces four or more file fsyncs plus their per-block directory barriers.
    const pending=new Map()
-   const write=async block=>{const ref=hash(JSON.stringify(block));pending.set(ref,block);return ref}
+   const write=async block=>{const bytes=JSON.stringify(block),ref=hash(bytes);pending.set(ref,{ref,block,bytes});return ref}
    const messages=value.messages??[],tree=await build(dir,messages,write)
    const head={kind:'head',format:FORMAT,id,revision:1,count:messages.length,...tree,
     stateId:await write({kind:'state',value:value.state}),metadataId:await write({kind:'metadata',value:value.metadata??{}})}
    const headId=await write(head)
+   if(format===SQLITE_FORMAT){
+    sqlite.createInitial(dir,id,[...pending.values()],headId)
+    result={revision:1,snapshotId:headId}
+    await verifyBeforePublish?.(headId)
+    assertCurrent?.()
+    return JSON.stringify({format:SQLITE_FORMAT,engine:'sqlite'})
+   }
    // Verification reads the flushed immutable graph before the mutable pointer
    // names it, exactly as commit() does for every subsequent revision.
-   await writePacked(dir,[...pending.values()])
+   await writePacked(dir,[...pending.values()].map(entry=>entry.block),[...pending.keys()])
    result={revision:1,snapshotId:headId}
    await verifyBeforePublish?.(headId)
    assertCurrent?.()
    return JSON.stringify({format:POINTER_FORMAT,headId})
-  })
+  }))
   return result
  }
+ async function buildCommitGraph(dir,id,read,write,headId,change){
+  const head=validateHead(await read(headId,'head'),id)
+  if(head.revision!==change.expectedRevision)throw conflict()
+  if(!integer(head.revision+1,1))throw Error('Revision overflow')
+  const retained=change.truncateTo ?? head.count
+  if(!integer(retained)||retained>head.count)throw Error('Invalid truncation')
+  const pages=new Map()
+  async function pageAt(page){
+   if(!pages.has(page))pages.set(page,page*PAGE_SIZE<retained?(await leaf(read,head.root,head.height,page)).slice(0,Math.min(PAGE_SIZE,retained-page*PAGE_SIZE)):[])
+   return pages.get(page)
+  }
+  for(const edit of change.edits??[]){
+   if(!integer(edit.position)||edit.position>=retained||!record(edit.message))throw Error('Invalid edit position or message')
+   const page=Math.floor(edit.position/PAGE_SIZE)
+   ;(await pageAt(page))[edit.position%PAGE_SIZE]=edit.message
+  }
+  if(retained<head.count&&retained%PAGE_SIZE)await pageAt(Math.floor(retained/PAGE_SIZE))
+  let count=retained
+  for(const message of change.append??[]){
+   if(!integer(count+1)||count>=PAGE_SIZE*FANOUT**10)throw Error('History capacity exceeded')
+   ;(await pageAt(Math.floor(count/PAGE_SIZE)))[count%PAGE_SIZE]=message;count++
+  }
+  let {root:treeRoot,height}=head
+  const lastPage=Math.max(0,Math.ceil(count/PAGE_SIZE)-1)
+  while(lastPage>=FANOUT**height){treeRoot=await write({kind:'index',children:treeRoot?[treeRoot]:[]});height++}
+  for(const [page,messages] of pages)treeRoot=await setLeaf(dir,read,treeRoot,height,page,messages,write)
+  const next={...head,revision:head.revision+1,count,root:treeRoot,height,previousHeadId:headId}
+  if(change.records!==undefined){
+   if(!Array.isArray(change.records))throw Error('Invalid keyed records')
+   const updates=new Map()
+   for(const entry of change.records){
+    if(!Array.isArray(entry)||entry.length!==2)throw Error('Invalid keyed record')
+    const [key,value]=entry,route=recordKey(key)
+    const valueRef=await write({kind:'record',value})
+    updates.set(key,{key,valueRef,route})
+   }
+   if(updates.size)next.recordRoot=await putEntries(dir,read,next.recordRoot,[...updates.values()],0,write)
+  }
+  if(Object.hasOwn(change,'state'))next.stateId=await write({kind:'state',value:change.state})
+  if(Object.hasOwn(change,'metadata'))next.metadataId=await write({kind:'metadata',value:change.metadata})
+  const nextHeadId=await write(next)
+  return {next,headId:nextHeadId}
+ }
+ function addExtraRecords(pending,extraRecords){
+  if(extraRecords===undefined)return
+  if(!Array.isArray(extraRecords))throw Error('Invalid extra records')
+  for(const item of extraRecords){
+   const block={kind:'record',value:item.value},bytes=item.bytes??JSON.stringify(block),ref=item.ref??hash(bytes)
+   pending.set(ref,{ref,block,bytes})
+  }
+ }
  async function commit(id,input,{assertCurrent}={}){
-  const dir=directory(id),change=copy(input),diskRead=reader(dir),pending=new Map()
+  const dir=directory(id),change=copy(input)
+  if(!integer(change.expectedRevision,1)||!Array.isArray(change.append??[])||!(change.append??[]).every(record)
+    ||!Array.isArray(change.edits??[])||(Object.hasOwn(change,'state')&&!record(change.state)))throw Error('Invalid commit')
+  const detected=await detectBackend(dir,false)
+  if(!detected.backend)throw conflict()
+  if(detected.backend==='sqlite'){
+   return sqlite.serializeWrite(dir,()=>sqlite.withSession(dir,async()=>{
+    const initialHeadId=sqlite.getHeadId(dir,{fresh:true})
+    if(!initialHeadId)throw conflict()
+    const diskRead=reader(dir,'sqlite'),pending=new Map()
+    const write=async block=>{const bytes=JSON.stringify(block),ref=hash(bytes);pending.set(ref,{ref,block,bytes});return ref}
+    const read=async (ref,kind)=>{
+     if(!pending.has(ref))return diskRead(ref,kind)
+     const value=pending.get(ref).block
+     if(kind&&value.kind!==kind)throw Error('Invalid block type')
+     return value
+    }
+    addExtraRecords(pending,change.extraRecords)
+    const {next,headId}=await buildCommitGraph(dir,id,read,write,initialHeadId,change)
+    sqlite.commitHead(dir,initialHeadId,[...pending.values()],headId,{assertCurrent})
+    return {revision:next.revision,snapshotId:headId}
+   }))
+  }
+  const diskRead=reader(dir,'files'),pending=new Map()
   // References depend on content, not write order. Build the new immutable graph
   // in memory, then durably flush independent blocks before publishing its head.
-  const write=async value=>{const id=hash(JSON.stringify(value));pending.set(id,value);return id}
-  const read=async (id,kind)=>{
-   if(!pending.has(id))return diskRead(id,kind)
-   const value=pending.get(id)
+  const write=async block=>{const bytes=JSON.stringify(block),ref=hash(bytes);pending.set(ref,{ref,block,bytes});return ref}
+  const read=async (ref,kind)=>{
+   if(!pending.has(ref))return diskRead(ref,kind)
+   const value=pending.get(ref).block
    if(kind&&value.kind!==kind)throw Error('Invalid block type')
    return value
   }
-  async function flush(){await writePacked(dir,[...pending.values()],[...pending.keys()])}
-  if(!integer(change.expectedRevision,1)||!Array.isArray(change.append??[])||!(change.append??[]).every(record)
-    ||!Array.isArray(change.edits??[])||(Object.hasOwn(change,'state')&&!record(change.state)))throw Error('Invalid commit')
+  async function flush(){await writePacked(dir,[...pending.values()].map(entry=>entry.block),[...pending.keys()])}
   let result
   await promotion.update(path.join(dir,'head.json'),async pointer=>{
    if(pointer===undefined)throw conflict()
    const reference=JSON.parse(pointer)
-   if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
-   const head=validateHead(await read(reference.headId,'head'),id)
-   if(head.revision!==change.expectedRevision)throw conflict()
-   if(!integer(head.revision+1,1))throw Error('Revision overflow')
-   const retained=change.truncateTo ?? head.count
-   if(!integer(retained)||retained>head.count)throw Error('Invalid truncation')
-   const pages=new Map()
-   async function pageAt(page){
-    if(!pages.has(page))pages.set(page,page*PAGE_SIZE<retained?(await leaf(read,head.root,head.height,page)).slice(0,Math.min(PAGE_SIZE,retained-page*PAGE_SIZE)):[])
-    return pages.get(page)
-   }
-   for(const edit of change.edits??[]){
-    if(!integer(edit.position)||edit.position>=retained||!record(edit.message))throw Error('Invalid edit position or message')
-    const page=Math.floor(edit.position/PAGE_SIZE)
-    ;(await pageAt(page))[edit.position%PAGE_SIZE]=edit.message
-   }
-   if(retained<head.count&&retained%PAGE_SIZE)await pageAt(Math.floor(retained/PAGE_SIZE))
-   let count=retained
-   for(const message of change.append??[]){
-    if(!integer(count+1)||count>=PAGE_SIZE*FANOUT**10)throw Error('History capacity exceeded')
-    ;(await pageAt(Math.floor(count/PAGE_SIZE)))[count%PAGE_SIZE]=message;count++
-   }
-   let {root:treeRoot,height}=head
-   const lastPage=Math.max(0,Math.ceil(count/PAGE_SIZE)-1)
-   while(lastPage>=FANOUT**height){treeRoot=await write({kind:'index',children:treeRoot?[treeRoot]:[]});height++}
-   for(const [page,messages] of pages)treeRoot=await setLeaf(dir,read,treeRoot,height,page,messages,write)
-   const next={...head,revision:head.revision+1,count,root:treeRoot,height,previousHeadId:reference.headId}
-   if(change.records!==undefined){
-    if(!Array.isArray(change.records))throw Error('Invalid keyed records')
-    const updates=new Map()
-    for(const entry of change.records){
-     if(!Array.isArray(entry)||entry.length!==2)throw Error('Invalid keyed record')
-     const [key,value]=entry,route=recordKey(key)
-     const valueRef=await write({kind:'record',value})
-     updates.set(key,{key,valueRef,route})
-    }
-    if(updates.size)next.recordRoot=await putEntries(dir,read,next.recordRoot,[...updates.values()],0,write)
-   }
-   if(Object.hasOwn(change,'state'))next.stateId=await write({kind:'state',value:change.state})
-   if(Object.hasOwn(change,'metadata'))next.metadataId=await write({kind:'metadata',value:change.metadata})
-   const headId=await write(next)
+   if(reference.format!==1&&reference.format!==POINTER_FORMAT)throw Error('Unsupported conversation format')
+   pending.clear()
+   addExtraRecords(pending,change.extraRecords)
+   const {next,headId}=await buildCommitGraph(dir,id,read,write,reference.headId,change)
    result={revision:next.revision,snapshotId:headId}
    await flush()
    assertCurrent?.()
@@ -474,46 +573,70 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
  // Header/configuration readers never need a history page, including its
  // potentially large historical receipts. The pointer pins all returned fields.
  async function readHead(id,{snapshotId}={}){
-  const dir=directory(id),read=reader(dir)
-  const selected=snapshotId?{head:validateHead(await read(snapshotId,'head'),id),headId:snapshotId}:await current(dir,id,read)
-  if(!selected)return undefined
-  const {head,headId}=selected
-  return {revision:head.revision,messageCount:head.count,snapshotCursor:{snapshotId:headId,before:head.count},
-   state:copy((await read(head.stateId,'state')).value),metadata:copy((await read(head.metadataId,'metadata')).value)}
+  const dir=directory(id)
+  return sqlite.withSession(dir,async()=>{
+   const read=reader(dir)
+   const selected=snapshotId?{head:validateHead(await read(snapshotId,'head'),id),headId:snapshotId}:await current(dir,id,read)
+   if(!selected)return undefined
+   const {head,headId}=selected
+   return {revision:head.revision,messageCount:head.count,snapshotCursor:{snapshotId:headId,before:head.count},
+    state:copy((await read(head.stateId,'state')).value),metadata:copy((await read(head.metadataId,'metadata')).value)}
+  })
  }
  async function openConversation(id,{limit=50,snapshotId}={}){
   pageLimit(limit)
-  const dir=directory(id),read=reader(dir)
-  const selected=snapshotId?{head:validateHead(await read(snapshotId,'head'),id),headId:snapshotId}:await current(dir,id,read)
-  if(!selected)return undefined
-  const {head,headId}=selected
-  return {...await page(read,head,headId,head.count,limit),state:copy((await read(head.stateId,'state')).value),metadata:copy((await read(head.metadataId,'metadata')).value)}
+  const dir=directory(id)
+  return sqlite.withSession(dir,async()=>{
+   const read=reader(dir)
+   const selected=snapshotId?{head:validateHead(await read(snapshotId,'head'),id),headId:snapshotId}:await current(dir,id,read)
+   if(!selected)return undefined
+   const {head,headId}=selected
+   return {...await page(read,head,headId,head.count,limit),state:copy((await read(head.stateId,'state')).value),metadata:copy((await read(head.metadataId,'metadata')).value)}
+  })
  }
  async function readHistoryPage(id,{cursor,limit=50}={}){
   pageLimit(limit)
   if(!record(cursor))throw Error('Invalid history cursor')
-  const read=reader(directory(id))
-  let head
-  try{head=await read(cursor.snapshotId,'head')}catch(error){
-   if(error.code==='ENOENT')throw Error('Invalid history cursor')
-   throw error
-  }
-  if(head.id!==id)throw Error('Foreign history cursor')
-  validateHead(head,id)
-  return page(read,head,cursor.snapshotId,cursor.before,limit)
+  const dir=directory(id)
+  return sqlite.withSession(dir,async()=>{
+   const read=reader(dir)
+   let head
+   try{head=await read(cursor.snapshotId,'head')}catch(error){
+    if(error.code==='ENOENT')throw Error('Invalid history cursor')
+    throw error
+   }
+   if(head.id!==id)throw Error('Foreign history cursor')
+   validateHead(head,id)
+   return page(read,head,cursor.snapshotId,cursor.before,limit)
+  })
  }
  async function readState(id,{snapshotId}={}){
-  const dir=directory(id),read=reader(dir)
-  const head=snapshotId?validateHead(await read(snapshotId,'head'),id):(await current(dir,id,read))?.head
-  return head?copy((await read(head.stateId,'state')).value):undefined
+  const dir=directory(id)
+  return sqlite.withSession(dir,async()=>{
+   const read=reader(dir)
+   const head=snapshotId?validateHead(await read(snapshotId,'head'),id):(await current(dir,id,read))?.head
+   return head?copy((await read(head.stateId,'state')).value):undefined
+  })
  }
  // Detached immutable records let migration separate large historical state
  // and extension payloads from the page body. They are not a second mutable head.
- async function writeRecord(id,value){return writeBlock(directory(id),{kind:'record',value:copy(value)})}
+ async function writeRecord(id,value){
+  const dir=directory(id),{backend}=await detectBackend(dir,true)
+  const block={kind:'record',value:copy(value)}
+  if(backend==='sqlite')return sqlite.withSession(dir,()=>sqlite.writeBlocks(dir,[{block}])[0])
+  return writeBlock(dir,block)
+ }
  // Independent immutable blocks may be flushed concurrently. All files and
  // directory entries are durable before this returns and BEFORE head publication.
  async function writeRecords(id,values,known){
-  return writePacked(directory(id),copy(values).map(value=>({kind:'record',value})),known)
+  const dir=directory(id),{backend}=await detectBackend(dir,true)
+  const blocks=copy(values).map(value=>({kind:'record',value}))
+  if(backend==='sqlite'){
+   if(known!==undefined&&(!Array.isArray(known)||known.length!==blocks.length))throw Error('Invalid record references')
+   const entries=blocks.map((block,i)=>{const bytes=JSON.stringify(block);return {block,bytes,ref:known?known[i]:hash(bytes)}})
+   return sqlite.withSession(dir,()=>sqlite.writeBlocks(dir,entries))
+  }
+  return writePacked(dir,blocks,known)
  }
  // Store every block kind in durable packs, retaining fork reference reuse and bounded IO.
  async function writePacked(dir,blocks,known){
@@ -598,27 +721,53 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   return refs
  }
  async function readRecord(id,reference,{shared=false}={}){
-  const value=(await reader(directory(id))(reference,'record')).value
-  return shared?value:copy(value)
+  const dir=directory(id)
+  if(shared&&sqlite.getSessionBackend(dir)==='sqlite'){
+   const value=readSqliteBlockSync(dir,reference,'',0,id,false)
+   if(value.kind!=='record')throw Error('Invalid block type')
+   return value.value
+  }
+  const remembered=cachedBlock(dir,reference)
+  if(remembered){
+   if(remembered.kind!=='record')throw Error('Invalid block type')
+   return shared?remembered.value:copy(remembered.value)
+  }
+  if(sqlite.getSessionBackend(dir)==='sqlite'){
+   const value=readSqliteBlockSync(dir,reference,'',0,id,true)
+   if(value.kind!=='record')throw Error('Invalid block type')
+   return copy(value.value)
+  }
+  return sqlite.withSession(dir,async()=>{
+   const value=(await reader(dir)(reference,'record')).value
+   return shared?value:copy(value)
+  })
  }
  async function readEntries(id,keys,{snapshotId}={}){
   if(!Array.isArray(keys))throw Error('Invalid record keys')
-  const routes=keys.map(recordKey),dir=directory(id),read=reader(dir)
-  const head=snapshotId?validateHead(await read(snapshotId,'head'),id):(await current(dir,id,read))?.head
-  if(!head)return undefined
-  const entries=[]
-  for(let i=0;i<keys.length;i++){
-   const ref=await lookup(read,head.recordRoot,keys[i],routes[i])
-   if(ref)entries.push([keys[i],copy((await read(ref,'record')).value)])
-  }
-  return Object.fromEntries(entries)
+  const routes=keys.map(recordKey),dir=directory(id)
+  return sqlite.withSession(dir,async()=>{
+   const read=reader(dir)
+   const head=snapshotId?validateHead(await read(snapshotId,'head'),id):(await current(dir,id,read))?.head
+   if(!head)return undefined
+   const entries=[]
+   for(let i=0;i<keys.length;i++){
+    const ref=await lookup(read,head.recordRoot,keys[i],routes[i])
+    if(ref)entries.push([keys[i],copy((await read(ref,'record')).value)])
+   }
+   return Object.fromEntries(entries)
+  })
  }
  async function pinnedHead(dir){
   const pointer=await promotion.read(path.join(dir,'head.json'))
   if(pointer===undefined)return undefined
   const reference=JSON.parse(pointer)
   if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
-  return reference
+  if(reference.format===SQLITE_FORMAT){
+   const headId=sqlite.getHeadId(dir)
+   if(!headId)throw Error('Invalid conversation head')
+   return {...reference,headId,backend:'sqlite'}
+  }
+  return {...reference,backend:'files'}
  }
  // `exclusive(step)` runs a step that publishes or deletes alone with this save's
  // writers (the journal's per-chat queue); the head lock is taken inside it.
@@ -630,69 +779,101 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
  // locked step publishes it, carrying over the keys commits added meanwhile.
  async function pruneEntries(id,keep,{exclusive=alone}={}){
   const dir=directory(id)
-  // Through the shared bounded cache only: an index of a million keys must not stay in memory.
-  const read=async (ref,kind)=>{
-   const value=cachedBlock(dir,ref)??admitFile(dir,ref,await readFile(blobPath(dir,ref)))
-   if(kind&&value.kind!==kind)throw Error('Invalid block type')
-   return value
-  }
-  const pinned=await pinnedHead(dir)
-  if(pinned===undefined)throw conflict()
-  const base=validateHead(await read(pinned.headId,'head'),id)
-  if(!base.recordRoot)return {removed:0}
-  const kept=[]
-  let removed=0
-  // Depth first with SWEEP_PARALLEL reads in flight: a million keys take minutes one read at a time.
-  const stack=[[base.recordRoot,0]]
-  let busy=0
-  await Promise.all(Array.from({length:SWEEP_PARALLEL},async()=>{
-   for(;;){
-    if(!stack.length){if(!busy)return;await new Promise(resolve=>setImmediate(resolve));continue}
-    const [ref,depth]=stack.pop()
-    busy++
-    try{
-     const node=await read(ref)
-     if(node.kind==='entry'){if(keep(node.key))kept.push(node);else removed++;continue}
-     if(node.kind!=='entries'||depth>=64)throw Error('Invalid record index')
-     for(const child of Object.values(node.children))if(child)stack.push([child,depth+1])
-    }finally{busy--}
+  return sqlite.withSession(dir,async()=>{
+   const pinned=await pinnedHead(dir)
+   if(pinned===undefined)throw conflict()
+   const isSqlite=pinned.backend==='sqlite'
+   // Through the shared bounded cache only: an index of a million keys must not stay in memory.
+   const read=async (ref,kind)=>{
+    let value=cachedBlock(dir,ref)
+    if(!value){
+     if(isSqlite){
+      const loaded=sqlite.readBlock(dir,ref)
+      if(!loaded)throw Object.assign(Error('Block not found: '+ref),{code:'ENOENT'})
+      value=loaded.value
+      if(loaded.bytes<=64*1024)cachePacked(dir,[[ref,value]],loaded.bytes*2+128)
+     }else value=admitFile(dir,ref,await readFile(blobPath(dir,ref)))
+    }
+    if(kind&&value.kind!==kind)throw Error('Invalid block type')
+    return value
    }
-  }))
-  if(!removed)return {removed:0}
-  const route=entry=>({key:entry.key,valueRef:entry.valueRef,route:recordKey(entry.key)})
-  // Unreferenced until the head is published; the sweep that could see them runs after this.
-  const staged=async (step)=>{
-   const pending=new Map(),write=async value=>{const ref=hash(JSON.stringify(value));pending.set(ref,value);return ref}
-   const result=await step(write,async (ref,kind)=>pending.has(ref)?pending.get(ref):read(ref,kind))
-   await writePacked(dir,[...pending.values()],[...pending.keys()])
-   return result
-  }
-  const pruned=kept.length?await staged((write,staging)=>putEntries(dir,staging,null,kept.map(route),0,write)):undefined
-  // Keys in `next` that `previous` lacks or names differently: only the paths commits copied differ.
-  async function added(previous,next,out,depth=0){
-   if(!next||previous===next)return out
-   const node=await read(next)
-   if(node.kind==='entry'){if(await lookup(read,previous,node.key,recordKey(node.key),depth)!==node.valueRef)out.push(node);return out}
-   if(node.kind!=='entries'||depth>=64)throw Error('Invalid record index')
-   const other=previous?await read(previous):null
-   for(const [slot,child] of Object.entries(node.children))await added(other?.kind==='entries'?other.children[slot]:previous,child,out,depth+1)
-   return out
-  }
-  await exclusive(()=>promotion.update(path.join(dir,'head.json'),async pointer=>{
-   if(pointer===undefined)throw conflict()
-   const reference=JSON.parse(pointer)
-   if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
-   const head=validateHead(await read(reference.headId,'head'),id)
-   return staged(async (write,staging)=>{
-    let recordRoot=pruned
-    const carried=reference.headId===pinned.headId?[]:await added(base.recordRoot,head.recordRoot,[])
-    if(carried.length)recordRoot=await putEntries(dir,staging,recordRoot??null,carried.map(route),0,write)
-    const next={...head,revision:head.revision+1,previousHeadId:reference.headId}
-    if(recordRoot)next.recordRoot=recordRoot;else delete next.recordRoot
-    return JSON.stringify({format:POINTER_FORMAT,headId:await write(next)})
-   })
-  }))
-  return {removed}
+   const base=validateHead(await read(pinned.headId,'head'),id)
+   if(!base.recordRoot)return {removed:0}
+   const kept=[]
+   let removed=0
+   // Depth first with SWEEP_PARALLEL reads in flight: a million keys take minutes one read at a time.
+   const stack=[[base.recordRoot,0]]
+   let busy=0
+   await Promise.all(Array.from({length:SWEEP_PARALLEL},async()=>{
+    for(;;){
+     if(!stack.length){if(!busy)return;await new Promise(resolve=>setImmediate(resolve));continue}
+     const [ref,depth]=stack.pop()
+     busy++
+     try{
+      const node=await read(ref)
+      if(node.kind==='entry'){if(keep(node.key))kept.push(node);else removed++;continue}
+      if(node.kind!=='entries'||depth>=64)throw Error('Invalid record index')
+      for(const child of Object.values(node.children))if(child)stack.push([child,depth+1])
+     }finally{busy--}
+    }
+   }))
+   if(!removed)return {removed:0}
+   const route=entry=>({key:entry.key,valueRef:entry.valueRef,route:recordKey(entry.key)})
+   // Unreferenced until the head is published; the sweep that could see them runs after this.
+   const staged=async (step)=>{
+    const pending=new Map(),write=async value=>{const bytes=JSON.stringify(value),ref=hash(bytes);pending.set(ref,{ref,block:value,bytes});return ref}
+    const result=await step(write,async (ref,kind)=>pending.has(ref)?pending.get(ref).block:read(ref,kind))
+    if(isSqlite)sqlite.writeBlocks(dir,[...pending.values()])
+    else await writePacked(dir,[...pending.values()].map(entry=>entry.block),[...pending.keys()])
+    return result
+   }
+   const pruned=kept.length?await staged((write,staging)=>putEntries(dir,staging,null,kept.map(route),0,write)):undefined
+   // Keys in `next` that `previous` lacks or names differently: only the paths commits copied differ.
+   async function added(previous,next,out,depth=0){
+    if(!next||previous===next)return out
+    const node=await read(next)
+    if(node.kind==='entry'){if(await lookup(read,previous,node.key,recordKey(node.key),depth)!==node.valueRef)out.push(node);return out}
+    if(node.kind!=='entries'||depth>=64)throw Error('Invalid record index')
+    const other=previous?await read(previous):null
+    for(const [slot,child] of Object.entries(node.children))await added(other?.kind==='entries'?other.children[slot]:previous,child,out,depth+1)
+    return out
+   }
+   if(isSqlite){
+    await exclusive(()=>sqlite.serializeWrite(dir,async()=>{
+     for(let attempt=0;attempt<5;attempt++){
+      const currentHeadId=sqlite.getHeadId(dir,{fresh:true})
+      if(!currentHeadId)throw conflict()
+      const head=validateHead(await read(currentHeadId,'head'),id)
+      const pending=new Map(),write=async value=>{const bytes=JSON.stringify(value),ref=hash(bytes);pending.set(ref,{ref,block:value,bytes});return ref}
+      const staging=async (ref,kind)=>pending.has(ref)?pending.get(ref).block:read(ref,kind)
+      let recordRoot=pruned
+      const carried=currentHeadId===pinned.headId?[]:await added(base.recordRoot,head.recordRoot,[])
+      if(carried.length)recordRoot=await putEntries(dir,staging,recordRoot??null,carried.map(route),0,write)
+      const next={...head,revision:head.revision+1,previousHeadId:currentHeadId}
+      if(recordRoot)next.recordRoot=recordRoot;else delete next.recordRoot
+      const nextHeadId=await write(next)
+      try{sqlite.commitHead(dir,currentHeadId,[...pending.values()],nextHeadId);return}
+      catch(error){if(error.code!=='CONVERSATION_CONFLICT'||attempt===4)throw error}
+     }
+    }))
+    return {removed}
+   }
+   await exclusive(()=>promotion.update(path.join(dir,'head.json'),async pointer=>{
+    if(pointer===undefined)throw conflict()
+    const reference=JSON.parse(pointer)
+    if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
+    const head=validateHead(await read(reference.headId,'head'),id)
+    return staged(async (write,staging)=>{
+     let recordRoot=pruned
+     const carried=reference.headId===pinned.headId?[]:await added(base.recordRoot,head.recordRoot,[])
+     if(carried.length)recordRoot=await putEntries(dir,staging,recordRoot??null,carried.map(route),0,write)
+     const next={...head,revision:head.revision+1,previousHeadId:reference.headId}
+     if(recordRoot)next.recordRoot=recordRoot;else delete next.recordRoot
+     return JSON.stringify({format:POINTER_FORMAT,headId:await write(next)})
+    })
+   }))
+   return {removed}
+  })
  }
  // A pack keeps every block it was written with; once some are swept, the
  // rest still pin the whole file. Rewrite packs that are mostly dead (or
@@ -794,135 +975,187 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
  // A pass stopped by `signal` (or a restart) leaves fewer files for the next one.
  async function sweep(id,{retainEntry=()=>true,graceMs=10*60*1000,dryRun=false,now=Date.now(),exclusive=alone,signal}={}){
   const dir=directory(id),blocks=path.join(dir,'blocks'),HEX=/^[a-f0-9]{64}$/
-  const headPath=path.join(dir,'head.json'),pinned=await pinnedHead(dir)
-  if(pinned===undefined)throw Error('Conversation not found')
-  const marked=new Set()
-  // Everything a head reaches; heads already marked stop the walk, so a newer head costs only its new paths.
-  async function mark(headId){
-   const queue=[[headId,true]]
-   // The read cache, not a whole-pack parse per block: siblings come from the
-   // already admitted pack and each entry parses only its own slice.
-   async function load(ref,required){
-    const cached=cachedBlock(dir,ref)
-    if(cached)return cached
-    let bytes
-    try{bytes=await readFile(blobPath(dir,ref))}catch(error){
-     if(error.code==='ENOENT'&&!required)return undefined
-     throw error
+  const headPath=path.join(dir,'head.json')
+  return sqlite.withSession(dir,async()=>{
+   const pinned=await pinnedHead(dir)
+   if(pinned===undefined)throw Error('Conversation not found')
+   const isSqlite=pinned.backend==='sqlite'
+   const marked=new Set()
+   // Everything a head reaches; heads already marked stop the walk, so a newer head costs only its new paths.
+   async function mark(headId){
+    const queue=[[headId,true]]
+    // The read cache, not a whole-pack parse per block: siblings come from the
+    // already admitted pack and each entry parses only its own slice.
+    async function load(ref,required){
+     const cached=cachedBlock(dir,ref)
+     if(cached)return cached
+     if(isSqlite){
+      const loaded=sqlite.readBlock(dir,ref)
+      if(!loaded){
+       if(!required)return undefined
+       throw Object.assign(Error('Block not found: '+ref),{code:'ENOENT'})
+      }
+      onIO({kind:'read',bytes:loaded.bytes,chatId:id,ref,reason:'sweep'})
+      if(loaded.bytes<=64*1024)cachePacked(dir,[[ref,loaded.value]],loaded.bytes*2+128)
+      return loaded.value
+     }
+     let bytes
+     try{bytes=await readFile(blobPath(dir,ref))}catch(error){
+      if(error.code==='ENOENT'&&!required)return undefined
+      throw error
+     }
+     onIO({kind:'read',bytes:bytes.length,chatId:id,ref,reason:'sweep'})
+     return admitFile(dir,ref,bytes)
     }
-    onIO({kind:'read',bytes:bytes.length,chatId:id,ref,reason:'sweep'})
-    return admitFile(dir,ref,bytes)
-   }
-   while(queue.length){
-    const [ref,required]=queue.pop()
-    if(marked.has(ref))continue
-    const value=await load(ref,required)
-    if(value===undefined)continue
-    marked.add(ref)
-    const strong=[],optional=[]
-    // Only the current head's keyed-record index is ever read; older heads are
-    // reached through it and need just their messages, state and metadata.
-    if(value.kind==='head'){for(const key of ['root','stateId','metadataId',...(ref===headId?['recordRoot']:[])])if(value[key])strong.push(value[key])}
-    else if(value.kind==='index')strong.push(...value.children.filter(Boolean))
-    else if(value.kind==='entries')strong.push(...Object.values(value.children).filter(Boolean))
-    else if(value.kind==='entry'){
-     // A dropped entry keeps its small value record, so lookups still resolve
-     // and fail cleanly on the missing head instead of on the index.
-     if(retainEntry(value.key))strong.push(value.valueRef)
-     else marked.add(value.valueRef)
+    while(queue.length){
+     const [ref,required]=queue.pop()
+     if(marked.has(ref))continue
+     const value=await load(ref,required)
+     if(value===undefined)continue
+     marked.add(ref)
+     const strong=[],optional=[]
+     // Only the current head's keyed-record index is ever read; older heads are
+     // reached through it and need just their messages, state and metadata.
+     if(value.kind==='head'){for(const key of ['root','stateId','metadataId',...(ref===headId?['recordRoot']:[])])if(value[key])strong.push(value[key])}
+     else if(value.kind==='index')strong.push(...value.children.filter(Boolean))
+     else if(value.kind==='entries')strong.push(...Object.values(value.children).filter(Boolean))
+     else if(value.kind==='entry'){
+      // A dropped entry keeps its small value record, so lookups still resolve
+      // and fail cleanly on the missing head instead of on the index.
+      if(retainEntry(value.key))strong.push(value.valueRef)
+      else marked.add(value.valueRef)
+     }
+     else for(const next of hexRefs(value))if(!marked.has(next))optional.push(next)
+     for(const next of strong)queue.push([next,true])
+     for(const next of optional)queue.push([next,false])
     }
-    else for(const next of hexRefs(value))if(!marked.has(next))optional.push(next)
-    for(const next of strong)queue.push([next,true])
-    for(const next of optional)queue.push([next,false])
    }
-  }
-  await mark(pinned.headId)
-  // Packed records are hard links to one pack inode; space returns only
-  // when every link, including the pack's own, is gone.
-  let removed=0,kept=0,bytes=0,lockHolds=0,maxLockMs=0,stopped=false,markedHead=pinned.headId
-  const cutoff=now-graceMs,inodes=new Map()
-  // Names in batches straight from the directory, never one array of every file.
-  async function* listed(directoryPath){
-   let handle
-   try{handle=await opendir(directoryPath,{bufferSize:256})}catch(error){if(error.code==='ENOENT')return;throw error}
-   let batch=[]
-   for await(const entry of handle){batch.push(entry.name);if(batch.length>=SWEEP_LIST_BATCH){yield batch;batch=[]}}
-   if(batch.length)yield batch
-  }
-  // One file: stat and unlink next to each other. Registered in `removing` before the stat, so a
-  // writer of this store that wants to reuse the name waits for the outcome; a name being reused is skipped.
-  async function removeFile(item){
-   if(item.ref&&marked.has(item.ref)){kept++;return}
-   if(reusing.has(item.file)){if(item.ref)kept++;return}
-   const work=removeChecked(item)
-   removing.set(item.file,work)
-   try{await work}finally{if(removing.get(item.file)===work)removing.delete(item.file)}
-  }
-  async function removeChecked({file,ref,pack}){
-   let info
-   try{info=await stat(file)}catch(error){if(error.code==='ENOENT')return;throw error}
-   if(info.mtimeMs>cutoff||pack&&info.nlink-(inodes.get(info.dev+':'+info.ino)?.removed??0)!==1){if(ref)kept++;return}
-   removed++
-   if(dryRun){const key=info.dev+':'+info.ino,entry=inodes.get(key)||{nlink:info.nlink,size:info.size,removed:0};entry.removed++;inodes.set(key,entry);return}
-   // Its last link: the bytes come back.
-   if(info.nlink===1)bytes+=info.size
-   try{await unlinkFile(file)}catch(error){if(error.code!=='ENOENT')throw error}
-  }
-  async function removeAll(files){
-   let straggling=null
-   const step=async pointer=>{
-    const started=performance.now()
-    if(pointer===undefined){files.length=0;return}
-    // Only the commits since the unlocked mark below remain to be marked here.
-    const {headId}=JSON.parse(pointer)
-    if(headId!==markedHead){await mark(headId);markedHead=headId}
-    // No removal starts after RELAYOUT_YIELD_MS. A stat or unlink can stall for seconds (2026-10-27: 10-24 s on
-    // the live disk); one still running at RELAYOUT_STEP_MS finishes after the lock is released. That is safe:
-    // every reuse of a name by this store waits for its pending removal (`removing`), then writes it again.
-    const workers=Promise.all(Array.from({length:SWEEP_PARALLEL},async()=>{
-     while(files.length&&performance.now()<started+RELAYOUT_YIELD_MS)await removeFile(files.shift())
-    }))
-    let timer
-    const late=await Promise.race([workers.then(()=>false),new Promise(resolve=>{timer=setTimeout(resolve,Math.max(0,started+RELAYOUT_STEP_MS-25-performance.now()),true)})])
-    clearTimeout(timer)
-    if(late)straggling=workers
-    lockHolds++;maxLockMs=Math.max(maxLockMs,Math.round(performance.now()-started))
-   }
-   while(files.length){
-    if(signal?.aborted){stopped=true;return}
-    const pointer=await promotion.read(headPath)
-    if(pointer===undefined)return
-    // Mark what the current head reaches without the lock: a whole new index (a pruned record index) costs seconds.
-    const {headId}=JSON.parse(pointer)
-    if(headId!==markedHead){await mark(headId);markedHead=headId}
-    if(dryRun)await step(pointer)
-    else await exclusive(()=>promotion.update(headPath,async current=>{await step(current);return undefined}))
-    await straggling;straggling=null
-   }
-  }
-  for await(const shards of listed(blocks))for(const shard of shards){
-   if(stopped)break
-   if(!/^[a-f0-9]{2}$/.test(shard))continue
-   for await(const names of listed(path.join(blocks,shard))){
-    const files=[]
-    for(const name of names){
-     const ref=name.slice(0,-5)
-     if(!name.endsWith('.json')||!HEX.test(ref))continue
-     if(marked.has(ref))kept++;else files.push({file:path.join(blocks,shard,name),ref})
+   await mark(pinned.headId)
+   const cutoff=now-graceMs
+   if(isSqlite){
+    let removed=0,kept=0,bytes=0,lockHolds=0,maxLockMs=0,stopped=false,markedHead=pinned.headId
+    const allBlocks=sqlite.listBlocks(dir)
+    const candidates=[]
+    for(const item of allBlocks){
+     if(marked.has(item.ref)||item.touchedAt>cutoff)kept++
+     else candidates.push(item)
     }
-    await removeAll(files)
+    if(dryRun){
+     const dryBytes=candidates.reduce((sum,item)=>sum+item.size,0)
+     return {reachable:marked.size,kept,removed:candidates.length,bytes:dryBytes,repackedPacks:0,lockHolds:0,maxLockMs:0,stopped:false}
+    }
+    const BATCH=500
+    for(let i=0;i<candidates.length;i+=BATCH){
+     if(signal?.aborted){stopped=true;break}
+     const slice=candidates.slice(i,i+BATCH)
+     await exclusive(()=>sqlite.serializeWrite(dir,async()=>{
+      const started=performance.now()
+      const currentHeadId=sqlite.getHeadId(dir,{fresh:true})
+      if(!currentHeadId){stopped=true;return}
+      if(currentHeadId!==markedHead){await mark(currentHeadId);markedHead=currentHeadId}
+      const deletable=[]
+      for(const item of slice){
+       if(marked.has(item.ref))kept++
+       else deletable.push(item)
+      }
+      const deleted=sqlite.deleteBlocksBatch(dir,deletable,cutoff)
+      removed+=deleted.removed
+      bytes+=deleted.bytes
+      kept+=deletable.length-deleted.removed
+      lockHolds++;maxLockMs=Math.max(maxLockMs,Math.round(performance.now()-started))
+     }))
+     if(i+BATCH<candidates.length)await new Promise(resolve=>setImmediate(resolve))
+    }
+    if(!stopped&&removed>0)await sqlite.reclaimSpace(dir,{signal})
+    return {reachable:marked.size,kept,removed,bytes,repackedPacks:0,lockHolds,maxLockMs,stopped}
+   }
+   // Packed records are hard links to one pack inode; space returns only
+   // when every link, including the pack's own, is gone.
+   let removed=0,kept=0,bytes=0,lockHolds=0,maxLockMs=0,stopped=false,markedHead=pinned.headId
+   const inodes=new Map()
+   // Names in batches straight from the directory, never one array of every file.
+   async function* listed(directoryPath){
+    let handle
+    try{handle=await opendir(directoryPath,{bufferSize:256})}catch(error){if(error.code==='ENOENT')return;throw error}
+    let batch=[]
+    for await(const entry of handle){batch.push(entry.name);if(batch.length>=SWEEP_LIST_BATCH){yield batch;batch=[]}}
+    if(batch.length)yield batch
+   }
+   // One file: stat and unlink next to each other. Registered in `removing` before the stat, so a
+   // writer of this store that wants to reuse the name waits for the outcome; a name being reused is skipped.
+   async function removeFile(item){
+    if(item.ref&&marked.has(item.ref)){kept++;return}
+    if(reusing.has(item.file)){if(item.ref)kept++;return}
+    const work=removeChecked(item)
+    removing.set(item.file,work)
+    try{await work}finally{if(removing.get(item.file)===work)removing.delete(item.file)}
+   }
+   async function removeChecked({file,ref,pack}){
+    let info
+    try{info=await stat(file)}catch(error){if(error.code==='ENOENT')return;throw error}
+    if(info.mtimeMs>cutoff||pack&&info.nlink-(inodes.get(info.dev+':'+info.ino)?.removed??0)!==1){if(ref)kept++;return}
+    removed++
+    if(dryRun){const key=info.dev+':'+info.ino,entry=inodes.get(key)||{nlink:info.nlink,size:info.size,removed:0};entry.removed++;inodes.set(key,entry);return}
+    // Its last link: the bytes come back.
+    if(info.nlink===1)bytes+=info.size
+    try{await unlinkFile(file)}catch(error){if(error.code!=='ENOENT')throw error}
+   }
+   async function removeAll(files){
+    let straggling=null
+    const step=async pointer=>{
+     const started=performance.now()
+     if(pointer===undefined){files.length=0;return}
+     // Only the commits since the unlocked mark below remain to be marked here.
+     const {headId}=JSON.parse(pointer)
+     if(headId!==markedHead){await mark(headId);markedHead=headId}
+     // No removal starts after RELAYOUT_YIELD_MS. A stat or unlink can stall for seconds (2026-10-27: 10-24 s on
+     // the live disk); one still running at RELAYOUT_STEP_MS finishes after the lock is released. That is safe:
+     // every reuse of a name by this store waits for its pending removal (`removing`), then writes it again.
+     const workers=Promise.all(Array.from({length:SWEEP_PARALLEL},async()=>{
+      while(files.length&&performance.now()<started+RELAYOUT_YIELD_MS)await removeFile(files.shift())
+     }))
+     let timer
+     const late=await Promise.race([workers.then(()=>false),new Promise(resolve=>{timer=setTimeout(resolve,Math.max(0,started+RELAYOUT_STEP_MS-25-performance.now()),true)})])
+     clearTimeout(timer)
+     if(late)straggling=workers
+     lockHolds++;maxLockMs=Math.max(maxLockMs,Math.round(performance.now()-started))
+    }
+    while(files.length){
+     if(signal?.aborted){stopped=true;return}
+     const pointer=await promotion.read(headPath)
+     if(pointer===undefined)return
+     // Mark what the current head reaches without the lock: a whole new index (a pruned record index) costs seconds.
+     const {headId}=JSON.parse(pointer)
+     if(headId!==markedHead){await mark(headId);markedHead=headId}
+     if(dryRun)await step(pointer)
+     else await exclusive(()=>promotion.update(headPath,async current=>{await step(current);return undefined}))
+     await straggling;straggling=null
+    }
+   }
+   for await(const shards of listed(blocks))for(const shard of shards){
+    if(stopped)break
+    if(!/^[a-f0-9]{2}$/.test(shard))continue
+    for await(const names of listed(path.join(blocks,shard))){
+     const files=[]
+     for(const name of names){
+      const ref=name.slice(0,-5)
+      if(!name.endsWith('.json')||!HEX.test(ref))continue
+      if(marked.has(ref))kept++;else files.push({file:path.join(blocks,shard,name),ref})
+     }
+     await removeAll(files)
+     if(stopped)break
+    }
+   }
+   // A pack no block name links to any more (its own name is the last link).
+   if(!stopped)for await(const names of listed(path.join(blocks,'.packs'))){
+    await removeAll(names.filter(name=>name.endsWith('.json')).map(name=>({file:path.join(blocks,'.packs',name),pack:true})))
     if(stopped)break
    }
-  }
-  // A pack no block name links to any more (its own name is the last link).
-  if(!stopped)for await(const names of listed(path.join(blocks,'.packs'))){
-   await removeAll(names.filter(name=>name.endsWith('.json')).map(name=>({file:path.join(blocks,'.packs',name),pack:true})))
-   if(stopped)break
-  }
-  if(dryRun)for(const entry of inodes.values())if(entry.removed>=entry.nlink)bytes+=entry.size
-  // Repack only rewrites links to identical content and frees packs nothing links to: no lock needed.
-  const repacked=dryRun||stopped?{packs:0,bytes:0}:await repack(dir,cutoff)
-  return {reachable:marked.size,kept,removed,bytes:bytes+repacked.bytes,repackedPacks:repacked.packs,lockHolds,maxLockMs,stopped}
+   if(dryRun)for(const entry of inodes.values())if(entry.removed>=entry.nlink)bytes+=entry.size
+   // Repack only rewrites links to identical content and frees packs nothing links to: no lock needed.
+   const repacked=dryRun||stopped?{packs:0,bytes:0}:await repack(dir,cutoff)
+   return {reachable:marked.size,kept,removed,bytes:bytes+repacked.bytes,repackedPacks:repacked.packs,lockHolds,maxLockMs,stopped}
+  })
  }
  // every commit packs only the blocks it changed, so after thousands
  // of commits one floor's tree is spread over hundreds of packs and a cold open
@@ -993,6 +1226,10 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   if(pointer===undefined)return undefined
   const reference=JSON.parse(pointer)
   if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
+  if(reference.format===SQLITE_FORMAT){
+   const headId=sqlite.getHeadId(dir)
+   return {headId,blocks:0,bytes:0,packs:0,visits:0,ideal:0,relinked:0,written:0,measureMs:0,writeMs:0,relinkMs:0,lockHolds:0,maxLockMs:0,fragmented:false,skipped:'sqlite'}
+  }
   const units=new Map(),sources=new Set()
   let blocks=0,bytes=0,phase=performance.now()
   forget(dir)
@@ -1089,5 +1326,6 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link,unli
   result.relinkMs=Math.round(performance.now()-phase)
   return result
  }
- return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries,relayout})
+ return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries,relayout,
+  withSession:(id,work)=>sqlite.withSession(directory(id),work),close:id=>sqlite.close(directory(id)),closeAll:()=>sqlite.closeAll()})
 }

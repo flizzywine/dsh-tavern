@@ -15,14 +15,14 @@ async function syntheticFixture(t,prefix){
 
 for(const fallback of [false,true])test(`record packs preserve hash lookup, standalone dedup and detached reads; fallback=${fallback}`,async t=>{
  const root=await syntheticFixture(t,'record-pack-')
- const options=fallback?{linkFile:async()=>{throw Object.assign(Error('unsupported'),{code:'ENOTSUP'})}}:{}
+ const options=fallback?{format:2,linkFile:async()=>{throw Object.assign(Error('unsupported'),{code:'ENOTSUP'})}}:{format:2}
  const store=createConversationPageStore({root,...options})
  const values=Array.from({length:96},(_,i)=>({type:'scalar',value:'value '+i}))
  const refs=await store.writeRecords('a',values)
  const file=ref=>join(root,'a/blocks',ref.slice(0,2),ref+'.json')
  assert.equal(JSON.parse(await readFile(file(refs[0]),'utf8')).kind,fallback?'record':'block-pack-v1')
  if(!fallback)assert.equal((await stat(file(refs[0]))).ino,(await stat(file(refs[1]))).ino)
- const fresh=createConversationPageStore({root})
+ const fresh=createConversationPageStore({root,format:2})
  for(let i=0;i<refs.length;i++)assert.deepEqual(await fresh.readRecord('a',refs[i]),values[i])
  const modified=await fresh.readRecord('a',refs[0]);modified.value='changed'
  assert.deepEqual(await fresh.readRecord('a',refs[0]),values[0])
@@ -32,19 +32,19 @@ for(const fallback of [false,true])test(`record packs preserve hash lookup, stan
  const mixedRefs=await store.writeRecords('a',mixed,mixed.map(value=>recordBlock(value).ref))
  assert.deepEqual(mixedRefs,[refs[50],recordBlock(extra).ref,...refs,recordBlock(extra).ref])
  for(let i=0;i<mixedRefs.length;i++)assert.deepEqual(await fresh.readRecord('a',mixedRefs[i]),mixed[i])
- const io=[],checking=createConversationPageStore({root,onIO:event=>io.push(event)})
+ const io=[],checking=createConversationPageStore({root,format:2,onIO:event=>io.push(event)})
  const invalid=[...values,{type:'scalar',value:'must not publish'}]
  const known=invalid.map(value=>recordBlock(value).ref);known[40]=refs[0]
  await assert.rejects(checking.writeRecords('a',invalid,known),/Immutable block corruption/)
  assert.equal(io.some(event=>event.kind==='write'||event.kind==='link'),false)
  await writeFile(file(refs[0]),'{corrupt')
- await assert.rejects(createConversationPageStore({root}).readRecord('a',refs[0]),/Invalid immutable block/) // blocks are parsed, not re-hashed
+ await assert.rejects(createConversationPageStore({root,format:2}).readRecord('a',refs[0]),/Invalid immutable block/) // blocks are parsed, not re-hashed
 })
 
 // Each write packs one block of every floor, as commits that touch every floor would.
 async function fragmentedSave(t,prefix){
  const root=await syntheticFixture(t,prefix)
- const store=createConversationPageStore({root}),floors=20,depth=40
+ const store=createConversationPageStore({root,format:2}),floors=20,depth=40
  const leaves=Array.from({length:floors},()=>[])
  for(let d=0;d<depth;d++){
   const refs=await store.writeRecords('a',Array.from({length:floors},(_,f)=>({type:'scalar',value:`floor ${f} 「段落」 ${d}`})))
@@ -91,7 +91,7 @@ async function aged(root,id){
 // The live disk stalls a stat or unlink for 10-24 s now and then (2026-10-27): a deleting step must still let go of the lock.
 test('a removal stalling past a whole step does not hold the write lock; the sweep still removes every garbage file',async t=>{
  const root=await syntheticFixture(t,'sweep-stall-')
- const writer=createConversationPageStore({root})
+ const writer=createConversationPageStore({root,format:2})
  await writer.create('a',{state:{n:0},messages:[]})
  for(let i=1;i<=40;i++)await writer.commit('a',{expectedRevision:i,state:{n:i}})
  await aged(root,'a')
@@ -109,7 +109,7 @@ test('a removal stalling past a whole step does not hold the write lock; the swe
 
 test('a commit reusing a block whose removal outlives the step waits for it and writes the block again',async t=>{
  const root=await syntheticFixture(t,'sweep-stall-reuse-')
- const writer=createConversationPageStore({root})
+ const writer=createConversationPageStore({root,format:2})
  await writer.create('a',{state:{scene:'旧场景'},messages:[]})
  await writer.commit('a',{expectedRevision:1,state:{scene:'新场景'}})
  await aged(root,'a')
@@ -134,7 +134,7 @@ test('a commit reusing a block whose removal outlives the step waits for it and 
 
 test('a deduplicated write of an old unreachable block renews its grace period',async t=>{
  const root=await syntheticFixture(t,'sweep-dedup-')
- const store=createConversationPageStore({root})
+ const store=createConversationPageStore({root,format:2})
  await store.create('a',{state:{n:1},messages:[]})
  const ref=await store.writeRecord('a',{draft:'写在提交之前的记录'})
  await aged(root,'a')
