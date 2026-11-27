@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "327d5ceccfa70a4f4a2db9225f87f51a6cc80cbc",
-  "releaseSequence": 2244,
+  "revision": "92dd35bb8bbbed60148d8e74bbe8cc818ca6ac35",
+  "releaseSequence": 2245,
   "version": "3.5.0",
   "files": [
     {
@@ -1571,8 +1571,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-worldbook-preparation.js",
-      "sha256": "c33c9c033956711ce89e6b2c9004a55b82f760f84610e636f2b225a43aa89d0f",
-      "size": 2771
+      "sha256": "6eebeec031e987322e09df8bf4d013797c1e4da07b38de39085f7ce9d170c31b",
+      "size": 4252
     },
     {
       "path": "tavern-plugin/lib/domain/card-archive.js",
@@ -3001,8 +3001,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
-      "sha256": "eff09a3a221d320fd29eb1d964c04e4234862e7820685ef29821f1a8463edbb6",
-      "size": 3606
+      "sha256": "a686592cc13f141fbcc3a40da288d4e27bae4822d9f8c8477edc98cc65535221",
+      "size": 3589
     },
     {
       "path": "tavern-plugin/lib/domain/player-input-content.js",
@@ -4421,8 +4421,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-strategies.js",
-      "sha256": "38a2b89c54dfede418c671ffcd113da20ee9e12ae729b6d077149181840303a3",
-      "size": 1534
+      "sha256": "cf9db83fb42b98853765db0e46034dd52ef1ae59e749da2bdeb98c1c7018a97b",
+      "size": 1668
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-title-hints.js",
@@ -4545,6 +4545,11 @@
       "size": 4873
     },
     {
+      "path": "tavern-plugin/lib/host/worldbook.js",
+      "sha256": "757c2b6cecd9dff23c4180d0beff61b11be9bf3c36e35d4058bb3a0f9ca6ed25",
+      "size": 4885
+    },
+    {
       "path": "tavern-plugin/lib/http-file.js",
       "sha256": "d795dfd2c450ac6f79a81c12a4092754d6d6caeef64845a8cd97b539f46c45c8",
       "size": 2346
@@ -4586,8 +4591,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "f3a94e13ea13c9b17e4cbb18aacc0624a3decf33048817e0bedc00d6e13bbdfc",
-      "size": 280420
+      "sha256": "55b884f8d95fdc7b2c22a0e40e1c0e6fffbfa47a414f910ee2c1a0e83f8d4013",
+      "size": 274963
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4656,8 +4661,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "621b07395186510d4db9d8b50319da39340ef04c436add521c8c61f89f463bfb",
-      "size": 160870
+      "sha256": "2b0d297576402bef601da43b17d88d2dd473f08064f5a80ac656ad2d076e110a",
+      "size": 160736
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -10420,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "47197155c61cad0cc1a24a8d005f3d603d9fad32",
+    "commit": "3191befb1a9be0fe7c153d2af77c2dd8ece6addf",
     "path": "runtime.zip",
-    "sha256": "b487782184b54855672d3d2bb0d3a8497ef6a2a36a96367ae93e19c2746b2713",
-    "size": 18352344
+    "sha256": "1babc36c112f3f0c467abcda0086cbdfa61a8050c3201c4672e4ca00c500771d",
+    "size": 18353459
   }
 }
