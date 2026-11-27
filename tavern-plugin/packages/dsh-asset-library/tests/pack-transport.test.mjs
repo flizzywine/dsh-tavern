@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, lstat, readdir } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, lstat, readdir, writeFile, link, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { createAssetPackTransport, PACK_CONTROL_PATH, PACK_UPLOAD_PATH, PACK_DOWNLOAD_PATH, PACK_CHANGES_PATH, PACK_THUMBNAIL_PATH, PACK_THUMBNAILS_PATH } from '../src/pack-v2/transport.js'
 import { writeZip } from '../src/zip.js'
 import { createMediaStore } from '../src/pack-v2/media-store.js'
+import { spoolFileStamp } from '../src/asset-packs/common.js'
 import { jsonBytes } from '../src/pack-v2/validation.js'
 import { syntheticPack, digest, PACK_ID } from '../../../../tests/fixtures/asset-packs/pack.mjs'
 const origin = 'http://localhost:123'
@@ -39,7 +40,11 @@ async function fixture(t, options = {}) {
 test('an archive upload streams to disk; a disk that fills during install rolls back whole and says DISK_FULL',async t => {
   const assetRoot = await mkdtemp(join(tmpdir(),'pack-disk-full-')), real = createMediaStore({root:assetRoot})
   let room = 2
-  const mediaStore = {...real, async put(...args) { if (room-- <= 0) throw Object.assign(new Error('ENOSPC: no space left on device, write'),{code:'ENOSPC'}); return real.put(...args) }}
+  function useRoom() { if (room-- <= 0) throw Object.assign(new Error('ENOSPC: no space left on device, write'),{code:'ENOSPC'}) }
+  const mediaStore = {...real,
+    async put(...args) { useRoom(); return real.put(...args) },
+    async putSpooled(...args) { useRoom(); return real.putSpooled(...args) }
+  }
   const f = await fixture(t,{assetRoot,mediaStore}), pack = await syntheticPack(), zip = join(f.root,'pack.zip')
   // after hooks run in registration order: the library goes only after the transport is disposed
   t.after(() => rm(assetRoot,{recursive:true,force:true}))
@@ -70,6 +75,32 @@ test('media store verifies a streamed reference before publishing', async t => {
   assert.equal(await store.resolve(ref), undefined)
   assert.deepEqual(await put(bytes), ref)
   assert.deepEqual(await readdir(join(root, 'tmp')), [])
+})
+test('spooled media is verified before publishing and survives releasing the spool', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'pack-media-spool-'))
+  t.after(() => rm(root, {recursive:true, force:true}))
+  const spool = join(root, 'source'), bytes = Buffer.from('spooled media')
+  const ref = {sha256:digest(bytes), size:bytes.length}
+  for (const crossVolume of [false, true]) {
+    let links = 0
+    const store = createMediaStore({root:join(root, String(crossVolume)), copyOnly:false, async linkFile(source, target) {
+      links++
+      if (crossVolume) throw Object.assign(new Error('Cross-volume link'), {code:'EXDEV'})
+      await link(source, target)
+    }})
+    const stamp = async () => spoolFileStamp(await lstat(spool, {bigint:true}))
+    await writeFile(spool, bytes)
+    const original = await stamp()
+    await writeFile(spool, Buffer.alloc(bytes.length))
+    await utimes(spool, 1000, 1000)
+    await assert.rejects(store.putSpooled(spool, {ref,stamp:original}), {code:'CONTENT_HASH_MISMATCH'})
+    assert.equal(await store.resolve(ref), undefined)
+    await writeFile(spool, bytes)
+    assert.deepEqual(await store.putSpooled(spool, {ref,stamp:await stamp()}), ref)
+    assert.equal(links, 1)
+    await rm(spool)
+    assert.deepEqual(await readFile((await store.resolve(ref)).absolutePath), bytes)
+  }
 })
 test('v2 control and binary upload install a complete ordinary pack; no v1 dispatch',async t => {
   const f = await fixture(t), {snapshot,bytes} = await f.install()

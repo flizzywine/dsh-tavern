@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { createWriteStream, constants } from 'node:fs'
-import { mkdir, lstat, rename, rm, link, copyFile } from 'node:fs/promises'
+import { createReadStream, createWriteStream, constants } from 'node:fs'
+import { mkdir, lstat, open, rename, rm, link, copyFile } from 'node:fs/promises'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { check } from '../asset-packs/common.js'
+import { check, spoolFileStamp } from '../asset-packs/common.js'
 import { absent, checkedPath } from './storage-path.js'
 
 // Like pack storage, one process owns a profile. All handles share its publication gate.
@@ -71,6 +71,29 @@ export function createMediaStore({ root, linkFile = link, copyOnly = process.env
       await rm(temporary, { force: true })
     }
   }
+  // The import spool is private and stays read-only until its preview releases it.
+  async function putSpooled(file, { ref, maxBytes = Infinity, stamp }) {
+    validate(ref)
+    check(ref.size <= maxBytes, '$.ref', 'Media exceeds budget', 'LIMIT_EXCEEDED')
+    if (await resolve(ref)) return { sha256: ref.sha256, size: ref.size }
+    const copy = () => put(createReadStream(file), { ref, maxBytes })
+    if (copyOnly || !stamp) return copy()
+    const source = await lstat(file, { bigint: true })
+    if (!source.isFile() || source.size !== BigInt(ref.size) || spoolFileStamp(source) !== stamp) return copy()
+    const temporary = await locate('tmp/' + randomUUID())
+    await mkdir(path.dirname(temporary), { recursive: true })
+    try { await linkFile(file, temporary) }
+    catch (error) { if (error.code === 'EEXIST') throw error; return copy() }
+    try {
+      const info = await lstat(temporary, { bigint: true })
+      // Creating a link can change ctime. The linked file must still be the same inode with the same bytes.
+      if (!info.isFile() || info.dev !== source.dev || info.ino !== source.ino || info.size !== source.size || info.mtimeNs !== source.mtimeNs) return copy()
+      const handle = await open(temporary, 'r+')
+      try { await handle.sync() } finally { await handle.close() }
+      await publish(temporary, ref)
+      return { sha256: ref.sha256, size: ref.size }
+    } finally { await rm(temporary, { force: true }) }
+  }
   async function materialize(ref, target) {
     const source = await resolve(ref)
     check(source, '$.ref', 'Media not found', 'MEDIA_NOT_FOUND')
@@ -89,5 +112,5 @@ export function createMediaStore({ root, linkFile = link, copyOnly = process.env
     await copyFile(source.absolutePath, target, constants.COPYFILE_EXCL)
     return { mode: 'copy', savedBytes: 0 }
   }
-  return Object.freeze({ put, resolve, materialize })
+  return Object.freeze({ put, putSpooled, resolve, materialize })
 }

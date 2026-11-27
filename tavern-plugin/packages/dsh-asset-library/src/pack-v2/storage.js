@@ -345,7 +345,9 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
       // Lazy export/merge inputs hydrate one file at a time, not the entire source pack.
       // Figure documents are read whole (their identity is checked and folded); other files stream (bounded memory).
       const figureId = /^figures\/([0-9a-f-]{36})\.json$/.exec(name)?.[1]
-      const source = bytes instanceof SpooledFile ? figureId ? await spooledBytes(bytes) : readSpooled(bytes)
+      const useSpool = bytes instanceof SpooledFile && !figureId && bytes.sha256 === descriptor?.sha256
+        && typeof mediaStore.putSpooled === 'function'
+      const source = useSpool ? undefined : bytes instanceof SpooledFile ? figureId ? await spooledBytes(bytes) : readSpooled(bytes)
         : bytes instanceof StoredFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
       if (figureId) {
         const figure = readDocument(source)
@@ -358,7 +360,8 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
           continue
         }
       }
-      const ref = await mediaStore.put(source, {ref:descriptor, maxBytes:limits.entrySize})
+      const options = {ref:descriptor, maxBytes:limits.entrySize}
+      const ref = useSpool ? await mediaStore.putSpooled(bytes.file, { ...options, stamp:bytes.stamp }) : await mediaStore.put(source, options)
       await mediaStore.materialize(ref, await locate(base + '/' + name))
     }
     return figures

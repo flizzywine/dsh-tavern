@@ -31,6 +31,7 @@ export function apply(ctx, config = {}) {
     check(owner, '$.mediaStore', 'Media owner unavailable', 'RECOVERY_REQUIRED')
     return owner[method](...args)
   }]))
+  Object.defineProperty(mediaStore, 'putSpooled', { get: () => ctx.get('tavernMediaStore')?.putSpooled })
   // figureImageExtras: a pack leaving the library (export, copy) takes its figures' 配图 外貌 from the host (figure-image-extras.js),
   // figureImageMedia: and the bytes of a 参考图 it names that the pack does not hold;
   // adoptFigureImageLooks: an update the user confirmed with 「用导入的外貌」 for some figures tells the host before it is written.
