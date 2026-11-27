@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ec149b5605893f44db9a7231135c31b1b9f6f05c",
-  "releaseSequence": 2241,
+  "revision": "d9a55163521f2810316983d4cf0decb03e8600fb",
+  "releaseSequence": 2242,
   "version": "3.5.0",
   "files": [
     {
@@ -216,8 +216,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "65a03905dfeb171224ade97b5fe1e7b77588b56c05fcbad0659ce17e64034017",
-      "size": 26860
+      "sha256": "542c4d2d5bead935bf4ea356f9e47d4a21d537647d80ca3b79679616d0ddd253",
+      "size": 27110
     },
     {
       "path": "bin/build-image-client.mjs",
@@ -346,8 +346,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "59b249d48e16343d08bc8a8b278cee6f1b076041981f83928e0986b6b09c0be7",
-      "size": 32878
+      "sha256": "760506bdc94cfc160024691425942b63f0246fc711280e536f8c344e7f6f2394",
+      "size": 33409
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -596,8 +596,8 @@
     },
     {
       "path": "bin/update-diagnostics.mjs",
-      "sha256": "5352337394dabcab2340614594f20936c01265313407592c35397e21047a3ead",
-      "size": 1422
+      "sha256": "3877dfa876acf00aab4693113a22cafa070f20cf10610cb42f14f0f24940e5a9",
+      "size": 1828
     },
     {
       "path": "bin/update-library-card.mjs",
@@ -696,13 +696,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "4e7c6902d1c6fff9a11dab560457babf0ff42fa9a7f8e9f60256f642b11fda2b",
-      "size": 130759
+      "sha256": "cce5bf9ed60c5245880f876dc14a837356308fd75983a6d86e00ee829ce86571",
+      "size": 131290
     },
     {
       "path": "install.sh",
-      "sha256": "11f10d92fad5f45e1b79b98c7e6b16a3b45a94186b0bd701d266ce5d497c31da",
-      "size": 99482
+      "sha256": "66b5977f302f962e3c58bb5fc6636852f9362ccdf42c53c5cd0ae33ffa1b8b6a",
+      "size": 100013
     },
     {
       "path": "package.json",
@@ -1126,8 +1126,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "16d0292a41abcb08dbe0046dcff2a2e7b51490ad440a0f8dc2b27f2d1c743b07",
-      "size": 43153
+      "sha256": "dba2db5be05eeb4e68dcfc340b3fd3c2939a0dc663056257db1a08519447ceab",
+      "size": 43666
     },
     {
       "path": "tavern-plugin/lib/asset-engine-settings-owner.js",
@@ -10420,9 +10420,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "d165855a142154171729a93df3dd734cfab15bbc",
+    "commit": "07c089dc5924bee14ef471850116cc70bd13de53",
     "path": "runtime.zip",
-    "sha256": "455b5a1d445d95021b91478b122abd8e38dd3f90a971b5855031b5a45f9a9e17",
-    "size": 18349587
+    "sha256": "afba147fa5f6d455afc501318a88721401b7ef671b502f98fd14b85d11cdc600",
+    "size": 18350399
   }
 }
