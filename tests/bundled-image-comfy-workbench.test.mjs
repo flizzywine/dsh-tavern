@@ -108,6 +108,61 @@ test('workflow preflight does not write files; LoRA ordering and series compile 
   assert.equal(sent.length, 2)
 })
 
+test('saved workflow dimensions reach ComfyUI across every bound node', async t => {
+  const file = 'workflows/sizes.json'
+  const boundNodes = ['frame', '50', '210']
+  const dimensions = (prompt, node) => [prompt[node].inputs.width, prompt[node].inputs.height]
+  const canvas = (width, height) => ({ class_type: 'EmptyLatentImage', inputs: { width, height } })
+  const workflow = {
+    ...graph,
+    prompt: { ...graph.prompt, frame: canvas(2048, 2048), '50': canvas(1024, 1024), '210': canvas(2048, 2048), draft: canvas(512, 512) },
+    bindings: { ...graph.bindings, size: boundNodes.map(node => ({ node, input: 'width' })) },
+  }
+  const fixture = await imagePluginFixture(t, {
+    config: { imageBackend: 'comfyui', comfyMode: 'workflow', generationMode: 'text', imageSize: '竖图',
+      sizes: { 竖图: { width: 512, height: 768 } }, defaultWorkflow: 'sizes', workflows: [{ id: 'sizes', file }] },
+    files: { [file]: workflow },
+  })
+  const runtime = await fixture.start()
+  let submitted
+  globalThis.fetch = async (input, init = {}) => {
+    const path = new URL(input).pathname
+    if (path === '/prompt') {
+      const request = JSON.parse(init.body)
+      submitted = request.prompt
+      return imageJson({ prompt_id: request.prompt_id })
+    }
+    if (path.startsWith('/history/')) {
+      const id = decodeURIComponent(path.split('/').pop())
+      return imageJson({ [id]: { status: { completed: true }, outputs: { 9: { images: [{ filename: 'out.png', type: 'output' }] } } } })
+    }
+    if (path === '/view') return new Response(IMAGE_PNG, { headers: { 'content-type': 'image/png' } })
+    return imageJson({ queue_running: [], queue_pending: [] })
+  }
+  async function generate(params = {}) {
+    submitted = null
+    const result = await runtime.request('jobs', { tag: 'a traveler', ...params })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    const job = await runtime.terminal(result.body.id)
+    assert.equal(job.state, 'done', JSON.stringify(job))
+    assert.ok(submitted)
+    assert.deepEqual(dimensions(submitted, 'draft'), [512, 512])
+    return boundNodes.map(node => dimensions(submitted, node))
+  }
+  const initial = await generate()
+  const saved = await runtime.request('workflow-values', { file: 'sizes.json', values: { width: 4096, height: 3072 } })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  assert.deepEqual(saved.body.changed, ['尺寸'])
+  const stored = await fixture.read(file)
+  assert.deepEqual(boundNodes.map(node => dimensions(stored.prompt, node)), [[4096, 3072], [4096, 3072], [4096, 3072]])
+  assert.deepEqual(initial, [[2048, 2048], [1024, 1024], [2048, 2048]])
+  assert.deepEqual(await generate(), [[4096, 3072], [4096, 3072], [4096, 3072]])
+  const configured = await runtime.request('workflow', { id: 'sizes', sizes: { 竖图: { width: 1536, height: 2048 } } })
+  assert.equal(configured.status, 200, JSON.stringify(configured.body))
+  assert.deepEqual(await generate(), [[1536, 2048], [1536, 2048], [1536, 2048]])
+  assert.deepEqual(await generate({ size: '832x1216' }), [[832, 1216], [832, 1216], [832, 1216]])
+})
+
 test('gallery trash and favorites persist and restore without deleting the image', async t => {
   const fixture = await imagePluginFixture(t)
   const runtime = await fixture.start()

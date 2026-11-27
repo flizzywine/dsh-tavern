@@ -2050,14 +2050,15 @@
           if (v.positive !== undefined) payload.positive = String(v.positive)
           if (v.negative !== undefined) payload.negative = String(v.negative)
           const w = Number(v.width), hgt = Number(v.height), st = Number(v.steps), cf = Number(v.cfg)
-          if (Number.isFinite(w)) payload.width = w
-          if (Number.isFinite(hgt)) payload.height = hgt
+          if (v.__sizeEdited && Number.isFinite(w) && w > 0) payload.width = w
+          if (v.__sizeEdited && Number.isFinite(hgt) && hgt > 0) payload.height = hgt
           if (Number.isFinite(st)) payload.steps = st
           if (Number.isFinite(cf)) payload.cfg = cf
           if (v.model !== undefined) payload.model = String(v.model)
           try {
             const r = await post('/workflow-values', { file: v.__file, values: payload })
             if (!r?.ok) { setWfNote('保存失败：' + (r?.error || '')); return }
+            setWfValues(current => current === v ? { ...current, __sizeEdited: false } : current)
             setWfNote('✓ 已保存（' + (r.changed || []).join('、') + '）')
             if (typeof showToast === 'function') showToast('工作流参数已保存')
             const st2 = await jsonFetch(BASE + '/state', { cache: 'no-store' }).catch(() => null)
@@ -2307,10 +2308,10 @@
                           ),
                           h('div', { style: S.row },
                             h('span', { style: Object.assign({}, S.label, { minWidth: '74px' }) }, '尺寸'),
-                            h('input', { type: 'number', value: wfValues.width ?? '', placeholder: '宽', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { width: e.target.value })) }),
+                            h('input', { type: 'number', value: wfValues.width ?? '', placeholder: '宽', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { width: e.target.value, __sizeEdited: true })) }),
                             h('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, '×'),
-                            h('input', { type: 'number', value: wfValues.height ?? '', placeholder: '高', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { height: e.target.value })) }),
-                            h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, '这里只是这张工作流的上限参考，实际尺寸由生成时的画幅决定'),
+                            h('input', { type: 'number', value: wfValues.height ?? '', placeholder: '高', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { height: e.target.value, __sizeEdited: true })) }),
+                            h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, '修改后会更新所有尺寸绑定。指定像素尺寸或命中工作流画幅预设时，以该次生成的尺寸为准。'),
                           ),
                           h('div', { style: S.row },
                             h('span', { style: Object.assign({}, S.label, { minWidth: '74px' }) }, '步数'),

@@ -4838,13 +4838,13 @@ function createRuntime(ctx, overrides, logger, deps) {
                 if (!n || !n.inputs) return undefined
                 return n.inputs[inputOf(key, fallbackInput)]
               }
-              // 尺寸：宽高分别取
-              const sizeNode = nodeOf('size')
+              const sizeInputs = boundSizeInputs(prompt, b.size)
+              const [sizeInput] = sizeInputs
               const values = {
                 positive: String(readValue('positive', 'text') ?? ''),
                 negative: String(readValue('negative', 'text') ?? ''),
-                width: sizeNode?.inputs?.width,
-                height: sizeNode?.inputs?.height,
+                width: sizeInput?.width,
+                height: sizeInput?.height,
                 steps: readValue('steps', 'steps'),
                 cfg: readValue('cfg', 'cfg') ?? readValue('guidance', 'guidance'),
                 model: String(readValue('model', 'ckpt_name') ?? ''),
@@ -4866,13 +4866,16 @@ function createRuntime(ctx, overrides, logger, deps) {
                 const markers = comfyPromptMarkers(prompt)
                 if (!markers.positive.length && typeof v.positive === 'string' && setIn('positive', 'text', v.positive)) done.push('正面')
                 if (!markers.negative.length && typeof v.negative === 'string' && setIn('negative', 'text', v.negative)) done.push('负面')
-                if (Number.isFinite(Number(v.width)) || Number.isFinite(Number(v.height))) {
-                  const n = nodeOf('size')
-                  if (n && n.inputs) {
-                    if (Number.isFinite(Number(v.width))) n.inputs.width = Math.round(Number(v.width))
-                    if (Number.isFinite(Number(v.height))) n.inputs.height = Math.round(Number(v.height))
-                    done.push('尺寸')
+                const width = Math.round(Number(v.width))
+                const height = Math.round(Number(v.height))
+                const validWidth = Number.isFinite(width) && width > 0
+                const validHeight = Number.isFinite(height) && height > 0
+                if (sizeInputs.length && (validWidth || validHeight)) {
+                  for (const inputs of sizeInputs) {
+                    if (validWidth) inputs.width = width
+                    if (validHeight) inputs.height = height
                   }
+                  done.push('尺寸')
                 }
                 if (Number.isFinite(Number(v.steps))) { if (setIn('steps', 'steps', Math.round(Number(v.steps)))) done.push('步数') }
                 if (Number.isFinite(Number(v.cfg))) {
@@ -7754,21 +7757,34 @@ function setBinding(prompt, items, value) {
   }
 }
 
-function applySize(prompt, size, sizes, bindings = null) {
-  let target = sizes?.[size] ?? null
-  if (!target) {
-    // 规划模型给的"832x1216"这类像素尺寸直接用
-    const hit = /^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i.exec(String(size ?? '').trim())
-    if (hit) target = { width: Number(hit[1]), height: Number(hit[2]) }
+function hasSizeInputs(inputs) {
+  return Number.isFinite(inputs?.width) && Number.isFinite(inputs?.height)
+}
+
+function boundSizeInputs(prompt, bindings) {
+  return [...new Set((bindings ?? []).map(item => item?.node))].map(id => prompt[id]?.inputs).filter(hasSizeInputs)
+}
+
+function applySize(prompt, size, workflowSizes, globalSizes, bindings) {
+  const bound = boundSizeInputs(prompt, bindings)
+  const pixels = /^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i.exec(String(size ?? '').trim())
+  const preset = workflowSizes?.[size]
+  let target = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : preset
+  if (!target || !(target.width > 0 && target.height > 0)) {
+    // 工作流里不同节点可能特意使用不同尺寸，默认生成时保留原图的分工。
+    if (bound.length) return { width: bound[0].width, height: bound[0].height }
+    target = globalSizes?.[size]
   }
   if (!target) return null
-  // 工作流绑定了尺寸节点时只改那几个；没绑定时改所有带宽高的节点，但跳过放大、缩放、裁剪一类节点
-  // （两步出图里放大节点的目标尺寸被改成底图尺寸，放大那一步就白做了）。
-  const sized = node => typeof node?.inputs?.width === 'number' && typeof node?.inputs?.height === 'number'
-  const bound = [...new Set((bindings ?? []).map(item => item?.node))].map(id => prompt[id]).filter(sized)
-  const nodes = bound.length ? bound : Object.values(prompt).filter(node => sized(node) && !/upscale|scale|resize|crop|pad/i.test(String(node.class_type ?? '')))
-  if (!nodes.length) return null
-  for (const node of nodes) { node.inputs.width = target.width; node.inputs.height = target.height }
+  // 没有绑定时跳过放大、缩放、裁剪等节点，保留后处理的尺寸。
+  const inputs = bound.length ? bound : Object.values(prompt)
+    .filter(node => hasSizeInputs(node?.inputs) && !/upscale|scale|resize|crop|pad/i.test(String(node.class_type ?? '')))
+    .map(node => node.inputs)
+  if (!inputs.length) return null
+  for (const nodeInputs of inputs) {
+    nodeInputs.width = target.width
+    nodeInputs.height = target.height
+  }
   return target
 }
 
@@ -7901,7 +7917,7 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
     }
   }
 
-  const size = applySize(prompt, params.size, workflow.sizes ?? config.sizes ?? null, workflow.bindings?.size)
+  const size = applySize(prompt, params.size, workflow.sizes, config.sizes, workflow.bindings?.size)
   const protectedInputs = new Set()
   for (const role of ['positive', 'negative', 'seed', 'steps', 'cfg', 'guidance']) for (const binding of [...(workflow.bindings[role] || []), ...(markers[role] || [])]) {
     protectedInputs.add(String(binding.node) + ':' + String(binding.input))

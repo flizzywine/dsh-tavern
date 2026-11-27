@@ -204,7 +204,7 @@ try {
       }
     }
     else if (path === '/workflow-series') response = { ok: true, jobs: body.weights.map((_, index) => ({ id: 'series-' + index, state: 'pending' })) }
-    else if (path === '/workflow-values') response = { ok: true, values: { positive: '', negative: '' } }
+    else if (path === '/workflow-values') response = { ok: true, changed: body.values?.width ? ['尺寸'] : [], values: { positive: '', negative: '', width: 2048, height: 2048 } }
     else if (path === '/loras-available') response = { ok: true, loras: [] }
     else if (path === '/history') {
       const mode = url.searchParams.get('gallery')
@@ -582,6 +582,25 @@ try {
   assert.equal(await page.getByRole('button', { name: '设为默认', exact: true }).count(), 0, '工作台不再设置默认工作流')
   assert.equal(await page.getByText('锁定（不管别处选什么都用这张）', { exact: true }).count(), 0)
   await page.getByRole('button', { name: /编辑 \/ LoRA/ }).click()
+  await page.getByText('快捷参数', { exact: true }).click()
+  await page.getByText(/修改后会更新所有尺寸绑定/).waitFor()
+  const saveParameters = page.getByRole('button', { name: '💾 保存参数', exact: true })
+  const saveQuickValues = async () => {
+    const [request] = await Promise.all([
+      page.waitForRequest(request => request.url().endsWith('/workflow-values') && request.postDataJSON()?.values),
+      saveParameters.click(),
+    ])
+    return request.postDataJSON().values
+  }
+  const unchanged = await saveQuickValues()
+  assert.equal(unchanged.width, undefined)
+  assert.equal(unchanged.height, undefined)
+  await page.getByPlaceholder('宽', { exact: true }).fill('4096')
+  await page.getByPlaceholder('高', { exact: true }).fill('3072')
+  const resized = await saveQuickValues()
+  assert.deepEqual([resized.width, resized.height], [4096, 3072])
+  await page.getByText('✓ 已保存（尺寸）', { exact: true }).waitFor()
+  await page.getByText('快捷参数', { exact: true }).click()
   await page.getByLabel('参考图 1 接入节点').count().then(count => assert.equal(count, 0, 'multiple LoadImage nodes are never auto-selected'))
   assert.match(await page.getByText(/尚未保存明确映射/).textContent(), /多个接图节点时不会猜测/)
   await page.getByText('手动调整接入', { exact: true }).click()

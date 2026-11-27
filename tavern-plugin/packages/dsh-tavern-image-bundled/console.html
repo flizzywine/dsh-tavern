@@ -503,7 +503,7 @@ function renderWorkflows() {
       }
       sizesBox.appendChild(item)
     }
-    card.appendChild(settingRow('这个画风的尺寸', '竖图/横图/方图分别用多大。留空就用「高级设置」里的全局尺寸', sizesBox))
+    card.appendChild(settingRow('这个画风的尺寸', '竖图/横图/方图分别用多大。留空时优先使用工作流绑定的节点尺寸，其次使用全局尺寸', sizesBox))
 
     // 操作
     const actions = text('div', 'row')

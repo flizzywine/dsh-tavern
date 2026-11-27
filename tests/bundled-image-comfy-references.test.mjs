@@ -49,11 +49,11 @@ async function setup(t, graph, { comfyMode = 'workflow', extraConfig = {} } = {}
   return { fixture, runtime, image, definitions }
 }
 
-async function jobInput(runtime, { outfit = false, key = 'reference-job' } = {}) {
+async function jobInput(runtime, { outfit = false, key = 'reference-job', size = '横图' } = {}) {
   return runtime.request('jobs', {
     key, tag: '【人物】\n林月\n\n【动作】\n站在窗边。', generationMode: 'reference',
     subjects: [{ characterId: 'lin', ...(outfit ? { outfitId: 'robe' } : {}) }],
-    size: '横图', negative: '不要水印',
+    size, negative: '不要水印',
   })
 }
 
@@ -216,7 +216,7 @@ test('真实 runtime 上传不可变快照并保留编译后的完整 prompt gra
     }
     return imageJson({ queue_running: [], queue_pending: [] })
   }
-  const result = await jobInput(runtime, { outfit: true })
+  const result = await jobInput(runtime, { outfit: true, size: '768x512' })
   assert.equal(result.status, 200, JSON.stringify(result.body))
   assert.equal(files.length, 2)
   assert.deepEqual(files.map(item => item.bytes), [IMAGE_PNG, IMAGE_PNG])
