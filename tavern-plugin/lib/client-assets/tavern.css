@@ -4648,6 +4648,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
   body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
+  /* DSH 0.2.2 给 _titleCluster 加了右侧渐隐 mask-image；dsh-web-mobile 的左侧栏开关（与文件按钮）
+     挂在 headerActions 里但绝对定位到 _titleCluster 之外，会被该蒙版按边界框整颗裁掉。 */
+  body.dsh-tavern-shell-active [data-mobile-nav="frame"] [data-phase] header [class*="_titleCluster"] {
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+  }
 }
 
 /* ---------- DSH 0.2.2 官方抽屉（[data-sidebar-drawer]）与 dsh-go 手机抽屉（[data-dsh-app-layout="drawer"]） ----------
