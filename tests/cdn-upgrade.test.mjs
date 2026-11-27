@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { copyFile, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -50,7 +50,7 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
     files.set(file, await readFile(new URL('../' + file, import.meta.url)))
   }
   let revision = 'b'.repeat(40)
-  const manifest = { schemaVersion: 2, revision, releaseSequence: 42, version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, files: [...files].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })) }
+  const manifest = { schemaVersion: 2, revision, releaseSequence: 42, version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, executables: ['bin/dsh-tavern.mjs'], files: [...files].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })) }
   manifest.files.push({ path: 'docs/do-not-download.txt', size: 0, sha256: 'a'.repeat(64) })
   manifest.files.push({ path: 'patches/../escape.txt', size: 0, sha256: 'a'.repeat(64) })
   const requests = []
@@ -128,6 +128,7 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
   assert.equal(await readFile(path.join(app, 'installed.txt'), 'utf8'), 'install --host desktop')
   assert.deepEqual(JSON.parse(await readFile(path.join(app, 'dsh-tavern-runtime.json'), 'utf8')), manifest)
   assert.equal(await readFile(path.join(app, installerName), 'utf8'), downloaded)
+  if (!isWindows) assert.ok((await stat(path.join(app, 'bin/dsh-tavern.mjs'))).mode & 0o100)
   for (const file of [...patches, integrityFile]) assert.deepEqual(await readFile(path.join(app, file)), files.get(file))
   for (const [file, content] of protectedFiles) assert.equal(await readFile(file, 'utf8'), content)
   // All transports use the same manifest, including the CDN fallback after a failed archive.
@@ -135,11 +136,16 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
   assert.equal(requests.filter(request => request === '/manifest').length, 1)
   assert.ok(!requests.some(url => /escape|do-not-download/.test(url)))
   // EXIT cleanup must preserve a dependency failure, including on macOS sh.
-  await assert.rejects(run({ DSH_TEST_DEPENDENCY_EXIT: '23' }), error => {
+  if (!isWindows) await chmod(path.join(app, 'bin/dsh-tavern.mjs'), 0o644)
+  requests.length = 0
+  await assert.rejects(run({ DSH_TAVERN_ARCHIVE_URL: '', DSH_TEST_DEPENDENCY_EXIT: '23' }), error => {
     assert.equal(error.code, isWindows ? 1 : 23)
+    assert.match(error.stdout, /下载代码（增量）/)
     assert.doesNotMatch(error.stdout, /DSH Tavern Desktop 版安装完成/)
     return true
   })
+  assert.deepEqual(requests, ['/manifest'])
+  if (!isWindows) assert.ok((await stat(path.join(app, 'bin/dsh-tavern.mjs'))).mode & 0o100)
   // Failed CDN verification must not overwrite installed resources or report success.
   // Advertise a new revision of this file so checksum-valid installed bytes cannot
   // satisfy the update through Windows' local reuse path.

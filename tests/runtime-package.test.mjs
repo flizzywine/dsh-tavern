@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -166,9 +166,11 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
     await mkdir(path.join(fixture, 'tavern-plugin', directory))
     await writeFile(path.join(fixture, 'tavern-plugin', directory, 'unused.txt'), 'development only')
   }
+  if (process.platform !== 'win32') await chmod(path.join(fixture, 'install.sh'), 0o755)
   execFileSync(process.execPath, [path.join(root, '.github/scripts/write-runtime-manifest.mjs'), 'a'.repeat(40), '42'], { cwd: fixture })
   const manifest = JSON.parse(await readFile(path.join(fixture, 'dsh-tavern-runtime.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 2)
+  if (process.platform !== 'win32') assert.deepEqual(manifest.executables, ['install.sh'])
   assert.ok(!manifest.files.some(file => file.path.endsWith('/unused.txt')), 'CDN 也不应下载嵌套的测试或文档')
   assert.equal(manifest.releaseSequence, 42)
   assert.equal(manifest.version, JSON.parse(await readFile(path.join(fixture, 'package.json'), 'utf8')).version)

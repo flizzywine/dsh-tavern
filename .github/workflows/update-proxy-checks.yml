@@ -5,7 +5,13 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/update-proxy-checks.yml'
+      - 'android/native/shims/source-update.mjs'
+      - 'android/setup.sh'
       - 'bin/application-update.mjs'
+      - 'bin/download.cjs'
+      - 'bin/relocate-pnpm-install.mjs'
+      - 'install.ps1'
+      - 'install.sh'
       - 'bin/system-proxy.mjs'
       - 'bin/launcher-environment.mjs'
       - 'bin/service-lifecycle.mjs'
@@ -14,6 +20,9 @@ on:
       - 'tavern-plugin/packages/dsh-tavern/lib/proxy-environment.mjs'
       - 'tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
       - 'tests/application-update-proxy.test.mjs'
+      - 'tests/cdn-upgrade.test.mjs'
+      - 'tests/download.test.mjs'
+      - 'tests/staged-app-install.test.mjs'
       - 'tests/profile-bridge-download.test.mjs'
       - 'tests/system-proxy*.test.mjs'
       - 'package.json'
@@ -21,7 +30,13 @@ on:
   pull_request:
     paths:
       - '.github/workflows/update-proxy-checks.yml'
+      - 'android/native/shims/source-update.mjs'
+      - 'android/setup.sh'
       - 'bin/application-update.mjs'
+      - 'bin/download.cjs'
+      - 'bin/relocate-pnpm-install.mjs'
+      - 'install.ps1'
+      - 'install.sh'
       - 'bin/system-proxy.mjs'
       - 'bin/launcher-environment.mjs'
       - 'bin/service-lifecycle.mjs'
@@ -30,6 +45,9 @@ on:
       - 'tavern-plugin/packages/dsh-tavern/lib/proxy-environment.mjs'
       - 'tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
       - 'tests/application-update-proxy.test.mjs'
+      - 'tests/cdn-upgrade.test.mjs'
+      - 'tests/download.test.mjs'
+      - 'tests/staged-app-install.test.mjs'
       - 'tests/profile-bridge-download.test.mjs'
       - 'tests/system-proxy*.test.mjs'
       - 'package.json'
@@ -50,6 +68,8 @@ jobs:
             node: 24.12.0
           - os: ubuntu-22.04
             node: 22.19.0
+          - os: macos-15
+            node: 24.12.0
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -62,3 +82,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Check launcher downloads and updater proxy inheritance
         run: node --test tests/system-proxy.test.mjs tests/system-proxy-inheritance.test.mjs tests/application-update-proxy.test.mjs tests/profile-bridge-download.test.mjs
+      - name: Check runtime downloads and staged updates
+        run: node --test tests/download.test.mjs tests/staged-app-install.test.mjs tests/cdn-upgrade.test.mjs
+      - name: Check Android source updates
+        if: runner.os == 'Linux'
+        run: node --test tests/android-native-source-update.test.mjs tests/android-setup-download.test.mjs

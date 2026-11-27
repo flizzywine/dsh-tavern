@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -308,16 +308,21 @@ test('增量下载复用校验通过的文件，只请求需要替换的文件�
   const files = new Map([['bin/a.js', Buffer.from('unchanged')], ['bin/b.js', Buffer.from('updated')]])
   const { root, metadata, args, hits } = await runtimeFixture(t, files)
   metadata.archive = { commit: 'e'.repeat(40), path: 'runtime.zip', sha256: 'f'.repeat(64), size: 200 }
+  metadata.executables = ['bin/a.js', 'bin/b.js']
   const installed = path.join(root, 'installed')
   const destination = path.join(root, 'new-version')
   await mkdir(path.join(installed, 'bin'), { recursive: true })
   await writeFile(path.join(installed, 'bin/a.js'), files.get('bin/a.js'))
   await writeFile(path.join(installed, 'bin/b.js'), 'corrupt')
-  const options = { ...args, manifest: metadata, installed, destination, incremental: true }
+  const options = { ...args, manifest: metadata, installed, destination, mode: 'incremental' }
   await downloadRuntime(options)
   assert.deepEqual([...hits.keys()], [`/repo@${metadata.revision}/bin/b.js`])
   assert.deepEqual(await readFile(path.join(destination, 'bin/b.js')), files.get('bin/b.js'))
   assert.equal(await readFile(path.join(installed, 'bin/b.js'), 'utf8'), 'corrupt')
+  if (process.platform !== 'win32') {
+    for (const file of files.keys()) assert.ok((await stat(path.join(destination, file))).mode & 0o100)
+    assert.equal((await stat(path.join(installed, 'bin/a.js'))).mode & 0o100, 0)
+  }
 
   hits.clear()
   const large = { ...metadata, files: [{ path: 'bin/big.js', sha256: 'a'.repeat(64), size: 5 * 1024 * 1024 }] }
@@ -325,4 +330,25 @@ test('增量下载复用校验通过的文件，只请求需要替换的文件�
   await assert.rejects(downloadRuntime({ ...options, manifest: large, destination: failed }), /改用完整下载/)
   assert.equal(hits.size, 0)
   await assert.rejects(readFile(path.join(failed, 'dsh-tavern-runtime.json')), { code: 'ENOENT' })
+})
+
+test('自动取源发现大版本差异时直接下载校验过的压缩包', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'download-auto-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const installed = path.join(root, 'installed')
+  await mkdir(installed)
+  await writeFile(path.join(installed, 'dsh-tavern-runtime.json'), JSON.stringify({ files: [] }))
+  const file = 'bin/dsh-tavern'
+  const bytes = Buffer.alloc(4 * 1024 * 1024 + 1, 'a')
+  const zip = zipOf([[file, bytes, true]])
+  const revision = 'c'.repeat(40), commit = 'd'.repeat(40)
+  const metadata = { revision, executables: [file], files: [{ path: file, size: bytes.length, sha256: sha(bytes) }],
+    archive: { commit, path: 'runtime.zip', size: zip.length, sha256: sha(zip) } }
+  const archivePath = `/repo@${commit}/runtime.zip`
+  const { base, hits } = await serve(t, { [archivePath]: (req, res) => res.end(zip) })
+  const destination = path.join(root, 'out')
+  await downloadRuntime({ manifest: metadata, rootUrl: `${base}/repo`, destination, installed, mode: 'auto' })
+  assert.deepEqual([...hits.keys()], [archivePath])
+  assert.deepEqual(await readFile(path.join(destination, file)), bytes)
+  if (process.platform !== 'win32') assert.ok((await stat(path.join(destination, file))).mode & 0o100)
 })

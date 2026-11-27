@@ -270,7 +270,7 @@ restore_previous() {
   printf 'DSH_STATUS 已恢复更新前的源码%s\n' "${version:+ v${version}}"
 }
 
-# 下载器优先校验并解压清单中的 runtime.zip，也支持从旧目录复用文件的增量下载。
+# 下载器先复用已校验的本地文件，改动较大时回退到 runtime.zip。
 install_from_cdn() {
   [ "${SOURCE_CDN}" != 0 ] || return 1
   [ -f "${APP_DIR}/bin/download.cjs" ] || return 1
@@ -278,7 +278,7 @@ install_from_cdn() {
   local candidate="${TEMP_ROOT}/cdn-source"
   local version=""
   version="$(node -e 'process.stdout.write(String(require(process.argv[1]).version || ""))' "${APP_DIR}/package.json" 2>/dev/null || true)"
-  local args=(runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${candidate}" "${APP_DIR}" --stall 15 --budget 90)
+  local args=(runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${candidate}" "${APP_DIR}" --mode auto --stall 15 --budget 90)
   if [ -n "${version}" ]; then args+=(--min-version "${version}"); fi
   stage "通过 CDN 下载源码"
   if ! node "${APP_DIR}/bin/download.cjs" "${args[@]}"; then

@@ -1,10 +1,17 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { removeTreeSync } from './portable-fs.mjs'
 
 export function relocatePnpmInstall(moves) {
+  // pnpm may have resolved a linked ancestor, such as /var on macOS.
+  const pathMappings = moves.flatMap(([from, to]) => {
+    const physicalFrom = realpathSync(from)
+    if (physicalFrom === from) return [[from, to]]
+    const physicalTo = path.join(realpathSync(path.dirname(to)), path.basename(to))
+    return [[physicalFrom, physicalTo], [from, to]]
+  })
   function mapPath(target) {
-    for (const [from, to] of moves) {
+    for (const [from, to] of pathMappings) {
       const relative = path.relative(from, target)
       if (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep)) return path.join(to, relative)
     }
@@ -41,7 +48,7 @@ export function relocatePnpmInstall(moves) {
       if (!existsSync(file)) continue
       const before = readFileSync(file, 'utf8')
       let after = before
-      for (const [from, to] of moves) {
+      for (const [from, to] of pathMappings) {
         after = after.replaceAll(from, to)
           .replaceAll(from.split(path.sep).join('/'), to.split(path.sep).join('/'))
           .replaceAll(JSON.stringify(from).slice(1, -1), JSON.stringify(to).slice(1, -1))

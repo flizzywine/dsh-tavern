@@ -1227,12 +1227,12 @@ function archiveUrls(rootUrl, archive) {
   return urls
 }
 
-// Download the runtime files listed by a jsDelivr manifest into `destination`.
-// Files whose bytes already match in `installed` are reused instead of downloaded.
+// Desktop bootstraps try incremental first, then retain their own source fallbacks.
+// Other installers can use auto to let this module also handle those fallbacks.
 async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false,
-  incremental = false } = {}) {
-  const source = hostOf(rootUrl)
+  mode = 'full' } = {}) {
+  if (!['full', 'incremental', 'auto'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
   const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, targetCommit, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
@@ -1242,20 +1242,82 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
   if (/^[0-9a-f]{40}$/.test(target) && String(metadata.revision).toLowerCase() !== target) {
     throw new Error(`jsDelivr 运行清单（${String(metadata.revision).slice(0, 12)}）与目标版本（${target.slice(0, 12)}）不一致，可能尚未同步`)
   }
-  const controller = new AbortController()
   const budget = AbortSignal.timeout(budgetMs)
-  const signal = AbortSignal.any([controller.signal, budget])
-  const archive = runtimeArchive(metadata)
-  if (archive && !incremental) {
+  const write = runtimeWriter(destination, metadata.executables)
+  const options = { files, revision: metadata.revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write }
+  try {
+    await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    budget.throwIfAborted()
+  } catch (error) {
+    if (budget.aborted) throw new Error(`下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
+    throw error
+  }
+  await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
+  return metadata
+}
+
+function runtimeWriter(destination, executableFiles) {
+  const executables = new Set(Array.isArray(executableFiles) ? executableFiles : [])
+  const directories = new Map()
+  return async (file, content) => {
+    const target = path.join(destination, ...file.split('/'))
+    const directory = path.dirname(target)
+    if (!directories.has(directory)) directories.set(directory, fs.mkdir(directory, { recursive: true }))
+    await directories.get(directory)
+    await fs.writeFile(target, content, { mode: executables.has(file) ? 0o755 : 0o644 })
+  }
+}
+
+function assertIncrementalSize(count, bytes) {
+  if (count > 64 || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > 4 * 1024 * 1024) {
+    throw new Error('需要下载的运行文件较多，改用完整下载。')
+  }
+}
+
+async function checkInstalledManifest(installed, files) {
+  let previous
+  try { previous = JSON.parse(await fs.readFile(path.join(installed, 'dsh-tavern-runtime.json'), 'utf8')) } catch { return }
+  if (!Array.isArray(previous?.files)) return
+  const hashes = new Map(previous.files.map(file => [file?.path, file?.sha256]))
+  const changed = files.filter(file => hashes.get(file.path) !== file.sha256)
+  // A hint to skip large upgrades. Reused bytes are always hashed before writing.
+  assertIncrementalSize(changed.length, changed.reduce((total, file) => total + file.size, 0))
+}
+
+async function retrieveRuntimeFiles(options, { metadata, mode, budget }) {
+  const { installed, files, stallMs, status } = options
+  // Legacy manifests never recorded executable bits. Git/tar preserves them.
+  const incrementalSupported = installed && (process.platform === 'win32' || Array.isArray(metadata.executables))
+  if (mode === 'incremental' && !incrementalSupported) throw new Error('缺少本地安装或发布清单未记录执行权限，改用完整下载。')
+  if (mode !== 'full' && incrementalSupported) {
     try {
-      await extractRuntimeArchive({ archive, files, rootUrl, destination, stallMs, signal, fetch: request, status })
-      await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
-      return metadata
+      const signal = AbortSignal.any([budget, AbortSignal.timeout(16000)])
+      await checkInstalledManifest(installed, files)
+      await downloadRuntimeFiles({ ...options, stallMs: Math.min(stallMs, 6500), signal, incremental: true })
+      signal.throwIfAborted()
+      return
     } catch (error) {
-      if (budget.aborted) throw new Error(`备用源下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
+      if (mode === 'incremental' || budget.aborted) throw error
+      status(`增量取源未完成（${describeFailure(error)}），改用完整下载…`)
+    }
+  }
+  const archive = runtimeArchive(metadata)
+  if (archive) {
+    try {
+      await extractRuntimeArchive({ ...options, archive, signal: budget })
+      return
+    } catch (error) {
+      if (budget.aborted) throw error
       status(`代码压缩包不可用（${describeFailure(error)}），改为逐个文件下载…`)
     }
   }
+  await downloadRuntimeFiles({ ...options, signal: budget })
+}
+
+async function downloadRuntimeFiles({ files, revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write, signal: budget, incremental = false }) {
+  const source = hostOf(rootUrl)
+  const controller = new AbortController()
+  const signal = AbortSignal.any([controller.signal, budget])
   let next = 0, done = 0, reused = 0, received = 0, reportedAt = 0
   let requestedFiles = 0, requestedBytes = 0
   // A progress line every five seconds at most: the Windows installer appends each line to its log
@@ -1280,11 +1342,12 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
         } catch {}
       }
       if (!content) {
-        // Give small updates a fast path. A larger change or an incomplete local
-        // installation should use Git or the archive instead of many HTTP requests.
-        if (incremental && (!Number.isSafeInteger(file.size) || file.size < 0 || ++requestedFiles > 64
-          || (requestedBytes += file.size) > 4 * 1024 * 1024)) throw new Error('需要下载的运行文件较多，改用完整下载。')
-        const url = `${rootUrl}@${metadata.revision}/${parts.map(encodeURIComponent).join('/')}`
+        if (incremental) {
+          requestedFiles++
+          requestedBytes += Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : NaN
+          assertIncrementalSize(requestedFiles, requestedBytes)
+        }
+        const url = `${rootUrl}@${revision}/${parts.map(encodeURIComponent).join('/')}`
         const mirrors = (incremental ? [rawMirror(url), url] : [url, rawMirror(url)]).filter(Boolean)
         content = (await download(mirrors, { label: file.path, sha256: file.sha256, size: incremental ? file.size : undefined, stallMs, attempts, signal, fetch: request,
           onRetry: ({ host, attempt, attempts: total, reason, willRetry }) => status(`下载失败（${host}）：${file.path}，${reason}；尝试 ${attempt}/${total}${willRetry ? '，正在重试' : '，将切换备用方案'}。`),
@@ -1292,9 +1355,7 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
         received += content.length
       }
       signal.throwIfAborted()
-      const target = path.join(destination, ...parts)
-      await fs.mkdir(path.dirname(target), { recursive: true })
-      await fs.writeFile(target, content)
+      await write(file.path, content)
       done++
       report()
     }
@@ -1306,15 +1367,12 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
   } catch (error) {
     controller.abort()
     await Promise.allSettled(workers)
-    if (budget.aborted) throw new Error(`下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
     throw error
   }
-  await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
-  return metadata
 }
 
 // One zip, verified as a whole and then file by file against the manifest, before anything is written.
-async function extractRuntimeArchive({ archive, files, rootUrl, destination, stallMs, signal, fetch: request, status }) {
+async function extractRuntimeArchive({ archive, files, rootUrl, stallMs, signal, fetch: request, status, write }) {
   const urls = archiveUrls(rootUrl, archive)
   let reportedAt = 0
   const megabytes = bytes => (bytes / 1048576).toFixed(1)
@@ -1335,9 +1393,7 @@ async function extractRuntimeArchive({ archive, files, rootUrl, destination, sta
   })
   for (const { file, content } of verified) {
     signal.throwIfAborted()
-    const target = path.join(destination, ...file.path.split('/'))
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    await fs.writeFile(target, content)
+    await write(file.path, content)
   }
   status(`代码已就绪：${files.length} 个文件`)
 }
@@ -1426,7 +1482,8 @@ const seconds = (value, fallback) => (value === undefined ? fallback : Number(va
 //   node download.cjs file <destination> [--sha256 H] [--stall S] [--deadline S] [--attempts N] <url>...
 //   node download.cjs manifest <metadata-url> <destination> [--min-version V]
 //   node download.cjs verify-runtime <manifest-file> <source-directory>
-//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode incremental]
+//   node download.cjs restore-executables <manifest-file> <installed-directory>
+//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto]
 //     (DSH_TAVERN_CDN_METADATA_URL set: that manifest only, no other jsDelivr nodes)
 //   node download.cjs proxy-env   prints KEY=VALUE lines to add (Windows system proxy)
 async function main(argv) {
@@ -1453,6 +1510,19 @@ async function main(argv) {
     await verifyPublishedRuntime(directory, JSON.parse(await fs.readFile(manifestFile, 'utf8')))
     return
   }
+  if (command === 'restore-executables') {
+    const [manifestFile, directory] = rest
+    const metadata = JSON.parse(await fs.readFile(manifestFile, 'utf8'))
+    if (!Array.isArray(metadata.executables)) return
+    const executables = new Set(metadata.executables)
+    for (const { path: file } of runtimeFiles(metadata)) {
+      if (!executables.has(file)) continue
+      const target = path.join(directory, ...file.split('/'))
+      const info = await fs.lstat(target)
+      if (info.isFile() && !(info.mode & 0o100)) await fs.chmod(target, info.mode | 0o100)
+    }
+    return
+  }
   if (command === 'runtime') {
     const [metadataUrl, rootUrl, destination, installed] = rest
     if (!metadataUrl || !rootUrl || !destination) throw new Error('用法：download.cjs runtime <清单 URL> <CDN 根 URL> <目标目录> [已安装目录]')
@@ -1460,7 +1530,7 @@ async function main(argv) {
     const metadata = await downloadRuntime({ manifest, metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
       stallMs: seconds(options.stall, 30000), budgetMs: seconds(options.budget, 300000), status,
       targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT, minVersion: options['min-version'] || '',
-      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), incremental: options.mode === 'incremental' })
+      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode })
     status(`下载代码完成：${metadata.revision.slice(0, 12)}`)
     return
   }
@@ -1480,17 +1550,33 @@ if (require.main === module) {
 }
 DSH_DOWNLOAD_MODULE
 
+assert_installation_active() {
+  node "${TEMP_DIR}/installation-state.cjs" check --home "$DSH_ROOT" --attempt "$DSH_TAVERN_INSTALL_ATTEMPT"
+}
+
 echo "正在确认已发布的酒馆版本……"
 PUBLISHED_MANIFEST=${TEMP_DIR}/published-runtime.json
 node "${TEMP_DIR}/download.cjs" manifest "${CDN_METADATA_URL}" "${PUBLISHED_MANIFEST}" --min-version "${INSTALLER_VERSION}"
 TARGET_COMMIT=$(node -p 'require(process.argv[1]).revision' "${PUBLISHED_MANIFEST}")
 ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/${TARGET_COMMIT}}
 
-echo "正在增量同步 DSH Tavern……"
 USED_GIT=0
 USED_ARCHIVE=0
 USED_CDN=0
-if command -v git >/dev/null 2>&1; then
+CDN_SOURCE=${TEMP_DIR}/cdn-source
+if [ -z "${DSH_TAVERN_ARCHIVE_URL:-}" ] && [ -f "${APP_DIR}/package.json" ]; then
+  update_log installer.stage.started source.incremental '' '' ''
+  if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${TEMP_DIR}/incremental-source" "${APP_DIR}" --manifest-file "${PUBLISHED_MANIFEST}" --mode incremental 2>"${TEMP_DIR}/incremental.stderr"; then
+    update_log installer.stage.succeeded source.incremental 0 '' ''
+    CDN_SOURCE=${TEMP_DIR}/incremental-source
+    USED_CDN=1
+  else
+    update_log installer.stage.failed source.incremental 1 '' "${TEMP_DIR}/incremental.stderr"
+    assert_installation_active
+    echo "运行文件增量更新未完成，正在切换完整下载……"
+  fi
+fi
+if [ "${USED_CDN}" -eq 0 ] && command -v git >/dev/null 2>&1; then
   echo "正在通过 Git 增量同步（不下载文档与图片）……"
   mkdir -p "$(dirname -- "${SOURCE_CACHE}")"
   if { [ -f "${SOURCE_CACHE}/HEAD" ] || run_git git.init init --bare "${SOURCE_CACHE}"; } \
@@ -1501,12 +1587,12 @@ if command -v git >/dev/null 2>&1; then
   else
     echo "Git 增量更新失败，正在尝试 jsDelivr 备用源。" >&2
   fi
-else
+elif [ "${USED_CDN}" -eq 0 ]; then
   update_log installer.stage.failed git.unavailable 127 '' ''
   echo "未找到 Git，正在尝试备用源。" >&2
 fi
 
-if [ "${USED_GIT}" -eq 0 ]; then
+if [ "${USED_CDN}" -eq 0 ] && [ "${USED_GIT}" -eq 0 ]; then
   # GitHub 和 CDN 都使用先前选定的发布版本。
   if command -v curl >/dev/null 2>&1; then
     echo "正在下载精简运行压缩包（GitHub）……"
@@ -1524,11 +1610,11 @@ if [ "${USED_GIT}" -eq 0 ]; then
   fi
 fi
 
-if [ "${USED_GIT}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ]; then
+if [ "${USED_CDN}" -eq 0 ] && [ "${USED_GIT}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ]; then
   echo "正在通过 jsDelivr 备用源下载运行代码……"
   update_log installer.stage.started source.jsdelivr '' '' ''
-  mkdir -p "${TEMP_DIR}/cdn-source"
-  if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${TEMP_DIR}/cdn-source" "${APP_DIR}" --manifest-file "${PUBLISHED_MANIFEST}" 2>"${TEMP_DIR}/cdn.stderr"
+  mkdir -p "${CDN_SOURCE}"
+  if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${CDN_SOURCE}" "${APP_DIR}" --manifest-file "${PUBLISHED_MANIFEST}" 2>"${TEMP_DIR}/cdn.stderr"
   then
     update_log installer.stage.succeeded source.jsdelivr 0 '' ''
     USED_CDN=1
@@ -1544,7 +1630,7 @@ if [ "${USED_GIT}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ] && [ "${USED_CDN}" -eq
 fi
 mkdir -p "${TEMP_DIR}/extract"
 if [ "${USED_CDN}" -eq 1 ]; then
-  SOURCE_DIR=${TEMP_DIR}/cdn-source
+  SOURCE_DIR=${CDN_SOURCE}
 elif [ "${USED_GIT}" -eq 1 ]; then
   tar -xf "${TEMP_DIR}/app.tar" -C "${TEMP_DIR}/extract"
   SOURCE_DIR=${TEMP_DIR}/extract
@@ -1572,9 +1658,6 @@ fi
 
 # The downloaded release supplies process-tree supervision. Older release
 # archives remain usable; current releases bound every mutating package stage.
-assert_installation_active() {
-  node "${TEMP_DIR}/installation-state.cjs" check --home "$DSH_ROOT" --attempt "$DSH_TAVERN_INSTALL_ATTEMPT"
-}
 run_install() {
   install_step=$1
   install_timeout=$2
@@ -1623,7 +1706,7 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ]
   node "${STAGER}" prepare --app "${APP_DIR}" --source "${SOURCE_DIR}" --commit "${TARGET_COMMIT}" >/dev/null
 
   echo "正在安装程序依赖……"
-  run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --config.minimum-release-age=0
+  run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --prefer-offline --config.minimum-release-age=0
 
   if [ "${INSTALL_HOST}" = "next" ] && [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] && [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; then
     printf '%s' '本地配置：正在准备并验证新版 Tavern Profile…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
@@ -1631,9 +1714,19 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ]
     # The staged installer owns publication; discard the downloaded copy before readiness.
     SOURCE_DIR=${APP_DIR}.staging
     STAGED_INSTALL=0
-    rm -rf "${TEMP_DIR}/extract" "${TEMP_DIR}/cdn-source" "${TEMP_DIR}/app.tar" "${TEMP_DIR}/app.tar.gz"
+    rm -rf "${TEMP_DIR}/extract" "${CDN_SOURCE}" "${TEMP_DIR}/app.tar" "${TEMP_DIR}/app.tar.gz"
     (cd "${TEMP_DIR}" && DSH_HOME=${DSH_ROOT} DSH_TAVERN_PREPARE_NEXT_APP=${APP_DIR} run_install profile.prepare-next 1800000 node "${APP_DIR}.staging/bin/dsh-tavern.mjs" install --host next)
   else
+    DEPENDENCIES_RELOCATED=0
+    if [ -f "${SOURCE_DIR}/bin/relocate-pnpm-install.mjs" ]; then
+      echo 'DSH_STATUS 本地处理：正在准备新版的依赖链接…'
+      if run_install dependencies.prepare-links 60000 node "${STAGER}" relocate-dependencies --app "${APP_DIR}"; then
+        DEPENDENCIES_RELOCATED=1
+      else
+        assert_installation_active
+        echo 'DSH_STATUS 将在切换后由 pnpm 重建依赖链接。'
+      fi
+    fi
     if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
       if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
     elif [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
@@ -1652,8 +1745,9 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ]
     fi
     APP_SWAPPED=1
     node "${STAGER}" swap --app "${APP_DIR}"
-    # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
-    run_install dependencies.relink 300000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --offline --config.minimum-release-age=0
+    if [ "${DEPENDENCIES_RELOCATED}" -eq 0 ]; then
+      run_install dependencies.relink 300000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --offline --config.minimum-release-age=0
+    fi
 
     echo "正在配置 Tavern……"
     DSH_HOME=${DSH_ROOT} run_install profile.install 1200000 node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
@@ -1672,6 +1766,8 @@ else
     node "${SOURCE_DIR}/bin/prune-installed-files.mjs" "${SOURCE_DIR}" "${APP_DIR}" || echo "警告：旧版本遗留文件清理失败，继续安装。" >&2
   fi
   cp -R "${SOURCE_DIR}/." "${APP_DIR}/"
+  # cp keeps the destination's mode when replacing a file in an existing install.
+  node "${TEMP_DIR}/download.cjs" restore-executables "${PUBLISHED_MANIFEST}" "${APP_DIR}"
   if [ "${USED_CDN}" -eq 1 ]; then rm -f -- "${APP_DIR}/.dsh-tavern-release.json"; fi
   case ${TARGET_COMMIT} in
     *[!0-9a-fA-F]*|'') ;;
@@ -1681,7 +1777,7 @@ else
   esac
 
   echo "正在安装程序依赖……"
-  run_install dependencies.install 600000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --config.minimum-release-age=0
+  run_install dependencies.install 600000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --prefer-offline --config.minimum-release-age=0
 
   echo "正在配置 Tavern……"
   DSH_HOME=${DSH_ROOT} run_install profile.install 1200000 node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
