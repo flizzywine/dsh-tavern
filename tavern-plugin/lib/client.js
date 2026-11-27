@@ -56207,11 +56207,12 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			{ title: "常驻条目直接加入上下文", body: "自动通道的静态常驻条目每轮写入稳定前缀，无需匹配触发词。" },
 			{ title: "匹配触发词", body: "默认扫描本轮输入和上一条剧情正文，跳过开场白。非常驻条目按主触发词和启用的二级条件匹配，扫描消息数可以单独设置。" },
 			{ title: "按相关性自动注入正文", body: "用 BM25 比较对话与命中条目的标题、触发词和正文，在 Token 预算内每轮最多注入 5 条。注入后冷却 10 个已完成的剧情回合，成功压缩上下文后重置冷却。" },
-			{ title: "Agent 按需检索正文", body: "未注入和冷却中的条目仍可按标题、别名或剧情线索搜索。系统最多提示 3 个未入选的命中标题，Agent 也可以自行查其他资料。" }
+			{ title: "动态条目有变化时追加", body: "参与注入的 EJS 或提示词模板初次生效或结果变化时，只在本轮上下文追加一次，保留原有消息和缓存前缀。" },
+			{ title: "Agent 按需检索正文", body: "Agent 可按标题、别名或剧情线索检索，包括未注入和冷却中的条目。系统最多提示 3 个未入选的命中标题。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",
-			"含模板或脚本的条目按运行时规则处理。可检索的动态条目使用最近一次渲染的快照。"
+			"可检索的动态条目使用最近一次渲染的快照。"
 		];
 		// The 「?」 right after the 世界书库 heading text, inside the h2 like the stage pages' section heads (owner 11-24).
 		function WorldBookRecallGuide() {
