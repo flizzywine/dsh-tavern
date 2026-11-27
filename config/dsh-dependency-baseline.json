@@ -65,6 +65,10 @@
   "bin/validate-desktop-profile.mjs": [
     "@deepseek-ai/dsh-app-boot"
   ],
+  "bin/validate-desktop-startup.mjs": [
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh/profile-boot"
+  ],
   "tavern-plugin/lib/agent-compaction.js": [
     "@deepseek-ai/dsh-agent",
     "@deepseek-ai/dsh-compaction"
