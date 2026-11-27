@@ -110,7 +110,6 @@ import { installHostSubprocessPatch } from './domain/host-subprocess-patch.js'
 import { installSessionLogAutoRepair, repairStoredSessionLog } from './domain/session-log-repair.js'
 import { measureForegroundPressure } from './domain/foreground-context-pressure.js'
 import { replaceSessionSurface } from './domain/session-surface-mutations.js'
-import { createPresetDiagnostics } from './domain/preset-diagnostics.js'
 import { materializeSnapshotDocuments } from './domain/preset-snapshot-pool.js'
 import { createRequestPerformance } from './domain/request-performance.js'
 import { createFrameStorage } from './domain/frame-storage.js'
@@ -252,7 +251,8 @@ import { tmpdir } from 'node:os'
 import { createCardFiles } from './domain/card-files.js'
 import { createPostureItem, createSettlementItems } from './domain/background-pipeline.js'
 import { createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport } from './domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore } from './domain/mvu-diagnostics.js'
+import { createTavernLogExporter } from './domain/tavern-log-export.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createSaveMaintenance } from './domain/save-maintenance.js'
 import { blockVisits, RELAYOUT_COLD_VISITS } from './domain/conversation-page-store.js'
@@ -294,7 +294,6 @@ import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-a
 import {activeStageSkin} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
-import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { createTavernStaticResourceCache } from './domain/tavern-static-resource-cache.js'
 import { createRoundHistory } from './domain/round-history.js'
 import { buildBodyRegenerationMaterials } from './domain/body-regeneration-materials.js'
@@ -1777,57 +1776,6 @@ export async function apply(ctx) {
       remove: (sessionId, cwd) => rm(path.dirname(ctx.get('sessionPersistence').locate({ id: sessionId, cwd }).path), { recursive: true, force: true }),
     }
   })
-  async function exportTavernLogs(requestedSessionId) {
-    let sessionId = str(requestedSessionId)
-    let chat = await chatForSession(sessionId)
-    // Opened from a background session: export its game's logs, which include this session.
-    if (!chat) {
-      let header = (sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session)?.header
-      if (!header && sessionId) {
-        try {
-          const handle = await ctx.get('sessionPersistence').open(sessionId, 'read')
-          try { header = handle.header } finally { await handle.close() }
-        } catch {}
-      }
-      const parentId = str(backgroundAgentRunner.requestContext(sessionId)?.parentSessionId || header?.parentSession)
-      chat = parentId ? await chatForSession(parentId) : undefined
-      if (chat) sessionId = parentId
-    }
-    if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
-    const diagnostic = await mvuDiagnostics.read(sessionId)
-    const backgroundSessionIds = [...new Set(diagnostic.records.map(record => record.traceSessionId).filter(Boolean))]
-    let compatibilityDiagnostic
-    try { compatibilityDiagnostic = await compatibilityDiagnostics.read(sessionId) }
-    catch { compatibilityDiagnostic = { version: 1, records: [], error: '兼容能力诊断读取失败，仍导出其他日志。' } }
-    const cardDiagnostics = { version: 1, capturedAt: Date.now(), source: 'export-time', cardPath: chat.cardPath, errors: [] }
-    try { cardDiagnostics.card = await readChatCard(chat) }
-    catch { cardDiagnostics.errors.push('人物卡读取失败') }
-    try { cardDiagnostics.extensions = await readCardExtensions(chat.cardPath, chat) }
-    catch { cardDiagnostics.errors.push('脚本与正则配置读取失败') }
-    try {
-      const worldbook = cardDiagnostics.card ? await worldBooks.bound(chat.cardPath, cardDiagnostics.card, chat) : null
-      cardDiagnostics.worldbook = worldbook ? { source: worldbook.source, document: worldbook.view.raw } : null
-    } catch { cardDiagnostics.errors.push('绑定世界书读取失败') }
-    let presetDiagnostics
-    try {
-      const extensions = cardDiagnostics.extensions || {}
-      const pinned = await tavernRemoteAssets.pinExtensions(extensions)
-      presetDiagnostics = createPresetDiagnostics(chat, { ...extensions, regexScripts: pinned.regexScripts })
-    } catch {
-      presetDiagnostics = { ...createPresetDiagnostics(chat, cardDiagnostics.extensions || {}),
-        error: '远程正则解析失败，ordered 保留解析前配置。' }
-    }
-    const exported = await createMvuDiagnosticExport({ presetDiagnostics, cardDiagnostics, performanceDiagnostics: { ...performanceDiagnostics.read(), requests: requestPerformance.read(), replyProjection: sessionProjection.stats() }, updateDiagnostics: applicationUpdater.diagnostics(), sessionId, backgroundSessionIds, displayDiagnostics: { version: 1, frames: await displayDiagnosticFrames(chat) }, apiDiagnostics: await apiDiagnostics.read(sessionId).catch(() => null), compatibilityDiagnostics: compatibilityDiagnostic, store: mvuDiagnostics, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { templateRuntime: await fullTemplateRuntime.inspect(sessionId), mvu: OFFICIAL_MVU_VERSION, mvuAsset: inspectOfficialMvuAsset(), runtime: { hostCompatibility, sessionPatch: sessionPatch.view(), generation: runtimeGeneration, platform: process.platform, arch: process.arch, nodeVersion: process.version } } })
-    return { filename: exported.filename, base64: exported.buffer.toString('base64') }
-  }
-  // Captures from the diagnostics store, falling back to ones old saves kept inline.
-  async function displayDiagnosticFrames(chat) {
-    const stored = await displayRuntimeStore.recent(chat.id).catch(() => ({}))
-    return (chat.messages || []).filter(message => message.displayRuntime).slice(-20).flatMap(message => {
-      const runtime = message.displayRuntime.version === 2 ? stored[String(message.turn)] : message.displayRuntime
-      return (runtime?.frames || []).map(frame => ({ turn: message.turn, partIndex: frame.partIndex, panelId: frame.panelId, placement: frame.placement, capturedAt: frame.capturedAt, console: frame.console, errors: frame.errors, network: frame.network }))
-    })
-  }
   async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
     const editorChat = await chatForSession(str(targetSessionId))
     const sourceChat = await chatForSession(str(sourceSessionId))
@@ -4233,6 +4181,17 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
+  const exportTavernLogs = createTavernLogExporter({
+    chatForSession, sessionStore, agentRegistry,
+    backgroundParentSessionId: sessionId => backgroundAgentRunner.requestContext(sessionId)?.parentSessionId,
+    getPersistence: () => ctx.get('sessionPersistence'),
+    getSessionQuery: () => ctx.get('sessionQuery'),
+    getAttachments: () => ctx.get('attachments'),
+    readChatCard, readCardExtensions, worldBooks, tavernRemoteAssets,
+    mvuDiagnostics, compatibilityDiagnostics, apiDiagnostics, displayRuntimeStore,
+    performanceDiagnostics, requestPerformance, sessionProjection, applicationUpdater, fullTemplateRuntime,
+    readRuntime: () => ({ hostCompatibility, sessionPatch: sessionPatch.view(), generation: runtimeGeneration })
+  })
   const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,

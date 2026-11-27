@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { zipText } from './fixtures/zip-text.mjs'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic, sanitizeModuleFailure, sanitizeMvuLoadDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { createTavernLogExporter } from '../tavern-plugin/lib/domain/tavern-log-export.js'
+import { readZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -84,6 +86,47 @@ test('诊断包包含界面按钮错误并脱敏', async () => {
   assert.match(zipText(result.buffer), /display\/diagnostics.json/)
   assert.match(zipText(result.buffer), /journey failed/)
   assert.doesNotMatch(zipText(result.buffer), /PRIVATE_TOKEN/)
+})
+
+test('从归档后台会话导出所属对话，并保留旧存档的界面诊断', async () => {
+  const chat = { id: 'chat', cardPath: 'cards/demo.json', messages: [
+    { turn: 1, displayRuntime: { frames: [{ partIndex: 1 }] } },
+    { turn: 2, displayRuntime: { version: 2 } }
+  ] }
+  const store = createMvuDiagnosticStore(storage())
+  await store.record('parent', { stage: 'submitted', traceSessionId: 'background' })
+  const closed = []
+  const persistence = {
+    async open(id, mode) {
+      assert.equal(mode, 'read')
+      return { header: { id, parentSession: 'parent' }, close: async () => closed.push(id) }
+    },
+    readRaw: async id => ({ content: JSON.stringify({ type: 'session', id }) + '\n' })
+  }
+  const exportLogs = createTavernLogExporter({
+    chatForSession: async id => id === 'parent' ? chat : undefined,
+    sessionStore: new Map(), agentRegistry: new Map(), backgroundParentSessionId: () => undefined,
+    getPersistence: () => persistence, getSessionQuery: () => undefined, getAttachments: () => undefined,
+    readChatCard: async () => ({ name: '测试卡' }), readCardExtensions: async () => ({}),
+    worldBooks: { bound: async () => null }, tavernRemoteAssets: { pinExtensions: async extensions => extensions },
+    mvuDiagnostics: store,
+    compatibilityDiagnostics: { read: async () => { throw new Error('unavailable') } },
+    apiDiagnostics: { read: async () => null },
+    displayRuntimeStore: { recent: async () => ({ 2: { frames: [{ partIndex: 3 }] } }) },
+    performanceDiagnostics: { read: () => ({}) }, requestPerformance: { read: () => ({}) },
+    sessionProjection: { stats: () => ({}) }, applicationUpdater: { diagnostics: () => null },
+    fullTemplateRuntime: { inspect: async () => ({}) }, readRuntime: () => ({})
+  })
+
+  const result = await exportLogs('background')
+  assert.equal(result.filename, 'dsh-tavern-diagnostics-parent.zip')
+  assert.deepEqual(closed, ['background'])
+  const entries = readZipEntries(Buffer.from(result.base64, 'base64'))
+  assert.ok(entries.has('subagents/background/session.jsonl'))
+  assert.deepEqual(JSON.parse(entries.get('display/diagnostics.json')).frames, [
+    { turn: 1, partIndex: 1 }, { turn: 2, partIndex: 3 }
+  ])
+  assert.match(JSON.parse(entries.get('compatibility/missing-capabilities.json')).error, /兼容能力诊断读取失败/)
 })
 
 test('diagnostic ZIP includes card scripts and bound worldbook with credential redaction', async () => {
