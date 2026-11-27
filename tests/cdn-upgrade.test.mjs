@@ -25,7 +25,7 @@ test('两平台安装脚本内嵌的下载模块与 bin/download.cjs 一致', as
   await execute(process.execPath, [fileURLToPath(new URL('../bin/build-installer-scripts.mjs', import.meta.url)), '--check'])
 })
 
-test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落盘、用户数据不变、失败不误报成功', async t => {
+test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main 推进时保护现有安装', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-cdn-upgrade-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const isWindows = process.platform === 'win32'
@@ -49,7 +49,7 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   for (const file of [...patches, 'bin/dsh-compatibility.mjs', 'tavern-plugin/lib/domain/host-compatibility.js', 'config/dsh-compatibility.json']) {
     files.set(file, await readFile(new URL('../' + file, import.meta.url)))
   }
-  const revision = 'b'.repeat(40)
+  let revision = 'b'.repeat(40)
   const manifest = { schemaVersion: 2, revision, releaseSequence: 42, version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, files: [...files].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })) }
   manifest.files.push({ path: 'docs/do-not-download.txt', size: 0, sha256: 'a'.repeat(64) })
   manifest.files.push({ path: 'patches/../escape.txt', size: 0, sha256: 'a'.repeat(64) })
@@ -129,8 +129,9 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   assert.equal(await readFile(path.join(app, installerName), 'utf8'), downloaded)
   for (const file of [...patches, integrityFile]) assert.deepEqual(await readFile(path.join(app, file)), files.get(file))
   for (const [file, content] of protectedFiles) assert.equal(await readFile(file, 'utf8'), content)
-  // GitHub archive is tried before jsDelivr (5fa69fcd); a failed archive must fall through to the CDN.
-  assert.ok(requests.indexOf('/missing-archive') !== -1 && requests.indexOf('/missing-archive') < requests.indexOf('/manifest'), 'a failed archive download must fall back to CDN')
+  // All transports use the same manifest, including the CDN fallback after a failed archive.
+  assert.ok(requests.indexOf('/manifest') < requests.indexOf('/missing-archive'))
+  assert.equal(requests.filter(request => request === '/manifest').length, 1)
   assert.ok(!requests.some(url => /escape|do-not-download/.test(url)))
   // EXIT cleanup must preserve a dependency failure, including on macOS sh.
   await assert.rejects(run({ DSH_TEST_DEPENDENCY_EXIT: '23' }), error => {
@@ -149,4 +150,29 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   await assert.rejects(run())
   for (const file of [...patches, integrityFile]) assert.deepEqual(await readFile(path.join(app, file)), files.get(file))
   for (const [file, content] of protectedFiles) assert.equal(await readFile(file, 'utf8'), content)
+
+  const repo = path.join(root, 'source-repo')
+  await mkdir(repo)
+  const git = async (...args) => (await execute('git', ['-c', 'core.autocrlf=false', '-C', repo, ...args], { encoding: 'utf8' })).stdout.trim()
+  await git('init', '-b', 'main')
+  await git('config', 'uploadpack.allowFilter', 'true')
+  for (const [file, bytes] of [...files, ['android/fixture', 'fixture'], ['presets/fixture', 'fixture']]) {
+    await mkdir(path.dirname(path.join(repo, file)), { recursive: true })
+    await writeFile(path.join(repo, file), bytes)
+  }
+  await git('add', '.')
+  await git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'published')
+  revision = manifest.revision = await git('rev-parse', 'HEAD')
+  Object.assign(manifest.files.find(file => file.path === integrityFile), {
+    size: files.get(integrityFile).length, sha256: createHash('sha256').update(files.get(integrityFile)).digest('hex'),
+  })
+  await writeFile(path.join(repo, integrityFile), 'unpublished main')
+  await git('add', '.')
+  await git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'unpublished')
+  assert.notEqual(await git('rev-parse', 'HEAD'), revision)
+  requests.length = 0
+  await run({ [isWindows ? 'Path' : 'PATH']: searchPath, DSH_TAVERN_GIT_URL: repo, DSH_TAVERN_TARGET_COMMIT: revision })
+  assert.deepEqual(requests, ['/manifest'])
+  assert.deepEqual(await readFile(path.join(app, integrityFile)), files.get(integrityFile))
+  assert.equal(JSON.parse(await readFile(path.join(app, '.dsh-tavern-release.json'), 'utf8')).commit, revision)
 })

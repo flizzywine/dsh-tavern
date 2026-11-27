@@ -11,16 +11,15 @@ function runPowerShell(script) {
   return spawnSync(command, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8' })
 }
 
-test('安装脚本与更新检查在所有下载方式上都跟随 main 分支', () => {
-  for (const file of ['install.sh', 'install.ps1', 'tavern-plugin/lib/application-updater.js', 'bin/launcher-environment.mjs']) {
+test('桌面安装脚本和更新检查使用 main 发布清单，下载跟随清单提交', () => {
+  for (const file of ['install.sh', 'install.ps1', 'tavern-plugin/lib/application-updater.js']) {
     const source = readFileSync(new URL(file, root), 'utf8')
-    assert.ok(source.includes('/commits/main'), file)
-    assert.doesNotMatch(source, /0\.2\.1版本|%E7%89%88%E6%9C%AC|\/commits\/stable|@stable\//, file)
+    assert.doesNotMatch(source, /\/commits\/main|refs\/heads\/main/, file)
+    assert.ok(source.includes('@runtime-archive-main/dsh-tavern-runtime.json'), file)
     if (file.startsWith('install.')) {
-      assert.ok(source.includes('refs/heads/main'), file)
-      assert.ok(source.includes('@runtime-archive-main/dsh-tavern-runtime.json'), file)
-      assert.match(source, /--branch["', ]+main/, file)
-      assert.match(source, /origin["', ]+main\b/, file)
+      assert.match(source, /'git\.fetch'|run_git git\.fetch/, file)
+      assert.match(source, /origin["', ]+["']?\$(?:TargetCommit|\{TARGET_COMMIT\})/, file)
+      assert.match(source, /verify-runtime/, file)
     }
   }
   assert.match(readFileSync(new URL('android/setup.sh', root), 'utf8'), /BRANCH="\$\{DSH_TAVERN_BRANCH:-main\}"/)
@@ -44,8 +43,8 @@ test('安装脚本内嵌自己的版本号，jsDelivr 下载不接受比它旧�
   const ps1 = readFileSync(new URL('install.ps1', root), 'utf8')
   assert.ok(sh.includes(`INSTALLER_VERSION='${version}'`), 'install.sh 的版本号与 package.json 一致（node bin/build-installer-scripts.mjs）')
   assert.ok(ps1.includes(`$InstallerVersion = '${version}'`), 'install.ps1 的版本号与 package.json 一致')
-  assert.match(sh, /download\.cjs" runtime [^\n]*--min-version "\$\{INSTALLER_VERSION\}"/)
-  assert.match(ps1, /'runtime', [^\n]*'--min-version', \$InstallerVersion\)/)
+  assert.match(sh, /download\.cjs" manifest [^\n]*--min-version "\$\{INSTALLER_VERSION\}"/)
+  assert.match(ps1, /'manifest', [^\n]*'--min-version', \$InstallerVersion\)/)
 })
 
 test('Windows 桌面探测：环境变量里的 node.exe 不算桌面程序；卸载项缺 InstallLocation 时从卸载程序路径找（#250）', () => {

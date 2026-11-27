@@ -361,6 +361,11 @@ update_source() {
       info '内置快照不可用，改为常规方式更新。'
     fi
   fi
+  if [ -n "${DSH_TAVERN_TARGET_COMMIT:-}" ]; then
+    [ ! -d "${APP_DIR}/.git" ] || fail "当前为 Git 安装，请在仓库中手动更新。"
+    if install_from_cdn; then return; fi
+    fail "无法下载已确认的发布版本，请重新检查更新。"
+  fi
   if [ -d "${APP_DIR}/.git" ]; then
     require_command git
     if ! git -C "${APP_DIR}" diff --quiet || ! git -C "${APP_DIR}" diff --cached --quiet; then

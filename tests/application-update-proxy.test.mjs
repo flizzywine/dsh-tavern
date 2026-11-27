@@ -138,8 +138,8 @@ for (const [name, original] of cases) {
       const updater = createApplicationUpdater({
         sourceRoot: ${JSON.stringify(root)}, dshHome: ${JSON.stringify(root)}, dataRoot: ${JSON.stringify(path.join(root, 'data'))}, runtimeHost: 'cli', platform: 'linux',
         readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: 'a'.repeat(40) }),
-        fetchManifest: async () => ({ version: '3.2.0' }), fetchLatestCommit: async () => 'b'.repeat(40),
-        fetchGithubManifest: async () => { throw new Error('offline fixture') },
+        fetchGithubManifest: async () => ({ revision: 'b'.repeat(40), version: '3.2.0',
+          files: [{ path: 'package.json', sha256: 'f'.repeat(64) }] }),
         fetchCdnMetadata: async () => { throw new Error('offline fixture') }, compareCommits: async () => 'ahead',
         spawnProcess(_command, _args, options) {
           writeFileSync(${JSON.stringify(output)}, JSON.stringify(Object.fromEntries(Object.entries(options.env).filter(([key]) => ${proxyKey}.test(key)))));

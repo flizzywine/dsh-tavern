@@ -10,8 +10,6 @@ if ($LauncherOnly -and $InstallHost -eq 'cli') { throw '--launcher-only 需要�
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
-$ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/main" }
-$CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else { "https://api.github.com/repos/$Repository/commits/main" }
 # This installer's release (package.json, written by bin/build-installer-scripts.mjs): never install older code.
 $InstallerVersion = '3.4.0'
 $CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@runtime-archive-main/dsh-tavern-runtime.json" }
@@ -233,6 +231,7 @@ $RuntimePaths = @(
   'cordis.patch.yml',
   'install.ps1',
   'install.sh',
+  'android',
   'bin',
   'config',
   'presets',
@@ -583,7 +582,7 @@ function compareVersions(left, right) {
   for (let index = 0; index < 3; index++) if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) - (b[index] || 0)
   return 0
 }
-async function readManifest({ metadataUrl, exact, minVersion, stallMs, attempts, fetch: request, status = () => {} }) {
+async function readManifest({ metadataUrl, exact, minVersion, targetCommit = '', stallMs = 30000, attempts = 2, fetch: request, status = () => {} }) {
   const urls = manifestCandidates(metadataUrl, exact)
   const results = await Promise.allSettled(urls.map(async url => {
     // raw 在受限网络里可能完全不通：给它更短的等待，别让主源拖慢整次安装。
@@ -597,13 +596,25 @@ async function readManifest({ metadataUrl, exact, minVersion, stallMs, attempts,
   const found = results.filter(result => result.status === 'fulfilled').map(result => result.value)
   if (!found.length) throw results[0].reason
   const sequence = item => Number(item.metadata.releaseSequence) || 0
-  const best = found.reduce((newest, item) => sequence(item) > sequence(newest) ? item : newest)
+  const eligible = targetCommit ? found.filter(item => item.metadata.revision.toLowerCase() === targetCommit.toLowerCase()) : found
+  if (!eligible.length) throw new Error(`运行清单不再提供目标提交 ${targetCommit.slice(0, 12)}，请重新检查更新。`)
+  const best = eligible.reduce((newest, item) => sequence(item) > sequence(newest) ? item : newest)
   if (found.length > 1 && found.some(item => item.metadata.revision !== best.metadata.revision)) status(`下载源各节点版本不一，使用最新的 ${hostOf(best.url)}（v${best.metadata.version || '?'}）`)
   // Never install code older than this installer: a stale CDN would hand back a release built for another host.
   if (minVersion && compareVersions(best.metadata.version, minVersion) < 0) {
-    throw Object.assign(new Error(`下载源（jsDelivr）还没更新到 v${minVersion}，当前只有 v${best.metadata.version || '未知'}。请过半小时左右重试；或安装 git 后重试（会直接从 GitHub 下载）。`), { code: 'DSH_TAVERN_CDN_STALE' })
+    throw Object.assign(new Error(`运行清单还没更新到 v${minVersion}，当前只有 v${best.metadata.version || '未知'}。请稍后重试。`), { code: 'DSH_TAVERN_CDN_STALE' })
   }
   return best.metadata
+}
+
+async function verifyPublishedRuntime(directory, metadata) {
+  for (const file of runtimeFiles(metadata)) {
+    const content = await fs.readFile(path.join(directory, ...file.path.split('/')))
+    if (content.length !== file.size || createHash('sha256').update(content).digest('hex') !== file.sha256.toLowerCase()) {
+      throw new Error(`安装文件与发布清单不一致：${file.path}`)
+    }
+  }
+  await fs.writeFile(path.join(directory, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
 }
 
 // The files of a zip (stored or deflated, no ZIP64): the runtime archive CI publishes holds well
@@ -656,7 +667,7 @@ function archiveUrls(rootUrl, archive) {
 async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false } = {}) {
   const source = hostOf(rootUrl)
-  const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, stallMs, attempts, fetch: request, status })
+  const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, targetCommit, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
   // asked for a specific commit, refuse a different one rather than silently
@@ -840,6 +851,8 @@ const seconds = (value, fallback) => (value === undefined ? fallback : Number(va
 
 // CLI used by the installer scripts:
 //   node download.cjs file <destination> [--sha256 H] [--stall S] [--deadline S] [--attempts N] <url>...
+//   node download.cjs manifest <metadata-url> <destination> [--min-version V]
+//   node download.cjs verify-runtime <manifest-file> <source-directory>
 //   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V]
 //     (DSH_TAVERN_CDN_METADATA_URL set: that manifest only, no other jsDelivr nodes)
 //   node download.cjs proxy-env   prints KEY=VALUE lines to add (Windows system proxy)
@@ -854,10 +867,24 @@ async function main(argv) {
       deadlineMs: seconds(options.deadline, undefined), attempts: options.attempts ? Number(options.attempts) : undefined })
     return
   }
+  if (command === 'manifest') {
+    const [metadataUrl, destination] = rest
+    if (!metadataUrl || !destination) throw new Error('用法：download.cjs manifest <清单 URL> <目标文件>')
+    const manifest = await readManifest({ metadataUrl, targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT,
+      minVersion: options['min-version'], exact: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL) })
+    await fs.writeFile(destination, JSON.stringify(manifest))
+    return
+  }
+  if (command === 'verify-runtime') {
+    const [manifestFile, directory] = rest
+    await verifyPublishedRuntime(directory, JSON.parse(await fs.readFile(manifestFile, 'utf8')))
+    return
+  }
   if (command === 'runtime') {
     const [metadataUrl, rootUrl, destination, installed] = rest
     if (!metadataUrl || !rootUrl || !destination) throw new Error('用法：download.cjs runtime <清单 URL> <CDN 根 URL> <目标目录> [已安装目录]')
-    const metadata = await downloadRuntime({ metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
+    const manifest = options['manifest-file'] ? JSON.parse(await fs.readFile(options['manifest-file'], 'utf8')) : undefined
+    const metadata = await downloadRuntime({ manifest, metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
       stallMs: seconds(options.stall, 30000), budgetMs: seconds(options.budget, 300000), status,
       targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT, minVersion: options['min-version'] || '',
       exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL) })
@@ -1738,6 +1765,11 @@ try {
   if (-not $FriendlyOutput) { Write-Host "更新诊断日志：$UpdateLogRoot/update-diagnostics.jsonl" }
   $ArchivePath = Join-Path $TempDir 'app.zip'
   $ExtractDir = Join-Path $TempDir 'extract'
+  $PublishedManifest = Join-Path $TempDir 'published-runtime.json'
+  Write-InstallStatus '正在确认已发布的酒馆版本…'
+  Invoke-InstallCommand 'source.manifest' 'node' @((Get-DownloadModule), 'manifest', $CdnMetadataUrl, $PublishedManifest, '--min-version', $InstallerVersion)
+  $TargetCommit = [string]([IO.File]::ReadAllText($PublishedManifest) | ConvertFrom-Json).revision
+  $ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/$TargetCommit" }
   $UsedGit = $false
   $UsedArchive = $false
   $UsedCdn = $false
@@ -1746,12 +1778,11 @@ try {
       Write-InstallStatus '下载代码：正在连接 GitHub，使用 Git 增量同步…'
       New-Item -ItemType Directory -Force -Path (Split-Path $SourceCache -Parent) | Out-Null
       if (-not (Test-Path (Join-Path $SourceCache 'HEAD'))) {
-        Invoke-UpdateGit 'git.clone' @('clone', '--progress', '--bare', '--filter=blob:none', '--depth', '1', '--single-branch', '--branch', 'main', $RepositoryUrl, $SourceCache) | Write-Host
+        Invoke-UpdateGit 'git.init' @('init', '--bare', $SourceCache) | Write-Host
       }
-      Invoke-UpdateGit 'git.remote' @("--git-dir=$SourceCache", 'remote', 'set-url', 'origin', $RepositoryUrl) | Write-Host
-      Invoke-UpdateGit 'git.fetch' @("--git-dir=$SourceCache", 'fetch', '--progress', '--depth', '1', 'origin', 'main') | Write-Host
-      $TargetCommit = (Invoke-UpdateGit 'git.revision' @("--git-dir=$SourceCache", 'rev-parse', 'FETCH_HEAD')).Trim()
-      Invoke-UpdateGit 'git.archive' (@('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', "--git-dir=$SourceCache", 'archive', '--format=zip', "--output=$ArchivePath", 'FETCH_HEAD', '--') + $RuntimePaths) | Write-Host
+      Invoke-UpdateGit 'git.remote' @("--git-dir=$SourceCache", 'config', 'remote.origin.url', $RepositoryUrl) | Write-Host
+      Invoke-UpdateGit 'git.fetch' @("--git-dir=$SourceCache", 'fetch', '--progress', '--filter=blob:none', '--depth', '1', 'origin', $TargetCommit) | Write-Host
+      Invoke-UpdateGit 'git.archive' (@('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', "--git-dir=$SourceCache", 'archive', '--format=zip', "--output=$ArchivePath", $TargetCommit, '--') + $RuntimePaths) | Write-Host
       $UsedGit = $true
     }
     catch {
@@ -1761,19 +1792,11 @@ try {
   }
   if ($null -eq $GitCommand) { Write-UpdateLog 'installer.stage.failed' 'git.unavailable' '127'; if ($FriendlyOutput) { Write-InstallStatus '下载代码：未安装 Git，改用 jsDelivr 下载' } else { Write-Warning '未找到 Git，正在尝试备用源。' } }
   if (-not $UsedGit) {
-    # GitHub 的整包下载优先于 jsDelivr：CDN 的 @main 会滞后十几小时。
+    # GitHub 和 CDN 都使用先前选定的发布版本。
     Write-InstallStatus '下载代码：正在连接 GitHub，下载精简运行压缩包…'
     $PreviousProgressPreference = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
     try {
-      if ($TargetCommit -eq '') {
-        try {
-          $CommitPath = Join-Path $TempDir 'commit.json'
-          Invoke-SourceDownload $CommitUrl $CommitPath 60
-          $TargetCommit = ([IO.File]::ReadAllText($CommitPath) | ConvertFrom-Json).sha
-        }
-        catch { Write-Warning '无法记录当前提交号，不影响本次安装。' }
-      }
       for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
         try {
           Invoke-SourceDownload $ArchiveUrl $ArchivePath 900
@@ -1801,8 +1824,7 @@ try {
       Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'
       $CdnSource = Join-Path $TempDir 'cdn-source'
       New-Item -ItemType Directory -Force -Path $CdnSource | Out-Null
-      Invoke-InstallCommand 'source.files' 'node' @((Get-DownloadModule), 'runtime', $CdnMetadataUrl, $CdnRootUrl, $CdnSource, $AppDir, '--min-version', $InstallerVersion)
-      $TargetCommit = [string]([IO.File]::ReadAllText((Join-Path $CdnSource 'dsh-tavern-runtime.json')) | ConvertFrom-Json).revision
+      Invoke-InstallCommand 'source.files' 'node' @((Get-DownloadModule), 'runtime', $CdnMetadataUrl, $CdnRootUrl, $CdnSource, $AppDir, '--manifest-file', $PublishedManifest)
       Write-UpdateLog 'installer.stage.succeeded' 'source.jsdelivr' '0'
       $UsedCdn = $true
     }
@@ -1840,6 +1862,9 @@ try {
   if ($null -eq $SourceDir) { throw '下载内容不完整。' }
   if (-not (Test-Path (Join-Path $SourceDir.FullName 'package.json'))) {
     throw '下载内容不完整。'
+  }
+  if (-not $UsedCdn) {
+    Invoke-InstallCommand 'source.verify' 'node' @((Get-DownloadModule), 'verify-runtime', $PublishedManifest, $SourceDir.FullName)
   }
   Assert-InstallFiles $SourceDir.FullName
   if ($InstallHost -eq 'next' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_UNIFIED_DESKTOP' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {

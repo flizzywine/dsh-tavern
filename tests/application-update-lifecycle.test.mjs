@@ -10,6 +10,7 @@ import { createApplicationUpdater } from '../tavern-plugin/lib/application-updat
 import installationState from '../bin/installation-state.cjs'
 
 const identity = { currentVersion: '2.4.0', currentCommit: 'a'.repeat(40) }
+const publication = revision => ({ revision, version: identity.currentVersion, files: [{ path: 'package.json', sha256: 'f'.repeat(64) }] })
 const receiptModule = new URL('../bin/installation-receipt.mjs', import.meta.url).href
 async function fixture(t, { beforeCleanup } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-update-lifecycle-'))
@@ -28,9 +29,7 @@ async function fixture(t, { beforeCleanup } = {}) {
   for (const [file, value] of [['package.json', JSON.stringify({ dshTavern: { host: 'desktop', source: sourceRoot } })], ['cordis.patch.yml', '[]'], ['pnpm-workspace.yaml', 'packages: []']]) await writeFile(path.join(profile, file), value)
   const statusFile = path.join(dataRoot, 'update-status.json')
   const updater = extra => createApplicationUpdater({ dataRoot, sourceRoot, dshHome: root, runtimeHost: 'desktop', platform: 'linux',
-    readLocalIdentity: async () => identity, fetchManifest: async () => ({ version: identity.currentVersion }),
-    fetchLatestCommit: async () => identity.currentCommit,
-    fetchGithubManifest: async () => { throw new Error('offline') },
+    readLocalIdentity: async () => identity, fetchGithubManifest: async () => publication(identity.currentCommit),
     fetchCdnMetadata: async () => { throw new Error('offline') }, ...extra })
   return { root, sourceRoot, dataRoot, statusFile, updater, options: { host: 'desktop', sourceRoot, dshHome: root, statusFile, delay: 0, log() {} } }
 }
@@ -132,7 +131,7 @@ test('independent updater instances share one reservation and attempt id crosses
   const f = await fixture(t)
   let spawned = 0
   let launchedArguments
-  const options = { fetchLatestCommit: async () => 'b'.repeat(40), compareCommits: async () => 'ahead',
+  const options = { fetchGithubManifest: async () => publication('b'.repeat(40)), compareCommits: async () => 'ahead',
     spawnProcess(_command, args) { spawned++; launchedArguments = args; return { unref() {} } } }
   const result = await Promise.allSettled([f.updater(options).start(), f.updater(options).start()])
   assert.equal(spawned, 1)

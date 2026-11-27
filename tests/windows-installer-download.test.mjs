@@ -44,7 +44,6 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     const metadata = { schemaVersion: 2, revision, version, files: [{ path: 'bin/test.bin', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }] }
     const server = createServer((req, res) => {
       if (req.url === '/metadata') { res.end(JSON.stringify(metadata)); return }
-      if (req.url === '/commit') { res.end(JSON.stringify({ sha: revision })); return }
       if (req.url === '/archive') { res.end(bytes); return }
       if (req.url === `/source@${revision}/bin/test.bin`) { res.end(bytes); return }
       res.writeHead(404); res.end('missing')
@@ -59,9 +58,14 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     const archiveStart = source.lastIndexOf('  if (-not $UsedGit) {', source.indexOf('    $PreviousProgressPreference ='))
     const archive = source.slice(archiveStart, source.indexOf('  if (-not $UsedGit -and -not $UsedArchive)', archiveStart))
     assert.ok(archiveStart >= 0 && archive.includes('Invoke-SourceDownload $ArchiveUrl'), 'archive download block must be exercised')
+    const manifestStart = source.indexOf("  $PublishedManifest = Join-Path $TempDir 'published-runtime.json'")
+    const manifest = source.slice(manifestStart, source.indexOf('  $UsedGit = $false', manifestStart))
+    assert.match(manifest, /source\.manifest/)
     await writeFile(path.join(directory, 'bad-curl.cmd'), '@exit /b 7\r\n')
     const probe = `
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
 $TempDir = $PSScriptRoot
 $AppDir = Join-Path $PSScriptRoot 'installed'
 $CdnMetadataUrl = '${url}/metadata'
@@ -78,14 +82,13 @@ function Invoke-InstallCommand([string]$Step, [string]$Command, [string[]]$Comma
   if ($LASTEXITCODE -ne 0) { throw 'CDN file download failed' }
 }
 ${transport === 'node' ? 'function Resolve-Command { return $null }' : transport === 'curl-failed' ? "function Resolve-Command { return (Join-Path $PSScriptRoot 'bad-curl.cmd') }" : ''}
+$env:DSH_TAVERN_ARCHIVE_URL = '${url}/archive'
+${manifest}
 ${cdn}
-$TargetCommit = ''
-$CommitUrl = '${url}/commit'
-$ArchiveUrl = '${url}/archive'
 $ArchivePath = Join-Path $PSScriptRoot 'archive.zip'
 ${archive}
 if (-not $UsedArchive) { throw 'Archive fallback did not complete' }
-if ($TargetCommit -ne '${revision}') { throw 'Commit metadata not downloaded' }
+if ($TargetCommit -ne '${revision}') { throw 'Published revision not selected' }
 try {
   Invoke-SourceDownload '${url}/missing' (Join-Path $PSScriptRoot 'missing')
   throw 'HTTP error accepted'

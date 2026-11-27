@@ -203,6 +203,11 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
   assert.equal(fresh.version, '3.1.0')
   assert.match(status.join('\n'), /raw\.githubusercontent\.com/)
 
+  const requested = manifest('3.0.0', 120)
+  const mirrors = serveNodes({ 'raw.githubusercontent.com': fresh, 'fastly.jsdelivr.net': requested })
+  assert.equal((await readManifest({ metadataUrl: url, targetCommit: requested.revision, fetch: mirrors })).revision, requested.revision)
+  await assert.rejects(readManifest({ metadataUrl: url, targetCommit: 'e'.repeat(40), fetch: mirrors }), /不再提供目标提交/)
+
   await assert.rejects(readManifest({ metadataUrl: url, minVersion: '3.0.0', stallMs: 1000, attempts: 1,
     fetch: serveNodes({ 'cdn.jsdelivr.net': manifest('2.7.0', 90), 'fastly.jsdelivr.net': manifest('2.7.0', 91) }) }),
   error => error.code === 'DSH_TAVERN_CDN_STALE' && /还没更新到 v3\.0\.0，当前只有 v2\.7\.0.*稍后|重试/.test(error.message))

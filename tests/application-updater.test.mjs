@@ -35,18 +35,20 @@ function createApplicationUpdater(options) {
     platform: 'linux', dshHome: options.sourceRoot,
     // CDN fallback is explicit in each fixture; never fetch live metadata.
     fetchCdnMetadata: async () => { throw new Error('CDN unavailable in GitHub fixture') },
-    // 清单主源是 GitHub raw 运行清单，commits API 补判；jsDelivr 只在前两者都判不了时兜底。
+    // GitHub raw 发布清单不可用时回退到 jsDelivr。
     // 测试默认把 raw 清单置为不可用，需要它的用例自己传 fetchGithubManifest。
     fetchGithubManifest: async () => { throw new Error('GitHub manifest unavailable in fixtures') },
     ...options,
   })
 }
 
+const publication = (revision, version = '1.1.0') => ({
+  revision, version, files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
+})
 const knownIdentity = { currentVersion: '1.1.0', currentCommit: 'a'.repeat(40) }
 const verifiedUpdate = {
   readLocalIdentity: async () => knownIdentity,
-  fetchManifest: async () => ({ version: '1.1.0' }),
-  fetchLatestCommit: async () => 'b'.repeat(40),
+  fetchGithubManifest: async () => publication('b'.repeat(40)),
   compareCommits: async () => 'ahead',
 }
 
@@ -105,7 +107,7 @@ test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare sou
         const updater = createApplicationUpdater({
           dataRoot: path.join(root, 'data'), sourceRoot, dshHome, runtimeHost: 'desktop',
           readLocalIdentity: async () => ({ currentVersion: '1.1.0', currentCommit }),
-          fetchManifest: async () => ({ version: '1.1.0' }), fetchLatestCommit: async () => latestCommit,
+          fetchGithubManifest: async () => publication(latestCommit),
           compareUrl: 'http://127.0.0.1:1/no-network-expected',
           fetchCdnMetadata: async () => { throw new Error('no fallback expected') },
         })
@@ -115,9 +117,9 @@ test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare sou
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-for (const source of ['github']) {
+{
   for (const relation of ['behind', 'diverged', 'unavailable', 'ahead']) {
-    test(`${source} 根据提交先后判断更新：${relation}，检查和安装使用同一保护`, async () => {
+    test(`发布清单根据提交先后判断更新：${relation}，检查和安装使用同一保护`, async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-order-'))
       try {
         const currentCommit = '59aabc3ac90055e017065fceb1d0855fc94ad60e'
@@ -127,15 +129,7 @@ for (const source of ['github']) {
         const updater = createApplicationUpdater({
           dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'desktop',
           readLocalIdentity: async () => ({ currentVersion: '1.1.0', currentCommit }),
-          fetchManifest: async () => {
-            if (source === 'jsdelivr') throw new Error('offline')
-            return { version: '1.1.0' }
-          },
-          fetchLatestCommit: async () => latestCommit,
-          fetchCdnMetadata: async () => {
-            if (source === 'github') throw new Error('offline')
-            return { revision: latestCommit, files: [{ path: 'package.json', sha256: 'a'.repeat(64) }] }
-          },
+          fetchGithubManifest: async () => publication(latestCommit),
           compareCommits: async (current, latest) => {
             assert.equal(current, currentCommit)
             assert.equal(latest, latestCommit)
@@ -170,15 +164,14 @@ test('开始更新复用已有检查结果，不重复请求或刷新本地身�
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
     readLocalIdentity: async () => { identityReads += 1; return knownIdentity },
-    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
-    fetchLatestCommit: async () => { networkChecks += 1; return latest },
+    fetchGithubManifest: async () => { networkChecks += 1; return publication(latest) },
     compareCommits: async () => { networkChecks += 1; return 'ahead' },
     spawnProcess(_command, args) { launchedArguments = args; return child },
   })
   assert.equal((await updater.check()).phase, 'update-available')
-  assert.equal(networkChecks, 3)
+  assert.equal(networkChecks, 2)
   assert.equal((await updater.start()).phase, 'running')
-  assert.equal(networkChecks, 3, 'start 不得重复整套远端检查')
+  assert.equal(networkChecks, 2, 'start 不得重复整套远端检查')
   assert.equal(identityReads, 2, 'check 一次，start 只刷新一次身份')
   assert.equal(launchedArguments[launchedArguments.indexOf('--target-commit') + 1], latest)
   assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
@@ -194,15 +187,14 @@ test('检查后隔很久仍直接启动固定提交，不让灰按钮等待第�
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => clock,
     readLocalIdentity: async () => { identityReads += 1; return knownIdentity },
-    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
-    fetchLatestCommit: async () => { networkChecks += 1; return 'b'.repeat(40) },
+    fetchGithubManifest: async () => { networkChecks += 1; return publication('b'.repeat(40)) },
     compareCommits: async () => { networkChecks += 1; return 'ahead' },
     spawnProcess() { return child },
   })
   await updater.check()
   clock += 5 * 60 * 1000 + 1
   assert.equal((await updater.start()).phase, 'running')
-  assert.equal(networkChecks, 3, '检查年龄不影响已固定提交的安全性')
+  assert.equal(networkChecks, 2, '检查年龄不影响已固定提交的安全性')
   assert.equal(identityReads, 2)
   assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
 })
@@ -217,15 +209,14 @@ test('本地提交变化后不复用旧检查，重新核实远端和本地身�
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
     readLocalIdentity: async () => { identityReads += 1; return identity },
-    fetchManifest: async () => { networkChecks += 1; return { version: identity.currentVersion } },
-    fetchLatestCommit: async () => { networkChecks += 1; return 'b'.repeat(40) },
+    fetchGithubManifest: async () => { networkChecks += 1; return publication('b'.repeat(40)) },
     compareCommits: async () => { networkChecks += 1; return 'ahead' },
     spawnProcess() { return child },
   })
   await updater.check()
   identity = { ...knownIdentity, currentCommit: 'c'.repeat(40) }
   assert.equal((await updater.start()).phase, 'running')
-  assert.equal(networkChecks, 6)
+  assert.equal(networkChecks, 4)
   assert.equal(identityReads, 3)
   assert.ok(!updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
 })
@@ -242,17 +233,16 @@ test('修复安装复用同提交的已有检查，仍然启动重装', async t 
   const updater = createApplicationUpdater({
     dataRoot, sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
     readLocalIdentity: async () => knownIdentity,
-    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
-    fetchLatestCommit: async () => { networkChecks += 1; return knownIdentity.currentCommit },
+    fetchGithubManifest: async () => { networkChecks += 1; return publication(knownIdentity.currentCommit) },
     spawnProcess() { spawned += 1; return child },
   })
   assert.equal((await updater.check()).phase, 'repair-required')
   assert.equal((await updater.start()).phase, 'running')
-  assert.equal(networkChecks, 2)
+  assert.equal(networkChecks, 1)
   assert.equal(spawned, 1)
 })
 
-test('GitHub raw 运行清单是清单主源：commits API 不可用时仍能判出更新', async t => {
+test('GitHub 发布清单用发布序号判断更新', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-first-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const installed = 'a'.repeat(40)
@@ -261,8 +251,6 @@ test('GitHub raw 运行清单是清单主源：commits API 不可用时仍能判
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
     readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: installed, currentReleaseSequence: 100 }),
-    fetchManifest: async () => ({ version: '3.2.0' }),
-    fetchLatestCommit: async () => { throw new Error('commits API unavailable') },
     fetchGithubManifest: async () => ({
       schemaVersion: 2, revision: latest, releaseSequence: 101, version: '3.2.0',
       files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
@@ -276,7 +264,7 @@ test('GitHub raw 运行清单是清单主源：commits API 不可用时仍能判
   assert.equal(checked.checkWarning, undefined)
 })
 
-test('raw 清单落后一版（刚推送、CI 还没发布清单）时用 commits API 补判', async t => {
+test('main 有未发布的新提交时仍使用当前发布清单', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-lag-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const installed = 'a'.repeat(40)
@@ -285,25 +273,21 @@ test('raw 清单落后一版（刚推送、CI 还没发布清单）时用 commit
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
     readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: installed, currentReleaseSequence: 100 }),
-    fetchManifest: async () => ({ version: '3.2.0' }),
-    // raw 清单仍停在已安装的提交上。
+    // 模拟主干有新提交，只有清单上的已安装提交可分发。
     fetchGithubManifest: async () => ({
       schemaVersion: 2, revision: installed, releaseSequence: 100, version: '3.2.0',
       files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
     }),
-    fetchLatestCommit: async () => newer,
-    compareCommits: async (current, target) => {
-      assert.deepEqual([current, target], [installed, newer])
-      return 'ahead'
-    },
+    compareCommits: async () => { throw new Error('发布清单与当前提交相同') },
   })
   const checked = await updater.check()
-  assert.equal(checked.phase, 'update-available')
-  assert.equal(checked.checkSource, 'github')
-  assert.equal(checked.latestCommit, newer)
+  assert.equal(checked.phase, 'up-to-date')
+  assert.equal(checked.checkSource, 'github-manifest')
+  assert.equal(checked.latestCommit, installed)
+  assert.notEqual(checked.latestCommit, newer)
 })
 
-test('raw 清单与 commits API 一致显示无更新时，不再问 jsDelivr', async t => {
+test('GitHub 发布清单可用时无需请求 jsDelivr', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-current-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const installed = 'a'.repeat(40)
@@ -312,8 +296,6 @@ test('raw 清单与 commits API 一致显示无更新时，不再问 jsDelivr', 
   let cdnRequests = 0
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
-    fetchManifest: async () => ({ version: '3.2.0' }),
-    fetchLatestCommit: async () => installed,
     fetchGithubManifest: async () => ({
       schemaVersion: 2, revision: installed, releaseSequence: 100, version: '3.2.0',
       files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
@@ -342,8 +324,6 @@ test('jsDelivr 发布序号阻止缓存倒退，并允许无 GitHub 更新', asy
     }
     const common = {
       dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
-      fetchManifest: async () => { throw new Error('fetch failed') },
-      fetchLatestCommit: async () => { throw new Error('fetch failed') },
       fetchCdnMetadata: async () => metadata,
       compareCommits: async () => { throw new Error('GitHub 不应参与 CDN 发布序号判断') },
       now: () => 321,
@@ -375,21 +355,19 @@ test('更新诊断跨检查保留回退和网络原因，并可在重启后读�
   try {
     const networkError = () => Object.assign(new Error('fetch failed https://user:secret@example.test/meta?token=secret'), { cause: Object.assign(new Error('connect timeout'), { code: 'ETIMEDOUT' }) })
     const options = { dataRoot: root, sourceRoot: root, runtimeHost: 'desktop', ...verifiedUpdate,
+      fetchGithubManifest: async () => { throw networkError() },
       fetchCdnMetadata: async () => { throw new Error('清单缺少发布序号') },
-      fetchManifest: async () => { throw networkError() },
     }
-    const updater = createApplicationUpdater({ ...options, fetchLatestCommit: async () => { throw networkError() } })
+    const updater = createApplicationUpdater(options)
     assert.equal((await updater.check()).phase, 'check-failed')
-    // raw.githubusercontent.com blocked alone only loses the version label (#125).
-    const recovered = createApplicationUpdater(options)
+    const recovered = createApplicationUpdater({ ...options, fetchCdnMetadata: async () => publication('b'.repeat(40)) })
     const checked = await recovered.check()
     assert.equal(checked.phase, 'update-available')
-    assert.equal(checked.latestVersion, 'unknown')
+    assert.equal(checked.latestVersion, '1.1.0')
     const records = recovered.diagnostics().records
     assert.equal(new Set(records.filter(r => r.event === 'check.started').map(r => r.attemptId)).size, 2)
-    assert.ok(records.some(r => r.event === 'fallback.manifest'))
-    assert.ok(records.some(r => r.event === 'github.commit.failed' && r.cause.code === 'ETIMEDOUT' && r.durationMs >= 0))
-    assert.ok(records.some(r => r.event === 'github.version.failed' && r.cause.code === 'ETIMEDOUT'))
+    assert.ok(records.some(r => r.event === 'github.manifest.failed' && r.cause.code === 'ETIMEDOUT' && r.durationMs >= 0))
+    assert.ok(records.some(r => r.event === 'cdn.manifest.failed'))
     assert.ok(records.some(r => r.event === 'status' && r.phase === 'check-failed'))
     assert.ok(records.some(r => r.event === 'status' && r.phase === 'update-available'))
     assert.ok(!JSON.stringify(records).includes('secret'))
@@ -413,7 +391,7 @@ for (const mode of ['relative-loose', 'absolute-packed', 'detached']) test('Git 
     else await writeFile(path.join(common, 'refs', 'heads', 'trial'), commit + '\n')
     await writeFile(path.join(source, 'package.json'), JSON.stringify({ version: '0.7.2' }))
     const updater = createApplicationUpdater({ dataRoot: path.join(root, 'data'), sourceRoot: source, runtimeHost: 'android',
-      fetchManifest: async () => ({ version: '0.7.2' }), fetchLatestCommit: async () => commit })
+      fetchGithubManifest: async () => publication(commit, '0.7.2') })
     const result = await updater.check()
     assert.equal(result.phase, 'up-to-date')
     assert.equal(result.currentCommit, commit)
@@ -433,7 +411,7 @@ test('jsDelivr 兜底：本地清单未核验时用提交比较，比较不可�
     const metadata = { revision: '9'.repeat(40), releaseSequence: 44, version: '2.4.0', files: [{ path: 'package.json', sha256: 'e'.repeat(64) }] }
     const offline = async () => { throw new Error('fetch failed') }
     const common = { dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
-      fetchManifest: offline, fetchLatestCommit: offline, fetchCdnMetadata: async () => metadata }
+      fetchCdnMetadata: async () => metadata }
     const compared = []
     const viaCompare = await createApplicationUpdater({ ...common, compareCommits: async (a, b) => { compared.push([a, b]); return 'ahead' } }).check()
     assert.equal(viaCompare.phase, 'update-available')
@@ -445,11 +423,10 @@ test('jsDelivr 兜底：本地清单未核验时用提交比较，比较不可�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('jsDelivr 滞后（清单提交号对不上 GitHub 最新提交）时，用发布序号判断更新', async (t) => {
+test('备用清单按发布序号比较，无需比较提交', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-lag-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const installed = 'b'.repeat(40)
-  const latestCommit = 'd'.repeat(40)
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '3.1.0' }))
   await writeFile(path.join(root, 'dsh-tavern-runtime.json'), JSON.stringify({
     revision: installed, releaseSequence: 900, version: '3.1.0', files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
@@ -457,7 +434,6 @@ test('jsDelivr 滞后（清单提交号对不上 GitHub 最新提交）时，用
   const metadata = { revision: 'c'.repeat(40), releaseSequence: 914, version: '3.1.0', files: [{ path: 'package.json', sha256: 'e'.repeat(64) }] }
   const common = {
     dataRoot: path.join(root, 'data'), sourceRoot: root, dshHome: path.join(root, 'home'), runtimeHost: 'android',
-    fetchManifest: async () => ({ version: '3.1.0' }), fetchLatestCommit: async () => ({ sha: latestCommit }),
     fetchCdnMetadata: async () => metadata,
     compareCommits: async () => { throw new Error('提交号不可比时不该阻塞') },
   }
@@ -478,7 +454,7 @@ test('压缩包安装没有 .git 和安装记录时，用源码自带运行清�
   }))
   const updater = createApplicationUpdater({
     dataRoot: path.join(root, 'data'), sourceRoot: root, dshHome: path.join(root, 'home'), runtimeHost: 'android',
-    fetchManifest: async () => ({ version: '3.1.0' }), fetchLatestCommit: async () => ({ sha: latest }),
+    fetchGithubManifest: async () => publication(latest, '3.1.0'),
     compareCommits: async (current, target) => { assert.deepEqual([current, target], [installed, latest]); return 'ahead' },
   })
   const checked = await updater.check()
@@ -588,7 +564,7 @@ test('从 Git 仓库运行时不启动应用内更新，提示用 git pull；检
     await assert.rejects(updater.start(), /Git 仓库运行.*git pull/)
     // Android installs are Git checkouts by design; android/update.sh updates them in place.
     const android = createApplicationUpdater({ dataRoot: path.join(root, 'data-android'), sourceRoot: root, runtimeHost: 'android',
-      ...verifiedUpdate, fetchLatestCommit: async () => knownIdentity.currentCommit })
+      ...verifiedUpdate, fetchGithubManifest: async () => publication(knownIdentity.currentCommit) })
     assert.equal((await android.start()).phase, 'up-to-date')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
