@@ -6898,29 +6898,12 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][dat
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_accessory"] { grid-column: 1 / -1; grid-row: 1; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [data-slot="conversation.input.attachments"] > * { grid-column: 1 / -1; grid-row: 2; margin-bottom: 6px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > :is([class*="_tools"], [class*="_trailing"]) { height: auto; min-height: 36px; align-items: center; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] :is([class*="_trailing"] > [class*="_primary"], .fork-phone-plus-trigger) { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] :is([class*="_trailing"] > [class*="_primary"]) { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > :is([data-input-scroll], [class*="_scroll"]) { grid-column: 2; grid-row: 3; margin: 0; align-self: center; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] [data-composer-input] { padding: 6px 6px 6px 4px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] { display: contents; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 0; }
-.fork-phone-plus { position: relative; display: inline-flex; }
-.fork-phone-plus-trigger { display: grid; place-items: center; width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--fork-ink-2); cursor: pointer; }
-.fork-phone-plus-trigger:hover, .fork-phone-plus-trigger[aria-expanded="true"] { background: var(--fork-hover); color: var(--fork-ink); }
-.fork-phone-plus-trigger:focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
-.dsh-tavern-more-menu.fork-phone-plus-menu { position: fixed; z-index: 60; right: auto; top: auto; width: 208px; max-width: calc(100vw - 16px); overflow-y: auto; }
-/* tavern.css folds the dock actions behind an open candidate list (0,5,1); in this menu they are the items. */
-html.dsh-fork-phone-play body [data-composer-seat] .fork-phone-plus-menu .dsh-tavern-dock-actions.dsh-fork-inline-actions { display: grid; gap: 2px; }
-.fork-phone-plus-menu .dsh-fork-icon-slot { display: flex; }
-.fork-phone-plus-menu .dsh-fork-icon-slot:empty { display: none; }
-.fork-phone-plus-menu :is(.dsh-fork-inline-actions [data-fork-action], .dsh-fork-inline-actions .dsh-fork-icon-slot > button, [data-fork-phone-item]) {
-  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-width: 0; height: auto; min-height: 40px; padding: 0 12px;
-  border-radius: var(--fork-radius); color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 400; line-height: 1.4; white-space: nowrap; text-align: left;
-}
-.fork-phone-plus-menu [data-fork-phone-item] > svg { flex: none; color: var(--fork-ink-2); }
-.fork-phone-plus-menu :is(.dsh-fork-inline-actions [data-fork-action], .dsh-fork-inline-actions .dsh-fork-icon-slot > button)::before { flex: none; content: ""; width: 18px; height: 18px; background: var(--fork-ink-2); -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
-.fork-phone-plus-menu .dsh-fork-inline-actions [data-fork-action="guide"][data-count]::after { content: none; }
-.fork-phone-plus-menu .fork-compaction-status { padding: 4px 12px; }
 
 /* Story: the portrait spans the name and the first line of text (3.2em, the desktop's 4.2em would cost the narrow column a
    fifth of its width; design 「手机里气泡渲染的头像怎么这么小啊」 about the old 30px), and a slightly smaller ▶ that stays
