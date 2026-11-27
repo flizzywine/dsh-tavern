@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "bde8818b3da0ca2979ace2129d241b3946b705b5",
-  "releaseSequence": 2237,
+  "revision": "7c3117560e6f7098546209b55a09c61dea89d5ee",
+  "releaseSequence": 2238,
   "version": "3.5.0",
   "files": [
     {
@@ -346,8 +346,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "079237ba37bebdc2cd721d94991310e11c2724ca967ac35f709e2b234ebcf58d",
-      "size": 28393
+      "sha256": "0cbc73ecddcfb648532b2f79d2d03930d15dd37b306871bfa77f7c59b2dec830",
+      "size": 29893
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -481,8 +481,8 @@
     },
     {
       "path": "bin/prepared-next-profile.mjs",
-      "sha256": "3991e3ad4967468795c125467894c6635fd3ecade545d80bf7d2268af9aafaa6",
-      "size": 7561
+      "sha256": "dd5ba9d709482a22cc7c201952bccae11aeee2693891b300de43a54246188127",
+      "size": 5726
     },
     {
       "path": "bin/preserve-font-assets.mjs",
@@ -501,8 +501,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "d3e7f3d85ed198df449906baa2e96dd880108bab84ca4748998f611d67fc42fb",
-      "size": 38217
+      "sha256": "9633d4fbe22b92eca6c0ba32128b5b6665646707e248fd1aef6fef3f2a7da501",
+      "size": 38237
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -513,6 +513,11 @@
       "path": "bin/redact-session-log.mjs",
       "sha256": "dc69aa1cfdbe913e655b47c44c1d4cc9f5c0fd7188b5776d3598e5ca3ceb0bb7",
       "size": 914
+    },
+    {
+      "path": "bin/relocate-pnpm-install.mjs",
+      "sha256": "323adcbc99dbdf898bf4dc4d39243a73cc055e1b256a730b90914fa34cf50b6c",
+      "size": 2547
     },
     {
       "path": "bin/repair-session-log.mjs",
@@ -561,8 +566,8 @@
     },
     {
       "path": "bin/staged-app-install.mjs",
-      "sha256": "a1bda3876a47d16853aa866ad2764d97cf5663914cdce7b74d2de4c0c07a1096",
-      "size": 10050
+      "sha256": "c57bad30b3dca5c3d6cc31b961df6820e72f785589734cd9c3d52a46a22256de",
+      "size": 10370
     },
     {
       "path": "bin/system-proxy.mjs",
@@ -691,13 +696,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "1fc875f10f76675954917bd007c9f53a6dd7fc5f7596fefdb5dbc291e2ead006",
-      "size": 124931
+      "sha256": "57bee758426e46f1cc3b766a8162a88cb90ad9c94384bae813b5586ece8b019e",
+      "size": 127845
     },
     {
       "path": "install.sh",
-      "sha256": "8491d6526aa7b2eacc5292a125e6c670e6600654b6e011927d2cac2a17214461",
-      "size": 93435
+      "sha256": "726b7854db905511f84111e7501764fc45cb588266c0071f92c9e89db8536222",
+      "size": 94935
     },
     {
       "path": "package.json",
@@ -10406,9 +10411,9 @@
     }
   ],
   "archive": {
-    "commit": "3aa02524dbb2baf5be45da68237f83cedb71e764",
+    "commit": "81d46f8ccff5d54b5388d34646bbbc2bb5ad1e8f",
     "path": "runtime.zip",
-    "sha256": "c29e90a964ebbe763f4847359c278c14a8718b3ae580f9614eebc7e5b73e6aa5",
-    "size": 18344001
+    "sha256": "683dcc3cbc52b8714000c37fe2678f9aabbb7c0691a9928c2a386339ea6cf0bc",
+    "size": 18346405
   }
 }
