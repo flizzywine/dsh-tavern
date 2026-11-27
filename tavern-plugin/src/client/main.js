@@ -1283,7 +1283,6 @@ window.__ModuleLoader__.load({
         // @include card-memory.js
 
 // @include features/skills.js
-// @include features/worldbook-inspector.js
 
 
 // @include features/preset-library.js

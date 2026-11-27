@@ -55364,50 +55364,6 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
                     )) : h("div", { className: "dsh-tavern-skill-empty" }, "拖动 Skill 到这里"));
                 }), !skills.length ? (busy ? h(PanelLoading, { label: "正在读取 Skill…" }) : h(EmptyState, { noun: "Skill" })) : null));
 		}
-function TavernWorldbookInspector(props) {
-    const h = React.createElement;
-    const [data, setData] = React.useState(null), [error, setError] = React.useState('');
-    const [busy, setBusy] = React.useState(false), [query, setQuery] = React.useState('');
-    const [page, setPage] = React.useState(0), [mode, setMode] = React.useState('catalog');
-    const [source, setSource] = React.useState(null);
-    const generation = React.useRef(0);
-    async function refresh() {
-        const request = ++generation.current;
-        setBusy(true); setError(''); setSource(null);
-        try { const result = await rpc('inspectWorldbookSkills', { offset: page }, props.sessionId); if (request === generation.current) setData(result); }
-        catch (e) { if (request === generation.current) setError(e.message || String(e)); }
-        finally { if (request === generation.current) setBusy(false); }
-    }
-    React.useEffect(() => { refresh(); return () => { generation.current++; }; }, [page]);
-    async function read(entry) {
-        const request = ++generation.current;
-        setBusy(true); setError(''); setSource(null);
-        try { const result = await rpc('readWorldbookSkillSource', { path: entry.path, ref: entry.ref }, props.sessionId); if (request === generation.current) setSource({ title: entry.title, content: result.content }); }
-        catch (e) { if (request === generation.current) setError(e.message || String(e)); }
-        finally { if (request === generation.current) setBusy(false); }
-    }
-    const button = (label, onClick, disabled) => h('button', { className: 'dsh-tavern-btn', onClick, disabled }, label);
-    const files = data?.catalog?.files || [];
-    const matches = value => String(value || '').toLowerCase().includes(query.toLowerCase());
-    return h('aside', { className: 'dsh-tavern-status dsh-wb-inspector', 'aria-label': '世界书文件 排查' },
-        h('header', null, h('strong', null, '世界书文件'), button(busy ? '加载中…' : '刷新', refresh, busy)),
-        h('p', { className: 'dsh-wb-muted' }, '本局静态世界书生成的 Markdown 文件。只读查看不会计入模型调用。'),
-        error && h('p', { role: 'alert' }, error),
-        data && h(React.Fragment, null,
-            h('div', { className: 'dsh-wb-stats' }, `${files.length} 条原文`, h('br'), `成功读取 ${data.counts.entries} 次 · 错误 ${data.counts.errors} 次`),
-            data.catalog?.directory && h('details', null, h('summary', null, '实体文件夹'), h('code', null, data.catalog.directory), h('p', { className: 'dsh-wb-muted' }, '由世界书自动同步；修改生成文件不会修改世界书。')),
-            h('nav', null, button('文件与内容', () => { setMode('catalog'); setSource(null); }), button(`调用记录 (${data.total})`, () => { setMode('history'); setSource(null); })),
-            h(SearchBox, { label: '搜索世界书文件', placeholder: '搜索条目或本页调用', value: query, onChange: setQuery, bare: true }),
-            source ? h('section', null, button('← 返回目录', () => setSource(null)), h('h3', null, source.title), h('pre', null, source.content)) : mode === 'catalog' ? h('section', null,
-                !data.catalog && h('p', null, '当前对局未启用世界书文件，或原生读取工具不可用。'),
-                data.catalog && !files.length && h('p', null, '当前没有可用的静态条目；预处理尚未完成或条目被排除时，目录也可能为空。'),
-                h('p', { className: 'dsh-wb-muted' }, '仅收录可见、启用的静态非常驻条目；动态模板、常驻条目和 MVU 不在此目录。'),
-                files.filter(e => matches(e.title)).map(e => h('div', { key: e.ref, className: 'dsh-wb-entry' }, button(e.title + ' · 读取 ' + e.readCount + ' 次', () => read(e), busy), h('small', null, e.path)))) : h('section', null,
-                h('p', { className: 'dsh-wb-muted' }, '原生调用历史（含重试／回退前记录）。成功读取不代表正文一定采用；轮次为原生会话轮次。'),
-                !data.historyLoaded && h('p', null, '会话事件尚未加载，统计暂不可用。'),
-                data.records.filter(r => matches(r.target) || matches(r.title)).map(r => h('details', { key: r.id }, h('summary', null, `第 ${r.turn} 轮 · ${r.kind === 'skill' ? '历史 Skill' : r.kind === 'grep_lorebook' ? '搜索原文' : r.kind === 'list_lorebook' ? '浏览目录' : '读取原文'} · ${{ success: '成功', error: '失败', pending: '等待结果' }[r.status]}`), h('p', null, r.title), h('code', null, r.target), h('p', null, `步骤 ${r.step}${r.offset ? ' · 起始行 ' + r.offset : ''}${r.totalLines !== undefined ? ' · 共 ' + r.totalLines + ' 行' : ''}`), h('pre', null, r.result || '暂无返回内容'))),
-                h('nav', null, button('上一页', () => setPage(Math.max(0, page - 40)), busy || page === 0), h('small', null, `${data.total ? page + 1 : 0}–${Math.min(page + 40, data.total)} / ${data.total}`), button('下一页', () => setPage(page + 40), busy || page + 40 >= data.total)))));
-}
 
 
 		function groupPresetEntriesByPhase(preset) {
@@ -69536,59 +69492,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		        props.renderSlot ? h(React.Fragment, null,
 		            h("div", { className: "dsh-tavern-header-menu-sep", role: "separator" }),
 		            h("div", { className: "fork-phone-readout", "data-keep-open": "" }, props.renderSlot("tavern.play.readout", {}))) : null);
-		}
-
-		// ＋ in the phone play composer: the round actions and 附件 in one menu above it.
-		function PhoneComposerPlus(props) {
-		    const h = React.createElement;
-		    const [open, setOpen] = React.useState(false);
-		    const [place, setPlace] = React.useState(null);
-		    const [editTarget, setEditTarget] = React.useState(null);
-		    const root = React.useRef(null), trigger = React.useRef(null), menu = React.useRef(null);
-		    React.useLayoutEffect(function () {
-		        if (!open) { setPlace(null); setEditTarget(null); return undefined; }
-		        // assistant-renderer renders 编辑这条输入 only on the latest editable player input of this session.
-		        const edits = (root.current && root.current.closest("[data-dsh-fork-session]") || document).querySelectorAll(".dsh-tavern-user-edit:not(:disabled)");
-		        setEditTarget(edits.length ? edits[edits.length - 1] : null);
-		        // The composer seat scrolls; a fixed menu above the trigger is not clipped by it (TavernMoreActions does the same).
-		        function layout() {
-		            const rect = trigger.current && trigger.current.getBoundingClientRect();
-		            if (rect) setPlace({ left: Math.max(8, rect.left) + "px", bottom: (window.innerHeight - rect.top + 8) + "px", maxHeight: Math.max(120, rect.top - 16) + "px" });
-		        }
-		        layout();
-		        window.addEventListener("resize", layout);
-		        if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
-		        return function () { window.removeEventListener("resize", layout); if (window.visualViewport) window.visualViewport.removeEventListener("resize", layout); };
-		    }, [open]);
-		    // The round actions are the composer's own buttons, mounted while the menu is closed too (their busy state and the
-		    // candidate projection keep running); in this menu they are its items.
-		    React.useLayoutEffect(function () {
-		        if (menu.current) menu.current.querySelectorAll("button").forEach(function (node) { node.setAttribute("role", "menuitem"); });
-		    });
-		    React.useLayoutEffect(function () {
-		        if (!open || !menu.current) return;
-		        const first = Array.from(menu.current.querySelectorAll("button:not(:disabled)")).find(function (node) { return node.offsetParent !== null; });
-		        if (first) first.focus({ preventScroll: true });
-		    });
-		    React.useEffect(function () {
-		        if (!open) return undefined;
-		        function outside(event) { if (!root.current || !root.current.contains(event.target)) setOpen(false); }
-		        function escape(event) { if (event.key === "Escape") { setOpen(false); trigger.current?.focus({ preventScroll: true }); } }
-		        document.addEventListener("pointerdown", outside, true);
-		        document.addEventListener("keydown", escape);
-		        return function () { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape); };
-		    }, [open]);
-		    function attach() {
-		        const input = root.current && root.current.closest("[data-composer-card]")?.querySelector('input[type="file"]');
-		        if (input && !input.disabled) input.click();
-		    }
-		    return h("span", { className: "fork-phone-plus", ref: root },
-		        h("button", { type: "button", ref: trigger, className: "fork-phone-plus-trigger", "aria-label": "更多操作", title: "更多操作", "aria-haspopup": "menu", "aria-expanded": open, onClick: function () { setOpen(function (value) { return !value; }); } }, phoneModIcon("plus")),
-		        h("div", { ref: menu, className: "dsh-tavern-more-menu fork-phone-plus-menu", role: "menu", "aria-label": "更多操作", hidden: !open, style: place || undefined, onKeyDown: phoneModMenuKeys,
-		            onClick: function (event) { if (event.target.closest("button:not(:disabled)")) setOpen(false); } },
-		            props.children,
-		            h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "attach", onClick: attach }, phoneModIcon("attach"), "附件"),
-		            editTarget ? h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "edit", onClick: function () { editTarget.click(); } }, phoneModIcon("edit"), "编辑上一条输入") : null));
 		}
 
 		// the chat page's 回到最新, in the composer's top-right corner (O37), shown only while
