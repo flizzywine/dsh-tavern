@@ -220,6 +220,23 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
   assert.deepEqual(asked, [pinned], '指定的清单不换节点')
 })
 
+test('指定版本的清单一到就取消滞后的镜像请求', async () => {
+  const { readManifest } = require('../bin/download.cjs')
+  const revision = 'a'.repeat(40)
+  const metadata = { revision, version: '3.5.0', files: [{ path: 'package.json', sha256: 'b'.repeat(64), size: 1 }] }
+  const stale = { ...metadata, revision: 'c'.repeat(40) }
+  const aborted = []
+  const result = await readManifest({ metadataUrl: 'https://cdn.jsdelivr.net/gh/o/r@main/dsh-tavern-runtime.json', targetCommit: revision,
+    minVersion: '3.5.0', attempts: 1, stallMs: 1000, fetch: async (url, { signal }) => {
+      const host = new URL(url).hostname
+      if (host === 'raw.githubusercontent.com') return new Response(JSON.stringify(stale))
+      if (host === 'fastly.jsdelivr.net') return new Response(JSON.stringify(metadata))
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => { aborted.push(host); reject(signal.reason) }, { once: true }))
+    } })
+  assert.equal(result.revision, revision)
+  assert.deepEqual(aborted.sort(), ['cdn.jsdelivr.net', 'gcore.jsdelivr.net'])
+})
+
 // A minimal zip writer for tests (stored or deflated entries, UTF-8 names).
 function zipOf(entries) {
   const { deflateRawSync } = require('node:zlib')
@@ -285,4 +302,27 @@ test('downloadRuntime reuses preloaded manifest without fetching metadataUrl aga
   assert.equal(got.revision, metadata.revision)
   assert.equal(hits.get('/manifest') || 0, 0, '传入 manifest 时不再请求 metadataUrl')
   assert.deepEqual(await readFile(path.join(out, 'bin/a.js')), Buffer.from('hello'))
+})
+
+test('增量下载复用校验通过的文件，只请求需要替换的文件，超出预算时交给完整下载', async t => {
+  const files = new Map([['bin/a.js', Buffer.from('unchanged')], ['bin/b.js', Buffer.from('updated')]])
+  const { root, metadata, args, hits } = await runtimeFixture(t, files)
+  metadata.archive = { commit: 'e'.repeat(40), path: 'runtime.zip', sha256: 'f'.repeat(64), size: 200 }
+  const installed = path.join(root, 'installed')
+  const destination = path.join(root, 'new-version')
+  await mkdir(path.join(installed, 'bin'), { recursive: true })
+  await writeFile(path.join(installed, 'bin/a.js'), files.get('bin/a.js'))
+  await writeFile(path.join(installed, 'bin/b.js'), 'corrupt')
+  const options = { ...args, manifest: metadata, installed, destination, incremental: true }
+  await downloadRuntime(options)
+  assert.deepEqual([...hits.keys()], [`/repo@${metadata.revision}/bin/b.js`])
+  assert.deepEqual(await readFile(path.join(destination, 'bin/b.js')), files.get('bin/b.js'))
+  assert.equal(await readFile(path.join(installed, 'bin/b.js'), 'utf8'), 'corrupt')
+
+  hits.clear()
+  const large = { ...metadata, files: [{ path: 'bin/big.js', sha256: 'a'.repeat(64), size: 5 * 1024 * 1024 }] }
+  const failed = path.join(root, 'over-budget')
+  await assert.rejects(downloadRuntime({ ...options, manifest: large, destination: failed }), /改用完整下载/)
+  assert.equal(hits.size, 0)
+  await assert.rejects(readFile(path.join(failed, 'dsh-tavern-runtime.json')), { code: 'ENOENT' })
 })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -67,6 +67,28 @@ test('全新安装失败回滚后不留下半成品目录', t => {
   swap(app)
   assert.equal(rollback(app), true)
   assert.equal(existsSync(app), false)
+})
+
+test('准备阶段修正依赖链接，切换后直接使用，回滚仍能使用旧依赖', t => {
+  const { app, source } = fixture(t)
+  installV1(app, source)
+  release(source('v2'), 'v2', ['package.json', 'bin/dsh-tavern.mjs', 'tavern-plugin/lib/index.js'])
+  const staging = prepare({ app, source: source('v2') })
+  const nodeModules = path.join(staging, 'node_modules')
+  mkdirSync(nodeModules)
+  symlinkSync(path.join(staging, 'tavern-plugin'), path.join(nodeModules, 'dsh-tavern-plugin'), process.platform === 'win32' ? 'junction' : 'dir')
+  write(staging, 'node_modules/.modules.yaml', JSON.stringify({ virtualStoreDir: path.join(nodeModules, '.pnpm') }))
+  write(staging, 'node_modules/.pnpm-workspace-state-v1.json', JSON.stringify({ workspace: staging }))
+  const result = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'bin', 'staged-app-install.mjs'), 'relocate-dependencies', '--app', app], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(read(app, 'node_modules/old-dep/index.js'), 'old')
+
+  swap(app)
+  assert.equal(read(app, 'node_modules/dsh-tavern-plugin/lib/index.js'), 'v2:tavern-plugin/lib/index.js')
+  assert.equal(JSON.parse(read(app, 'node_modules/.modules.yaml')).virtualStoreDir, path.join(app, 'node_modules', '.pnpm'))
+  assert.equal(JSON.parse(read(app, 'node_modules/.pnpm-workspace-state-v1.json')).workspace, app)
+  assert.equal(rollback(app), true)
+  assert.equal(read(app, 'node_modules/old-dep/index.js'), 'old')
 })
 
 test('提交删除旧目录后、清除记录前中断：回滚识别为已提交，不报错也不改动新版本', t => {

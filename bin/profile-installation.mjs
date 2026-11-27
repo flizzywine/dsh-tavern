@@ -416,7 +416,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       }
       // This generated profile changes dependencies and patch settings on upgrade.
       // Its previous lockfile is not the source repository's frozen lockfile.
-      await runInstall('pnpm', ['install', '--no-frozen-lockfile'], { cwd: profileDir })
+      await runInstall('pnpm', ['install', '--no-frozen-lockfile', '--prefer-offline'], { cwd: profileDir })
       if (host === 'desktop') await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs')], { label: '验证桌面版配置', timeoutMs: 60_000 })
       else {
         await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000,
