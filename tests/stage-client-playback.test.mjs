@@ -19,7 +19,7 @@ function fixture(){
  const playback=createStagePlayback({React,clock,player:{get:()=>playing},subtitles:{voiceTime:()=>2},timing:{delay:stageAutoDelay,remaining:stageAutoRemaining},handoffDelay:(delay,held)=>Math.max(0,delay-held),now:()=>at})
  const frame={sessionId:'a',runtime:{cursor:{mode:'live',visitId:1,anchor:{paragraphId:'p',offset:0}},text:{pages:[]},indicators:{awaitingDirection:false},store:{dispatch:event=>calls.push(event)}},
  reading:{autoWait:700,autoSpeed:1},auto:false,skipping:false,hidden:false,overlay:false,typed:true,current:{text:'a'},atEnd:false,awaiting:false,sceneHolding:false,
- line:{turn:1,page:0,card:0,inputCard:0,transitioning:false,subtitles:{text:'a',cards:[]},inputSubtitles:{text:''},lastCard:true,voice:null,audioBusy:false,heldMs:0,film:false,pageCount:2},
+ line:{turn:1,page:0,card:0,inputCard:0,transitioning:false,subtitles:{text:'a',cards:[]},inputSubtitles:{text:''},lastCard:true,voice:null,audioBusy:false,voiceEnded:false,heldMs:0,film:false,pageCount:2},
  performance:{replayable:['core.dice.roll'],holds:[],blocking:false,dialogueHeld:false,busy:false}}
  function View(){playback.usePlayback(frame,{advance:()=>calls.push('advance'),finishSkip:()=>calls.push('end'),finishTyping:()=>calls.push('typed')});return null}
  const mount=document.createElement('div');document.body.append(mount);const root=createRoot(mount)
@@ -27,6 +27,30 @@ function fixture(){
  return {frame,jobs,calls,listeners,playback,render,setTime:value=>at=value,setPlayer:value=>playing=value,failCancel:()=>failCancel=true,
  audible(value){act(()=>{audible=value;for(const fn of listeners)fn()})},fire(){const [id,job]=jobs.entries().next().value;if(!job.repeat)jobs.delete(id);act(()=>job.fn())},
  cleanup(){try{playback.dispose()}finally{act(()=>root.unmount());mount.remove()}}}
+}
+for (const outcome of ['failure', 'timeout', 'no voice']) {
+ test(`auto gives the full reading time after ${outcome}`,()=>{
+  const f=fixture();try{
+   const text='A sentence long enough to distinguish reading time from the post-voice wait.'
+   f.frame.current.text=f.frame.line.subtitles.text=text
+   f.frame.auto=true
+   f.frame.line.heldMs=200
+   f.frame.line.voice=outcome==='no voice'?null:{owner:'a:stage',id:'p'}
+   f.frame.line.audioBusy=outcome!=='no voice'
+   f.render()
+   if(f.frame.line.audioBusy){
+    assert.equal(f.jobs.size,0,'wait while synthesis is in progress')
+    f.setTime(outcome==='timeout'?135000:10100)
+    f.frame.line.audioBusy=false
+    f.render()
+   }
+   const [job]=f.jobs.values()
+   assert.equal(job.ms,stageAutoDelay(700,1,false,text))
+   assert.deepEqual(f.calls,[])
+   f.fire()
+   assert.deepEqual(f.calls,['advance'])
+  }finally{f.cleanup()}
+ })
 }
 test('auto keeps remaining silent reading time across foreground pause and fences late callbacks on dispose',()=>{
  const f=fixture();try{

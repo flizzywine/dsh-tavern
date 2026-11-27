@@ -69,7 +69,7 @@ export function stageHostScript() {
   const Nothing=()=>null,Spinner=Nothing,entries=stageEntries;
   // the core's (?) (settings-ui.js HelpTip) as its closed button; the explanation stays behind it.
   const HelpTip=props=>React.createElement('span',{className:'fork-help-tip'},React.createElement('button',{type:'button',className:'fork-help-tip-button','aria-label':props.label},'?'));
-  const player={cancelPrefetch:noop,play:async()=>{},prefetch:async()=>{},stopPlayback:noop,stop:noop,get:()=>null,getError:()=>null,prioritize:noop,subscribe:off,setEnabled:noop};
+  const player={cancelPrefetch:noop,play:async()=>{},prefetch:async()=>{},stopPlayback:noop,stop:noop,get:()=>null,getError:()=>null,hasEnded:()=>false,prioritize:noop,subscribe:off,setEnabled:noop};
   const options=(overrides={})=>({rpc,
     speech:{player,available:()=>false,speechInput:()=>null,character:()=>null,language:()=>'zh',open:async()=>null},
     sceneColorMath:{galMatrix,galClamp01},

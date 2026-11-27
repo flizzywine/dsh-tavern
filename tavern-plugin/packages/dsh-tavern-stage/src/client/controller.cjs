@@ -43,6 +43,7 @@ function GalCardPageEntries({pages,open,openId}) {
     });
 }
 if (stageEntries) own(stageEntries.register({id:'card-pages',priority:85,group:'feature',icon:'card',label:'卡片页面',render:ctx => ctx.cardPages ? React.createElement(GalCardPageEntries,ctx.cardPages) : null}));
+const VOICE_GIVE_UP_MS=10000;
 function foregroundTimeout(fn,ms){if(closed)return null;const id=forkForeground.setTimeout(()=>{foregroundTimers.delete(id);if(!closed)fn();},ms);foregroundTimers.add(id);return id;}
 const useBgManualScene=(...args)=>legacy.background(...args);
 const useWidgetTheme=(...args)=>legacy.widgetTheme(...args);
@@ -1068,7 +1069,19 @@ function GalStage(props) {
         at:Math.min(pages[page]?.para || 1, runtime.director.through || 0), offset:runtime.cursor.anchor?.offset || 0, sending:!!waiting, running,
         waiting:!leasing && atEnd && (typed || openingOnly) && !hidden && !awaiting && !running && !sourceWidget.openKey && !!props.Choices});
     const awaitingDirection = runtime.indicators.awaitingDirection;
-    const audioBusy = readerPanel ? reader?.playing === true : playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
+    // AUTO does not wait forever on a line whose voice has not started: past VOICE_GIVE_UP_MS the page goes on by its text
+    // reading time and the voice line says so (notices.cjs 'text-slow'). Manual reading was never held by it.
+    const voiceKey = voice ? JSON.stringify([voice.owner, voice.id]) : '';
+    const [voiceGaveUp, setVoiceGaveUp] = React.useState('');
+    const voiceStarting = auto && playingHere && player.loading && !player.audio;
+    React.useEffect(() => {
+        if (!voiceStarting) return;
+        const id = foregroundTimeout(() => setVoiceGaveUp(voiceKey), VOICE_GIVE_UP_MS);
+        return () => { forkForeground.clearTimeout(id); foregroundTimers.delete(id); };
+    }, [voiceStarting, voiceKey]);
+    const voiceSkipped = !!voiceKey && voiceGaveUp === voiceKey;
+    const audioBusy = readerPanel ? reader?.playing === true : playingHere && !voiceSkipped && !player.error && (player.loading || forkForeground.isPlaying(player.audio));
+    const voiceEnded = !!voice && voicePlayer.hasEnded(voice);
     const controlsInput=stageViews.input.useInput({sessionId,rootRef,
         modal:configOpen||galleryOpen||menuOpen,backlog,page:pageOpen?openPage:null,pages:pageList,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
         switch(action.type){
@@ -1175,6 +1188,7 @@ function GalStage(props) {
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
     const callVoice = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, () => galCallVoice(phoneCall));
     const voiceStatus = useGalVoiceStatus(callVoice ? JSON.parse(callVoice)
+        : voice && !skipping && voiceSkipped ? {key:[voice.owner, voice.id], state:"text"}
         : voice && !skipping && (voiceState === "error" || voiceState === "loading") ? {key:[voice.owner, voice.id], state:voiceState} : null);
     // A phone held as a reading sheet (handheld: the call fills the screen, widgets.cjs is-reading) covers the top bar: the
     // call's voice line then stands over the sheet's top-right instead, the same notice in one place only.
@@ -1380,7 +1394,7 @@ function GalStage(props) {
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
-        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
+        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,voiceEnded,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
@@ -1766,7 +1780,7 @@ function galCallVoice(call) {
 // paused, failed) and the line's own failure.
 function galVoiceView(player, voice) {
     const now = player.get(), audio = now?.audio;
-    return JSON.stringify([now?.owner ?? null, now?.id ?? null, Boolean(audio), Boolean(audio?.paused), now?.error ?? null, voice ? player.getError(voice) ?? null : null]);
+    return JSON.stringify([now?.owner ?? null, now?.id ?? null, Boolean(now?.loading), Boolean(audio), Boolean(audio?.paused), now?.error ?? null, voice ? player.getError(voice) ?? null : null, !!voice && player.hasEnded(voice)]);
 }
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
