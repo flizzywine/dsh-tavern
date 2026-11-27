@@ -32,9 +32,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refs/heads/${{ github.ref_name }}
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: pnpm
       - name: Build immutable runtime manifest
         shell: bash
         run: |
@@ -42,6 +46,31 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == main ]]; then
             node --experimental-vm-modules .github/scripts/check-runtime-imports.mjs
           fi
+      - name: Build runtime archive
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/runtime.zip"
+          rm -f "$archive"
+          node -e "for (const file of require('./dsh-tavern-runtime.json').files) console.log(file.path)" | zip -X -9 -q -D "$archive" -@
+          # Fail before publishing an oversized archive (jsDelivr per-file limit).
+          node .github/scripts/check-runtime-archive.mjs "$archive"
+      - name: Boot the packaged Tavern in DSH
+        shell: bash
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          export TAVERN_E2E_RUNTIME="$RUNNER_TEMP/tavern-smoke-runtime"
+          export TAVERN_E2E_OUTPUT="$RUNNER_TEMP/tavern-smoke-results"
+          mkdir -p "$TAVERN_E2E_RUNTIME/lib"
+          cp config/cli-runtime/package{,-lock}.json "$TAVERN_E2E_RUNTIME/lib/"
+          npm ci --prefix "$TAVERN_E2E_RUNTIME/lib" --no-audit --no-fund
+          node tests/e2e/runtime-archive.mjs "$RUNNER_TEMP/runtime.zip" dsh-tavern-runtime.json
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: runtime-startup-diagnostics
+          path: ${{ runner.temp }}/tavern-smoke-results
+          if-no-files-found: ignore
       # Publish a small CDN tree: an immutable ZIP commit, followed by a commit
       # containing matching installers and metadata. Source branches exceed CDN limits.
       - name: Publish runtime archive
@@ -50,10 +79,6 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           archive="$RUNNER_TEMP/runtime.zip"
-          rm -f "$archive"
-          node -e "for (const file of require('./dsh-tavern-runtime.json').files) console.log(file.path)" | zip -X -9 -q -D "$archive" -@
-          # Fail before publishing an oversized archive (jsDelivr per-file limit).
-          node .github/scripts/check-runtime-archive.mjs "$archive"
           dist="runtime-archive-${GITHUB_REF_NAME}"
           git worktree add --detach "$RUNNER_TEMP/dist"
           (

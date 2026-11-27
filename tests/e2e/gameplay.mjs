@@ -53,6 +53,7 @@ const pinScenario = process.argv.includes('--pin-panel')
 const displayScenario = pinScenario || process.argv.includes('--display-regression')
 const recoveryScenario = process.argv.includes('--surface-recovery')
 const helperApiScenario = process.argv.includes('--helper-api')
+const startupSmokeScenario = process.argv.includes('--startup-smoke')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 const storyWriteScenario = process.argv.includes('--story-write-ops')
@@ -401,6 +402,26 @@ try {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
   })
+  if (startupSmokeScenario) {
+    await step('在真实 DSH 中打开发布包的酒馆界面', async () => {
+      assert.notEqual(applicationSource, source, '启动验收必须使用解压后的发布包')
+      const rpc = async method => {
+        const response = await page.request.post(new URL('/api/dsh-tavern/' + method, page.url()).href, { data: {} })
+        assert.ok(response.ok(), `${method} 返回 HTTP ${response.status()}`)
+        return response.json()
+      }
+      assert.deepEqual((await rpc('listSessions')).sessions, [])
+      await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
+      const picker = page.getByRole('dialog', { name: '选择人物卡开始游玩' })
+      await picker.getByText('E2E 奖励验收', { exact: true }).waitFor()
+      const stage = await rpc('prepareStageWorkbench')
+      assert.equal(stage.status, 'ready', stage.error || '发布包舞台未就绪')
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (workbenchForkScenario) {
     await step('从工作台的历史回复分支，两边分别继续', async () => {
       await page.getByRole('button', { name: '卡片', exact: true }).click()
@@ -1511,7 +1532,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario || workbenchForkScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || startupSmokeScenario || storyWriteScenario || workbenchForkScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})
