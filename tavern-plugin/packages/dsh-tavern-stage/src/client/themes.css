@@ -5341,6 +5341,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-entry-overlay[data-fk-skin-spinner] .fork-gal-entry-spinner { animation: none; }
 }
 @keyframes fork-skin-spinner-pulse { 50% { opacity: .35; } }
+/* art.backlog.decor loops (theme.css 「art backlog decor」): scale and opacity only, so a parts entrance pose on the layer box stays its own. */
+@keyframes fork-bl-decor-pulse { 50% { scale: 1.3; } }
+@keyframes fork-bl-decor-ping { 0% { opacity: .75; scale: .35; } 40%, 100% { opacity: 0; scale: 1; } }
 @keyframes fork-skin-spinner-spin { to { rotate: 1turn; } }
 @keyframes fork-skin-spinner-sway { from { rotate: -12deg; } to { rotate: 12deg; } }
 /* art spinner: corner - art.spinner.place bottom-right (「仍在载入…」: the original's loader sits in the
@@ -5885,6 +5888,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    drawing and the placement change. Narrow stages keep the shared sheets in the skin's palette. art.voice draws every voice
    replay control (the backlog rows' and the box's) from the skin's images. */
 .fork-gal-backlog-bar { display: none; }
+/* The turn folio and the decor are the art layer's (art.backlog.turn / decor, wide only below). */
+.fork-gal-backlog-folio, .fork-gal-backlog-decor { display: none; }
 /* latest false (nolatest): the original's log has no 跳到最新 control, at any width; the wheel and End still reach the end. */
 .fork-gal-stage[data-fk-skin-art-backlog~="nolatest"]:not(.is-film) .fork-gal-backlog-latest { display: none; }
 @media (min-width: 641px) {
@@ -5947,6 +5952,36 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close > svg,
   .fork-gal-stage[data-fk-skin-art-config~="close"]:not(.is-film) .fork-gal-config-close > * { display: none; }
   .fork-gal-stage[data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: auto; bottom: auto; z-index: 2; left: calc(var(--gx) + var(--art-backlog-close-x) * var(--mu) - 44px); top: calc(var(--gy) + var(--art-backlog-close-y) * var(--mu) + var(--art-backlog-close-h) * var(--mu) / 2 - 18px); }
+  /* art.backlog.clip: the 导出片段 button as the skin's image at its own place; on = while the export mode is open. */
+  .fork-gal-stage[data-fk-skin-art-backlog~="clip"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: auto; bottom: auto; z-index: 2;
+    left: calc(var(--gx) + var(--art-bl-clip-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-clip-y) * var(--mu)); width: calc(var(--art-bl-clip-w) * var(--mu)); height: calc(var(--art-bl-clip-h) * var(--mu));
+    margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: var(--art-bl-clip-img) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="clip"]:not(.is-film) .fork-gal-backlog-clip:is(:hover, :focus-visible) { background: var(--art-bl-clip-focus) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="clip"]:not(.is-film) .fork-gal-backlog-clip.is-on { background: var(--art-bl-clip-on) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="clip"]:not(.is-film) .fork-gal-backlog-clip > svg { display: none; }
+  /* art.backlog.help: the ? tip's button as the skin's image at its own place (against the placed title, which is its box). */
+  .fork-gal-stage[data-fk-skin-art-backlog~="help"][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { position: static; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="help"][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip-button { position: absolute; z-index: 2; display: block; box-sizing: border-box; padding: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; font-size: 0; color: transparent;
+    left: calc((var(--art-bl-help-x) - var(--art-backlog-title-x)) * var(--mu)); top: calc((var(--art-bl-help-y) - var(--art-backlog-title-y)) * var(--mu)); width: calc(var(--art-bl-help-w) * var(--mu)); height: calc(var(--art-bl-help-h) * var(--mu));
+    background: var(--art-bl-help-img) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="help"][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip-button:is(:hover, :focus-visible, [aria-expanded="true"]) { background: var(--art-bl-help-focus) 0 0 / 100% 100% no-repeat; }
+  /* art backlog turn: the current turn's number centred in its box, at the skin's size, a longer number set smaller so it
+     stays inside the box's width (0.62 em per figure covers the widest tabular figure of a bold face). */
+  .fork-gal-stage[data-fk-skin-art-backlog~="turn"]:not(.is-film) .fork-gal-backlog-folio { position: absolute; z-index: 1; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+    left: calc(var(--gx) + var(--art-bl-turn-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-turn-y) * var(--mu)); width: calc(var(--art-bl-turn-w) * var(--mu)); height: calc(var(--art-bl-turn-h) * var(--mu));
+    margin: 0; padding: 0; overflow: hidden; white-space: nowrap; pointer-events: none; color: var(--art-bl-turn-ink, var(--art-backlog-ink, var(--gal-ui-ink)));
+    font: 700 min(calc(var(--art-bl-turn-font) * var(--mu)), calc(var(--art-bl-turn-w) * var(--mu) / (var(--bl-turn-digits) * .62))) / 1 var(--gal-skin-font-ui, var(--gal-skin-font-body, var(--gal-ui-font)));
+    font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="turn"]:not(.is-film) .fork-gal-backlog-folio > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  /* art backlog decor: the skin's pictures over the sheet, under the rows; pulse swells about the centre, ping grows a ring out
+     and fades in the first 40% of its loop, then rests. Still under CONFIG 减少动态 and the system's reduced motion. */
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor { display: block; position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { position: absolute; left: calc(var(--gx) + var(--bd-x) * var(--mu)); top: calc(var(--gy) + var(--bd-y) * var(--mu));
+    width: calc(var(--bd-w) * var(--mu)); height: calc(var(--bd-h) * var(--mu)); background: var(--bd-img) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i[data-motion="pulse"] { animation: fork-bl-decor-pulse var(--bd-period) ease-in-out var(--bd-delay) infinite; }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i[data-motion="ping"] { opacity: 0; animation: fork-bl-decor-ping var(--bd-period) cubic-bezier(.2, .6, .35, 1) var(--bd-delay) infinite; }
+  .fork-gal-stage[data-reduced-motion][data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { animation: none; }
+  @media (prefers-reduced-motion: reduce) { .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { animation: none; } }
   /* Backlog: the list in its rect; every entry the original's head (voice control, name over its frame and rule) and text. */
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-list { position: absolute; flex: none; box-sizing: border-box; left: calc(var(--gx) + var(--art-bl-list-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-list-y) * var(--mu));
     width: calc(var(--art-bl-list-w) * var(--mu)); height: calc(var(--art-bl-list-h) * var(--mu)); -webkit-mask-image: none; mask-image: none; }

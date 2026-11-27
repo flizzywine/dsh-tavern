@@ -519,11 +519,22 @@ const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
 // title false: the original's log screen has no title - no words or image at its top (the overlay keeps its accessible name);
 // omitted = the shared title centred at the top of the game area.
 // clip false: no 导出片段 button beside the close (an original whose log has only its close); the export still starts from a row
-// (Shift-click, long press). Omitted = the button beside the drawn close.
+// (Shift-click, long press). clip {image, focus?, on?, scale?, x, y}: the button drawn as the skin's own image at its place
+// (focus = under the pointer and keyboard focus, on = while the export mode is open). Omitted = the shared button beside the drawn close.
+// turn {x, y, w, h, font, ink?}: the current turn's number (the one the 第 N 轮 · 本轮 rule shows) in the box, centred, at font
+// design px - a longer number set smaller to keep inside w (a book's folio, a log's page count).
+// decor: up to 16 placed images over the sheet and under the list, each with an optional loop (motion: pulse = a slow swell
+// about its centre, ping = a ring growing out and fading, then resting; period s, delay s into the first loop). Still under
+// CONFIG 减少动态 and the system's reduced motion.
 // latest false: no 跳到最新 control (an original whose log has none); the wheel and End still reach the end. Omitted = the control.
 // ground false: no panel ground round the sheet - a log card over the scene, the stage showing round it as through its clear parts.
 // Omitted = the panel ground fills the window round the sheet.
-const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,latest:value => value === false,ground:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
+const skinBacklogClip = skinObject({image:skinImage,focus:skinImage,on:skinImage,scale:skinScale,x:skinPx,y:skinPx},['image','x','y']);
+const skinBacklogHelp = skinObject({image:skinImage,focus:skinImage,scale:skinScale,x:skinPx,y:skinPx},['image','x','y']);
+const skinBacklogTurn = skinObject({x:skinPx,y:skinPx,w:skinNumber(8,1024),h:skinNumber(8,1024),font:skinNumber(8,256),ink:skinColor},['x','y','w','h','font']);
+const skinBacklogDecor = skinArray(skinObject({image:skinImage,scale:skinScale,x:skinPx,y:skinPx,
+    motion:skinObject({kind:skinEnum(['pulse','ping']),period:skinNumber(1,30),delay:skinNumber(0,30)},['kind','period'])},['image','x','y']),1,16);
+const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false || skinBacklogClip(value),help:skinBacklogHelp,turn:skinBacklogTurn,decor:skinBacklogDecor,latest:value => value === false,ground:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
@@ -1171,7 +1182,7 @@ function stageSkinScreenFiles(art) {
             ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.plainFocus,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
             m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
-        ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
+        ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...(b.clip ? [...placed(b.clip),b.clip.on] : []),...placed(b.help),...(b.decor || []).map(item => item.image),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
             ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image)),b.avatar?.mask,b.avatar?.frame,b.avatar?.placeholder?.image,b.roll?.image] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
         ...Object.values(art?.voice || {}),...(art?.voice?.waves || [])].filter(value => typeof value === 'string'))];
