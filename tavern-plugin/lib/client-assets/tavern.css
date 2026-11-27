@@ -3032,9 +3032,11 @@ header.dsh-tavern-immersive-header button.dsh-tavern-play-fullscreen {
 .dsh-tavern-worldbook-entry-settings .dsh-tavern-worldbook-grid select { font-size: 11px; padding: 5px 7px; }
 .dsh-tavern-worldbook-entry-settings .dsh-tavern-worldbook-checks { font-size: 11px; }
 
-/* DSH 0.1.5-rc.2: hide Open in App and native log-download menu in Tavern's header. */
+/* DSH 0.1.5-rc.2 / 0.2.2: hide Open in App and native session-header menu in Tavern's header. */
 header .CAgGvG_split,
-header .nL4_yW_moreButton { display: none !important; }
+header .OMoRSG_split,
+header .nL4_yW_moreButton,
+header [class*="_headerMenuButton"] { display: none !important; }
 
 /* —— 人物卡库 / 详情：Claude 暖陶土·编辑风（scoped 样例，不污染其它侧栏） —— */
 .dsh-tavern-card-library,
@@ -4787,6 +4789,35 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) [class*="_row"]:has(> [class*="_rowText"]) > [class*="_rowText"] {
     padding-right: 12px;
   }
+  /* DSH 0.2.2 抽屉侧栏根新增 role="dialog" data-shortcut-modal="sidebar" aria-modal="true"，
+     避免未重装补丁的 dsh-web-mobile 用 [aria-modal="true"]:not(...) 把侧栏压窄 32px 或在平板居中为 720px。 */
+  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"] [class*="_sidebarCol"] > [data-shortcut-modal="sidebar"][aria-modal="true"] {
+    width: 100% !important;
+    max-width: none !important;
+    left: auto !important;
+    right: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  /* DSH 0.2.2 设置→模型页（zGbnIq_*）提供商卡片头部在窄屏允许换行，防止长名称+标签+操作按钮横向溢出。 */
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] [class*="zGbnIq_rowHead"] {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] [class*="zGbnIq_rowName"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 767px) and (pointer: coarse) {
+  /* DSH 0.2.2 推理等级菜单将 role="menuitemradio" 放进 ._groups 容器，补全 dsh-web-mobile 的 208px 宽度帽。 */
+  body.dsh-tavern-shell-active [class*="_7KE1Ra_menu"][role="menu"]:has(> [class*="_groups"] > [role="menuitemradio"]) {
+    width: min(208px, calc(100vw - 32px)) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 32px) !important;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) and (pointer: coarse) {
@@ -4936,28 +4967,33 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
   /* 宿主设置：188px 导航 + 内容的桌面双栏会把内容压成一字一行。设置浮层渲染在 body 下（不在 frame 内），所以用 body:has(frame) 判断外壳。 */
   html:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important; left: 0;
-    flex-direction: column; width: 100vw; max-width: 100vw;
+    display: flex; flex-direction: column; width: 100vw; max-width: 100vw;
     height: var(--dsh-vv-height, 100dvh); max-height: var(--dsh-vv-height, 100dvh); border-radius: 0;
     padding-top: var(--dsh-play-top-inset, 0px); box-sizing: border-box;
   }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
-    flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
+    flex: 0 0 auto; flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
     overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_navTitle"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; min-width: 0; white-space: nowrap; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
     height: auto; align-items: center; padding: 6px 8px 6px 16px;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
     flex-wrap: wrap; justify-content: flex-start; margin-left: 0;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"] *,
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"] button,
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
-    padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
+    flex: 1 1 auto; min-height: 0; padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
   }
   /* 设置行：说明在左、控件在右；放不下时控件换到下一行，而不是把说明压成竖条。 */
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }

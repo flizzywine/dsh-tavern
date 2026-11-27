@@ -1,10 +1,7 @@
 diff --git a/lib/client.js b/lib/client.js
-old mode 100755
-new mode 100644
-index 2ccc49f..71f49f2
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -916,7 +916,11 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+@@ -916,7 +916,11 @@
       position/inset/width on the element, the column kept a correct-looking box
       while neither painting nor hit-testing, which is the "all black, click
       anywhere closes" root cause. The backdrop we append carries the dimming. */
@@ -17,7 +14,7 @@ index 2ccc49f..71f49f2
      position: absolute !important;
      inset: 0 auto 0 0 !important;
      /* !important is load-bearing: the host ships
-@@ -1017,9 +1021,16 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+@@ -1017,9 +1021,16 @@
       a min(88vw, 280px) column translated -110% of its own width, i.e. -308px
       at 390px. The gesture layer never depended on this rule - it writes an
       inline transform !important - so only the CSS-driven click paths regressed. */
@@ -35,7 +32,7 @@ index 2ccc49f..71f49f2
    }
  
    /* Expanded state (frame without data-sidebar-collapsed) slides the drawer in.
-@@ -1031,7 +1042,9 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+@@ -1031,7 +1042,9 @@
       overflow:hidden drawer to scrollLeft=102, and every static child (plus the
       fixed overlay) shifts 102px off-screen. With transform:none the overlay is
       viewport-anchored: it dims the full screen and the sheet sits at left:8. */
@@ -46,7 +43,7 @@ index 2ccc49f..71f49f2
      transform: none !important;
    }
  
-@@ -1121,7 +1134,7 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+@@ -1121,7 +1134,7 @@
       (audit S2 2026-08-27 — the old reduce block only covered the settings
       sheet and its mask). Same idiom as the animation:none blocks below. */
    @media (prefers-reduced-motion: reduce) {
@@ -55,7 +52,36 @@ index 2ccc49f..71f49f2
        transition: none !important;
      }
    }
-@@ -5683,7 +5696,7 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+@@ -1525,7 +1538,8 @@
+      「min-width: 0 !important」 is load-bearing: without it the host's own
+      min-width 240px keeps the pane at 240 no matter what width is set. */
+   @media (max-width: 767px) and (pointer: coarse) {
+-    [class*="_7KE1Ra_menu"][role="menu"]:has(> [role="menuitemradio"]) {
++    [class*="_7KE1Ra_menu"][role="menu"]:has(> [role="menuitemradio"]),
++    [class*="_7KE1Ra_menu"][role="menu"]:has(> [class*="_groups"] > [role="menuitemradio"]) {
+       width: min(208px, calc(100vw - 32px)) !important;
+       min-width: 0 !important;
+       max-width: calc(100vw - 32px) !important;
+@@ -2356,7 +2370,8 @@
+     height: 30px !important;
+     min-height: 0 !important;
+   }
+-  [data-mobile-nav="frame"] [data-phase] header [class*="wSkVaW_headerUtilities"] [class*="nL4_yW_moreButton"] {
++  [data-mobile-nav="frame"] [data-phase] header [class*="wSkVaW_headerUtilities"] [class*="nL4_yW_moreButton"],
++  [data-mobile-nav="frame"] [data-phase] header [class*="wSkVaW_headerUtilities"] [class*="_headerMenuButton"] {
+     display: none !important;
+   }
+   [data-mobile-nav="frame"] [data-phase] header [data-mobile-nav="files"] {
+@@ -3444,7 +3459,7 @@
+   }
+   /* The export dialog (not the settings sheet) must never overflow the
+      viewport: the official centered card can be wider than 390px. */
+-  [aria-modal="true"]:not(:has(> :first-child > :last-child > button)) {
++  [aria-modal="true"]:not([data-shortcut-modal="sidebar"]):not([data-shortcut-modal="settings"]):not(:has(> :first-child > :last-child > button)) {
+     max-width: calc(100vw - 32px);
+   }
+   /* Nav bar: hide the "Settings" caption (redundant on a full-width sheet)
+@@ -5683,7 +5698,7 @@
       max rAF gap 167 -> 33ms; the benefit scales with conversation length.
       Desktop untouched (this block lives inside the max-width: 1023px
       media query). */
@@ -64,7 +90,7 @@ index 2ccc49f..71f49f2
      content-visibility: auto;
      contain-intrinsic-size: auto 600px;
    }
-@@ -5721,7 +5734,7 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+@@ -5721,7 +5736,7 @@
       ([data-composer-card], host marker since 0.1.2) and the plugin stats
       row - the dock above the card (todo card, approval / ask-question
       panels) is reply content and stays copyable. */
@@ -73,7 +99,7 @@ index 2ccc49f..71f49f2
    [data-mobile-nav="frame"] [data-phase] header,
    [data-mobile-nav="frame"] [data-composer-card],
    [data-mobile-nav="stats"],
-@@ -5732,9 +5745,9 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+@@ -5732,9 +5747,9 @@
    }
    [data-mobile-nav="frame"] [data-composer-input],
    [data-mobile-nav="frame"] [data-composer-card] textarea,
@@ -86,7 +112,16 @@ index 2ccc49f..71f49f2
    [data-mobile-nav="frame"] [data-phase] header input {
      -webkit-user-select: text !important;
      user-select: text !important;
-@@ -7129,12 +7142,8 @@ function createOverlayTask(t, toggleSidebar, panelExit) {
+@@ -5757,7 +5772,7 @@
+      selector here to win; the generic export/other-modal rule is covered by
+      the second selector. */
+   [aria-modal="true"]:has(> :first-child > :last-child > button):not(:has([role="navigation"])):not(:has([class*="ZuhsRW"])),
+-  [aria-modal="true"]:not(:has(> :first-child > :last-child > button)) {
++  [aria-modal="true"]:not([data-shortcut-modal="sidebar"]):not(:has(> :first-child > :last-child > button)) {
+     left: 0 !important;
+     right: 0 !important;
+     margin-left: auto !important;
+@@ -7129,12 +7144,8 @@
          const frame = (0, frame_ts_1.getFrame)();
          if (frame === null)
              return false;
@@ -101,7 +136,7 @@ index 2ccc49f..71f49f2
          return !frame.hasAttribute('data-sidebar-collapsed');
      };
      const heroPhase = () => document.querySelector('[data-phase="active"]') === null;
-@@ -7572,6 +7581,7 @@ exports.followOpenTransform = followOpenTransform;
+@@ -7572,6 +7583,7 @@
  exports.findHorizontalScroller = findHorizontalScroller;
  exports.selectionOwnsStroke = selectionOwnsStroke;
  exports.closeDrawerAnimated = closeDrawerAnimated;
@@ -109,7 +144,7 @@ index 2ccc49f..71f49f2
  exports.installSidebarSwipe = installSidebarSwipe;
  const frame_ts_1 = require("./platform/frame.js");
  const breakpoints_ts_1 = require("./platform/breakpoints.js");
-@@ -8022,17 +8032,25 @@ function findHorizontalScroller(node) {
+@@ -8022,17 +8034,25 @@
      }
      return null;
  }
@@ -141,7 +176,7 @@ index 2ccc49f..71f49f2
  }
  /**
   * True when the host's right sidebar files panel is currently VISIBLE (any
-@@ -8048,6 +8066,22 @@ function filesPanelOpen() {
+@@ -8048,6 +8068,22 @@
      const panel = document.querySelector('[data-sidebar-right-panel]');
      if (panel === null)
          return false;
@@ -164,7 +199,16 @@ index 2ccc49f..71f49f2
      const cs = getComputedStyle(panel);
      if (cs.visibility === 'hidden' || cs.display === 'none')
          return false;
-@@ -8538,6 +8572,80 @@ function closeDrawerAnimated(ctx) {
+@@ -8075,7 +8111,7 @@
+ }
+ /** Whether a modal dialog owns the screen (gestures must yield to it). */
+ function modalOpen() {
+-    return document.querySelector('[aria-modal="true"]') !== null;
++    return document.querySelector('[aria-modal="true"]:not([data-shortcut-modal="sidebar"])') !== null;
+ }
+ /** True when a full-screen takeover (taskboard / ssh) owns the frame, or any
+  *  host conversation.view overlay (trajectory tab, dsh-file-viewer, or a
+@@ -8538,6 +8574,80 @@
      commitWithAnimation(ctx, drawer, target);
      return true;
  }
@@ -245,7 +289,7 @@ index 2ccc49f..71f49f2
  /** Cancel paths: styles back to the host, pointer state to idle. An armed
   * open follow has already flipped the host state, so a cancel must also
   * toggle it back — release the inline pair first so the host transition
-@@ -9139,8 +9247,11 @@ exports.TAP_CLOSE_NAV_SELECTOR = 'button[data-dsh-taskboard-entry], button[data-
+@@ -9139,8 +9249,11 @@
   * the band to cover it.
   */
  function toggleDrawer(ctx) {
@@ -259,7 +303,15 @@ index 2ccc49f..71f49f2
  }
  function installOverlayInteractions(ctx) {
      (0, breakpoints_ts_1.installMobileEffect)(ctx, 'dsh-web-mobile: drawer close (Escape + navigate)', () => {
-@@ -9166,7 +9277,7 @@ function installOverlayInteractions(ctx) {
+@@ -9159,20 +9272,20 @@
+         const onKeyDown = (event) => {
+             if (event.key !== 'Escape')
+                 return;
+-            if (document.querySelector('[aria-modal="true"]') !== null)
++            if (document.querySelector('[aria-modal="true"]:not([data-shortcut-modal="sidebar"])') !== null)
+                 return;
+             if (drawerOpen())
+                 toggleSidebar();
          };
          // Capture phase: run before the shell or a plugin processes the click,
          // so takeover panels never render under the open drawer.
@@ -268,7 +320,14 @@ index 2ccc49f..71f49f2
          // Shared frame: inside the drawer, on a row navigation target, and not on
          // one of its buttons. Deliberately free of the DSHA tap-close exemption —
          // onDrawerPointerDown arms long-press through this base, and starving that
-@@ -14832,7 +14943,9 @@ function apply(ctx) {
+         // arming would make the host's ⋯ row menu unreachable (#82).
+         const isDrawerNavTarget = (target) => {
+-            if (document.querySelector('[aria-modal="true"]') !== null)
++            if (document.querySelector('[aria-modal="true"]:not([data-shortcut-modal="sidebar"])') !== null)
+                 return false;
+             if (!drawerOpen())
+                 return false;
+@@ -14832,7 +14945,9 @@
      (0, panel_exit_ts_1.installPanelRowExit)(ctx, panelExit.exit);
      // Session deletion, injected into each session row's ⋯ menu (beside
      // rename / fork / archive) with a confirm dialog. Mobile-only.
@@ -279,7 +338,7 @@ index 2ccc49f..71f49f2
      // Sidebar swipe gestures: edge swipe-in opens the drawer, content swipe-out
      // closes it (release-classified, zero inline transforms — A 档). Since
      // 2026-09-13 the layer also owns the right-edge files gesture (leftward
-@@ -14904,7 +15017,7 @@ function apply(ctx) {
+@@ -14904,7 +15019,7 @@
          order: 10,
          locale: locales_ts_1.NS,
          inject: () => ({
