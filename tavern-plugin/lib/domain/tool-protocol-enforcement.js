@@ -20,7 +20,7 @@ const directiveStorage = new AsyncLocalStorage()
 const capturedSignatures = new Map()
 const MAX_CAPTURED_SIGNATURES = 512
 const fetchPatches = new WeakMap()
-const adapterTimeoutPatches = new WeakMap()
+const llmAdapterPatches = new WeakMap()
 
 export const TOOL_CALL_STREAM_IDLE_TIMEOUT_MS = 600_000
 
@@ -660,19 +660,34 @@ function raisedIdleTimeout(current, minTimeoutMs) {
     : current
 }
 
-function attachAdapterIdleTimeout(adapter, minTimeoutMs) {
+function attachLlmAdapterPatches(adapter, minTimeoutMs) {
   if (!adapter || typeof adapter !== 'object') return () => {}
+  const hasModelOf = typeof adapter.modelOf === 'function'
   const hasProfileOf = typeof adapter.profileOf === 'function'
   const hasGenerate = typeof adapter.generate === 'function'
-  if (!hasProfileOf && !hasGenerate) return () => {}
+  if (!hasModelOf && !hasProfileOf && !hasGenerate) return () => {}
 
-  let state = adapterTimeoutPatches.get(adapter)
+  let state = llmAdapterPatches.get(adapter)
   if (!state) {
     state = {
       floors: new Set(),
       minTimeoutMs: 0,
+      modelOf: null,
       profileOf: null,
       generate: null
+    }
+    if (hasModelOf) {
+      const original = adapter.modelOf
+      const replacement = function patchedChatCompletionsModelOf(...args) {
+        const model = original.apply(this, args)
+        if (model?.api !== 'openai-completions' || model.compat?.supportsDeveloperRole != null) return model
+        // Keep pi-ai's detection on its known developer-role endpoints. OpenAI compatibility alone is insufficient.
+        const origin = URL.parse(model.baseUrl)?.origin
+        if (origin === 'https://api.openai.com' || origin === 'https://openrouter.ai') return model
+        return { ...model, compat: { ...model.compat, supportsDeveloperRole: false } }
+      }
+      adapter.modelOf = replacement
+      state.modelOf = { original, replacement }
     }
     if (hasProfileOf) {
       const original = adapter.profileOf
@@ -705,7 +720,7 @@ function attachAdapterIdleTimeout(adapter, minTimeoutMs) {
       adapter.generate = replacement
       state.generate = { original, replacement }
     }
-    adapterTimeoutPatches.set(adapter, state)
+    llmAdapterPatches.set(adapter, state)
   }
 
   const token = { minTimeoutMs }
@@ -725,22 +740,24 @@ function attachAdapterIdleTimeout(adapter, minTimeoutMs) {
       state.minTimeoutMs = maxFloor
       return
     }
+    if (state.modelOf && adapter.modelOf === state.modelOf.replacement) {
+      adapter.modelOf = state.modelOf.original
+    }
     if (state.profileOf && adapter.profileOf === state.profileOf.replacement) {
       adapter.profileOf = state.profileOf.original
     }
     if (state.generate && adapter.generate === state.generate.replacement) {
       adapter.generate = state.generate.original
     }
-    adapterTimeoutPatches.delete(adapter)
+    llmAdapterPatches.delete(adapter)
   }
 }
 
 /**
- * 开启「输出走工具调用」时，将宿主 LLM 适配器的流式静默超时下限上调到 600s，
- * 避免部分渠道在批量生成长 tool_call 参数时触发默认 300s idle timeout。
- * 未开启工具调用输出或用户已配置更高超时时保持原值不变。
+ * 在 pi-ai 序列化前为 Chat Completions 渠道设置角色兼容默认值，
+ * 并在「输出走工具调用」时为宿主 LLM 适配器提高流式静默超时下限。
  */
-export function installToolCallIdleTimeoutPatch(ctx, { minTimeoutMs = TOOL_CALL_STREAM_IDLE_TIMEOUT_MS } = {}) {
+export function installLlmAdapterPatches(ctx, { minTimeoutMs = TOOL_CALL_STREAM_IDLE_TIMEOUT_MS } = {}) {
   const attached = new Map()
   let active = true
 
@@ -751,7 +768,7 @@ export function installToolCallIdleTimeoutPatch(ctx, { minTimeoutMs = TOOL_CALL_
     for (const registration of adapters.values()) {
       const adapter = registration?.adapter
       if (!adapter || attached.has(adapter)) continue
-      attached.set(adapter, attachAdapterIdleTimeout(adapter, minTimeoutMs))
+      attached.set(adapter, attachLlmAdapterPatches(adapter, minTimeoutMs))
     }
   }
 

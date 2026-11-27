@@ -9,7 +9,7 @@ import {
   detectWireProtocol,
   enhanceToolProtocolPayload,
   getCapturedThoughtSignature,
-  installToolCallIdleTimeoutPatch,
+  installLlmAdapterPatches,
   installToolProtocolFetchPatch,
   runWithToolProtocolDirective,
 } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
@@ -314,7 +314,52 @@ test('自定义 Chat Completions 拒绝 developer 时改用 system，保留消�
   }
 })
 
-test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 pi-ai 与 DeepSeek 适配器静默超时下限上调到 600s', async (t) => {
+test('适配器在序列化前为未知 Chat Completions 渠道关闭 developer 角色', t => {
+  const original = Object.freeze({
+    api: 'openai-completions',
+    baseUrl: 'https://api.openai.com.example.com/v1',
+    reasoning: true,
+    compat: Object.freeze({ supportsStore: false })
+  })
+  const adapter = { modelOf(model) { return model } }
+  const modelOf = adapter.modelOf
+  const adapters = new Map([['custom', { adapter }]])
+  const listeners = new Set()
+  const ctx = {
+    llm: { adapters },
+    on(event, handler) {
+      assert.equal(event, 'llm/adapters-updated')
+      listeners.add(handler)
+      return () => listeners.delete(handler)
+    }
+  }
+  const dispose = installLlmAdapterPatches(ctx)
+  t.after(dispose)
+  const expected = { ...original, compat: { supportsStore: false, supportsDeveloperRole: false } }
+  assert.deepEqual(adapter.modelOf(original), expected)
+  assert.deepEqual(original.compat, { supportsStore: false })
+  for (const overrides of [
+    { baseUrl: 'https://api.openai.com/v1' },
+    { baseUrl: 'https://openrouter.ai/api/v1' },
+    { api: 'openai-responses' },
+    { compat: { supportsDeveloperRole: true } },
+    { compat: { supportsDeveloperRole: false } }
+  ]) {
+    const model = { ...original, ...overrides }
+    assert.equal(adapter.modelOf(model), model)
+  }
+
+  const lateAdapter = { modelOf }
+  adapters.set('late', { adapter: lateAdapter })
+  for (const notify of listeners) notify()
+  assert.deepEqual(lateAdapter.modelOf(original), expected)
+  dispose()
+  assert.equal(adapter.modelOf, modelOf)
+  assert.equal(lateAdapter.modelOf, modelOf)
+  assert.equal(listeners.size, 0)
+})
+
+test('开启「输出走工具调用」时将 pi-ai 与 DeepSeek 适配器静默超时下限上调到 600s', async (t) => {
   assert.equal(TOOL_CALL_STREAM_IDLE_TIMEOUT_MS, 600_000)
 
   const defaultProfile = { streamIdleTimeoutMs: 300_000, reasoning: 'medium' }
@@ -354,7 +399,7 @@ test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 
 
   const originalProfileOf = piAdapter.profileOf
   const originalGenerate = deepSeekAdapter.generate
-  const dispose = installToolCallIdleTimeoutPatch(fakeCtx)
+  const dispose = installLlmAdapterPatches(fakeCtx)
   t.after(dispose)
 
   // 未开启输出走工具调用或处于作用域外：保持原值 300s

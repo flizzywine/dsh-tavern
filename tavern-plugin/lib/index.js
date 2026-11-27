@@ -269,7 +269,7 @@ import { createPluginBodyGeneration, configuredBodyGeneration } from './domain/p
 import { regenerationFrameKey } from './domain/regeneration-frame-cache.js'
 import { STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, createStoryContextTool, createStorySubmissionTool, foldStorySubmission, STORY_SUBMIT_TOOL_NAME } from './domain/story-tool-submission.js'
 import { readHistoryLayoutOverrideFile } from './domain/history-tool-call.js'
-import { installToolCallIdleTimeoutPatch, installToolProtocolFetchPatch } from './domain/tool-protocol-enforcement.js'
+import { installLlmAdapterPatches, installToolProtocolFetchPatch } from './domain/tool-protocol-enforcement.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, HELPER_MESSAGE_COLD_WINDOW } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
@@ -592,8 +592,8 @@ export async function apply(ctx) {
   } catch (error) { console.warn('dsh-tavern: 系统代理未能应用：' + (error?.message || error)) }
   const restoreToolProtocolFetch = installToolProtocolFetchPatch()
   ctx.effect(() => restoreToolProtocolFetch)
-  const restoreToolCallIdleTimeout = installToolCallIdleTimeoutPatch(ctx)
-  ctx.effect(() => restoreToolCallIdleTimeout)
+  const restoreLlmAdapters = installLlmAdapterPatches(ctx)
+  ctx.effect(() => restoreLlmAdapters)
   // Per-turn paths must not load a whole save; see whole-read-guard.js.
   const wholeReads = createWholeReadGuard({ mode: process.env.DSH_TAVERN_WHOLE_READ_GUARD || 'warn' })
   ctx = scopeTurnHooks(ctx, wholeReads)
