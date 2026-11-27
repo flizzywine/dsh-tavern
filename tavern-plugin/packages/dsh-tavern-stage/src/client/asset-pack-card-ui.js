@@ -118,7 +118,7 @@ function useStageWriter(binding,path,state,sessionId) {
   // `rows` are the list summaries (every installed pack); `packs` the full documents
   // of the packs this page reads entries of (lit for this card, or holding 模组: stageDetailRows), read per pack by revision.
   if(state.value&&store.current?.loadedFrom!==state.value)store.current={loadedFrom:state.value,server:state.value.card,engine:state.value.engine,reading:state.value.reading,autoCast:state.value.autoCast,pending:[],layers:[],rows:state.value.packs.filter(p=>!p.error),
-    packs:new Map((state.value.details||[]).map(p=>[p.manifest.id,p])),asked:new Map((state.value.details||[]).map(p=>[p.manifest.id,p.revision]))};
+    packs:new Map(),asked:new Map()};
   const s=store.current,render=()=>bump(n=>n+1);
   const conflict=e=>e?.code==='REVISION_CONFLICT'||/REVISION_CONFLICT|Card changed/i.test(String(e?.message||''));
   const apply=(base,fn)=>({...base,...fn(base)});
@@ -134,7 +134,7 @@ function useStageWriter(binding,path,state,sessionId) {
     const done=enqueue(job).finally(()=>{s.layers=s.layers.filter(item=>item!==layer);render();});
     done.catch(()=>{});return done;
   }
-  async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path});s.server={...s.server,...fresh};render();return fresh;}
+  async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path,metadataOnly:true});s.server={...s.server,...fresh};render();return fresh;}
   async function refetchRows(){const list=await loadPackRows(binding);s.rows=list.filter(p=>!p.error);render();return list;}
   // Mark revisions before awaiting so re-renders share the same bounded read.
   async function ensureDetails(){
@@ -218,14 +218,16 @@ function useStageWriter(binding,path,state,sessionId) {
 }
 
 function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,takeEngineFocus,onJudge,onCommands}) {
+  // One round of small reads draws the page: the card's binding state (metadataOnly: the page reads its cardId, extension
+  // and revision, never the bound figures' documents), the pack list summaries and the settings layers. The full
+  // documents of the packs it reads entries of come after the first draw (writer.ensureDetails below); the sections that
+  // need them wait on their own (人物's placeholders).
   const state=useLoad(binding,async()=>{
-    const card=await binding.rpc('getCardAssetBindings',{path});
-    if(!ready)return {card,packs:[],details:[],engine:null,reading:null,autoCast:null};
-    await binding.loadSettings?.();
+    const card=binding.rpc('getCardAssetBindings',{path,metadataOnly:true});
+    if(!ready)return {card:await card,packs:[],engine:null,reading:null,autoCast:null};
     // reading: the tts plugin's tts.reading (旁白配音's global layer); null while the plugin is off.
-    const [packs,engine,reading,autoCast]=await Promise.all([loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null),binding.tts?binding.tts.call('reading').catch(()=>null):null,binding.rpc('getAutoCastSettings').catch(()=>null)]);
-    const details=await stageReadDetails(binding,stageDetailRows(packs,binding.globalEnabledPackIds||[],card.extension?.assetBindings?.boundPackIds||[]));
-    return {card,packs,details,engine,reading,autoCast};
+    const [loaded,packs,engine,reading,autoCast]=await Promise.all([card,loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null),binding.tts?binding.tts.call('reading').catch(()=>null):null,binding.rpc('getAutoCastSettings').catch(()=>null),binding.loadSettings?.()]);
+    return {card:loaded,packs,engine,reading,autoCast};
   },[path,ready]);
   const writer=useStageWriter(binding,path,state,sessionId);
   // A pack lit after the load (or a changed revision) is read in full; the page renders again when it arrives.
