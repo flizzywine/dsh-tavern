@@ -1,9 +1,9 @@
 // Save list, rename, delete, fork, import and export requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createConversationHandlers(deps) {
-  const { appendStoryRounds, chatForSession, chatHistoryImporter, deleteChat, deleteChats,
-    exportConversation, exportGameSave, forkCardWorkbench, forkChat, importChatHistoryText, importGameSave, listTavernSessions,
-    prepareConversationFork, readTavernSettings, sessionInventory, str, updateChat } = deps
+  const { appendStoryRounds, chatForSession, chatHistoryImporter, conversationForks, deleteChat, deleteChats,
+    exportConversation, exportGameSave, importChatHistoryText, importGameSave, listTavernSessions,
+    readTavernSettings, sessionInventory, str, updateChat } = deps
   return {
     async listSessions(args) {
       const settings = await readTavernSettings()
@@ -46,15 +46,13 @@ export function createConversationHandlers(deps) {
       return await deleteChat(args && args.chatId)
     },
     async prepareConversationFork(args) {
-      const plan = await prepareConversationFork(args?.chatId, args?.sessionId, args?.turn, args?.messageIndex, args?.revision, args?.messageUid)
-      return { turn: plan.turn, atSeq: plan.atSeq, sourceRevision: plan.source._storageRevision,
-        messageIndex: plan.messageIndex, messageUid: plan.messageUid, storyDirect: plan.storyDirect === true }
+      return await conversationForks.prepare(args ?? {})
     },
     async forkChat(args) {
-      return { fork: await forkChat(args?.chatId, args?.sessionId, args?.targetSessionId, args?.turn, args?.sourceRevision, args?.atSeq, args?.messageIndex, args?.messageUid) }
+      return { fork: await conversationForks.forkChat(args ?? {}) }
     },
     async forkCardWorkbench(args) {
-      return { fork: await forkCardWorkbench(args?.sessionId, args?.messageId) }
+      return { fork: await conversationForks.forkWorkbench(args ?? {}) }
     },
     async getSessionInventory(args) {
       return await sessionInventory.read()
