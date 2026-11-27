@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e0e5d5fb65829c2115fd3d63ea823a7d2014b026",
-  "releaseSequence": 2196,
+  "revision": "5c9eda15e697bb6cabd27303d92be00d42cd79cf",
+  "releaseSequence": 2197,
   "version": "3.4.0",
   "files": [
     {
@@ -4021,8 +4021,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tool-protocol-enforcement.js",
-      "sha256": "2b141d146ebbb99fe50e38f124d344e59ca92a3578fa798e1bbf98e16e717db5",
-      "size": 29829
+      "sha256": "f1d16b6646d2868d92155e71e51d2150d5334470e2ed8409c41133a466f19ee6",
+      "size": 30031
     },
     {
       "path": "tavern-plugin/lib/domain/tool-reply-stream-parser.js",
@@ -10326,9 +10326,9 @@
     }
   ],
   "archive": {
-    "commit": "3f79a74602623ba50ca9be5494a0c579fc0defff",
+    "commit": "3041c47063066e8bb5c81474d3b6109fda5a0461",
     "path": "runtime.zip",
-    "sha256": "c11f53af7656ffd7a76956f46adda27ff0a4032b3a128596625d9c17d6c5cb6b",
-    "size": 18283277
+    "sha256": "00eef41b26978abe4b15eb654433832ace4d06abfd131a7de0131bf9eef639b5",
+    "size": 18283379
   }
 }
