@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines,importedBubbleFormat} from './dialogue-bubbles.js'
+import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines,managedBubbleEntry,withBubbleFormat} from './dialogue-bubbles.js'
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
@@ -9,8 +9,7 @@ import {managedForegroundEntries,managedPromptSections} from './mod-system-promp
 import {promptSection} from './prompt-section.js'
 import {liveContextUpdate} from './card-system-prompt.js'
 
-const managed = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
-const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
+const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managedBubbleEntry(entry)),...structuredClone(entries)]}})
 
 export const foregroundCapabilityEpoch = session => completedCompactionEpoch(session, { beforeTurn: true })
 
@@ -193,17 +192,8 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     return text ? [...parts,{key:'capability-update',name:'前台能力追加说明',owners:'全局',text,tokens:estimateDirectorTokens(text)}] : parts
   }
   async function projectBook(chat,book,entries) {
-    const projected=replace(book,entries)
-    if(entries.some(entry=>entry.ref==='foreground-capabilities:format'))return projected
-    // A worldbook imported on its own can carry the format but not the source card's bubble settings.
-    const imported=(book?.view?.entries || []).filter(entry=>importedBubbleFormat(entry,chat.cardPath))
-    if(!imported.length)return projected
-    const rendered=await render(chat,{view:{entries:imported}})
+    const projected=await withBubbleFormat(chat,book,entries,render)
     assertCurrent()
-    const texts=new Map(rendered.renderedEntries.map(entry=>[entry.ref,entry.text]))
-    projected.view.entries.push(...imported.filter(entry=>texts.has(entry.ref)).map(entry=>({
-      ...entry,content:texts.get(entry.ref),foregroundCapability:true
-    })))
     return projected
   }
   async function projectActive(chat,book,{persist=true,userText=''}={}) {
