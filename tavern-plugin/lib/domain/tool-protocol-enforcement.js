@@ -471,7 +471,8 @@ async function rejectsDeveloperRole(response) {
     /(?:\brole\s*[:=]?\s*["'`\\]*developer["'`\\]*|\bdeveloper["'`\\]*\s+role)\s+(?:is\s+)?(?:not supported|not allowed|unsupported|invalid)\b/i.test(errorText) ||
     /\bdeveloper\b["'`\\]*\s+is not one of\s*\[[^\]]*\bsystem\b/i.test(errorText)
   ) return true
-  const allowedRoles = /\bonly\s+(?:messages?\s+with\s+)?([^.!?\n]{1,100}?)\broles?\s+(?:are\s+)?(?:supported|allowed)\b/i.exec(errorText)?.[1]
+  const allowedRoles = /\bonly\s+(?:messages?\s+with\s+)?([^.!?\n]{1,100}?)\broles?\s+(?:are\s+)?(?:supported|allowed)\b/i.exec(errorText)?.[1] ??
+    /\bInput tag 'developer' found using 'role' does not match any of the expected tags:\s*((?:'[\w-]+'\s*,\s*)*'[\w-]+')/i.exec(errorText)?.[1]
   return Boolean(allowedRoles && /\bsystem\b/i.test(allowedRoles) && /\buser\b/i.test(allowedRoles) &&
     /\bassistant\b/i.test(allowedRoles) && !/\bdeveloper\b/i.test(allowedRoles))
 }
@@ -573,8 +574,8 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
 
       const hasDeveloperRole = mayUseDeveloperRole && Array.isArray(parsedBody?.messages) &&
         parsedBody.messages.some(message => message?.role === 'developer')
-      const modelScope = /^https:\/\/api-inference\.modelscope\.cn(?::443)?\/v1\/chat\/completions(?:\?|$)/i.test(url)
-      let useSystemRole = hasDeveloperRole && modelScope
+      const systemRoleEndpoint = /^https:\/\/(?:api-inference\.modelscope\.cn|api\.siliconflow\.(?:cn|com))(?::443)?\/v1\/chat\/completions\/?(?:[?#]|$)/i.test(url)
+      let useSystemRole = hasDeveloperRole && systemRoleEndpoint
       const send = async (requestInit, body) => {
         if (!useSystemRole) {
           const response = await original.call(this, input, requestInit)

@@ -199,7 +199,7 @@ test('fetch 拦截器：作用域隔离、HTTP 400 当场自动降级重发、SS
   assert.equal(getCapturedThoughtSignature('call_live_99'), 'LIVE_SERVER_SIG_XYZ')
 })
 
-test('魔搭 Chat Completions 兼容 developer 角色，保留提示词和其他端点的请求', async t => {
+test('魔搭和硅基流动 Chat Completions 首次请求即使用 system，保留消息和工具', async t => {
   const seen = []
   const target = { async fetch(_url, init) { seen.push(init); return new Response('{}') } }
   t.after(installToolProtocolFetchPatch(target, { quirks: createCapabilityQuirkStore() }))
@@ -207,24 +207,39 @@ test('魔搭 Chat Completions 兼容 developer 角色，保留提示词和其他
     model: 'test-reasoning',
     messages: [
       { role: 'developer', content: '保留这条指令', name: 'rules' },
-      { role: 'user', content: '开始' }
+      { role: 'user', content: '开始' },
+      { role: 'developer', content: '继续当前场景' }
     ],
     tools: [{ type: 'function', function: { name: 'submit_story', parameters: {} } }]
   }
   const request = { method: 'POST', body: JSON.stringify(body) }
-  const url = 'https://api-inference.modelscope.cn/v1/chat/completions'
-  await target.fetch(new URL(url), request)
-  const compatible = { ...body, messages: [{ ...body.messages[0], role: 'system' }, body.messages[1]] }
-  assert.deepEqual(JSON.parse(seen.at(-1).body), compatible)
+  const compatible = {
+    ...body,
+    messages: [{ ...body.messages[0], role: 'system' }, body.messages[1], { ...body.messages[2], role: 'system' }]
+  }
+  for (const url of [
+    'https://api-inference.modelscope.cn/v1/chat/completions',
+    'https://api.siliconflow.cn/v1/chat/completions',
+    'https://api.siliconflow.com/v1/chat/completions/?api-version=1'
+  ]) {
+    seen.length = 0
+    await target.fetch(new URL(url), request)
+    assert.deepEqual(seen.map(init => JSON.parse(init.body)), [compatible])
+  }
 
-  await runWithToolProtocolDirective({ forceToolChoice: true, allowedToolNames: ['submit_story'] }, () => target.fetch(url, request))
-  assert.deepEqual(JSON.parse(seen.at(-1).body), {
+  seen.length = 0
+  await runWithToolProtocolDirective({ forceToolChoice: true, allowedToolNames: ['submit_story'] },
+    () => target.fetch('https://api.siliconflow.cn/v1/chat/completions', request))
+  assert.deepEqual(seen.map(init => JSON.parse(init.body)), [{
     ...compatible,
     tool_choice: { type: 'function', function: { name: 'submit_story' } }
-  })
+  }])
 
-  for (const otherUrl of ['https://api.openai.com/v1/chat/completions', 'https://api-inference.modelscope.cn.example.com/v1/chat/completions',
-    'https://api-inference.modelscope.cn/v1/responses']) {
+  for (const otherUrl of [
+    'https://api.openai.com/v1/chat/completions',
+    'https://api.siliconflow.cn.example.com/v1/chat/completions',
+    'https://api.siliconflow.cn/v1/responses'
+  ]) {
     await target.fetch(otherUrl, request)
     assert.equal(seen.at(-1), request)
   }
@@ -261,7 +276,8 @@ test('自定义 Chat Completions 拒绝 developer 时改用 system，保留消�
   for (const rejection of [
     JSON.stringify({ error: { message: "Unsupported message role: 'developer'" } }),
     JSON.stringify({ message: "developer is not one of ['system', 'user', 'assistant', 'tool']" }),
-    'Only system, user, assistant and tool roles are supported!'
+    'Only system, user, assistant and tool roles are supported!',
+    JSON.stringify({ code: 20015, message: "Input tag 'developer' found using 'role' does not match any of the expected tags: 'system', 'user', 'assistant', 'tool'", data: null })
   ]) {
     error = rejection
     seen.length = 0
@@ -281,6 +297,8 @@ test('自定义 Chat Completions 拒绝 developer 时改用 system，保留消�
   for (const [endpoint, rejection] of [
     [url, ''],
     [url, 'Context window exceeded'],
+    [url, "Input tag 'developer' found using 'role' does not match any of the expected tags: 'user', 'assistant', 'tool'"],
+    [url, "Input tag 'other' found using 'role' does not match any of the expected tags: 'system', 'user', 'assistant', 'tool'"],
     [url, 'Only user and assistant roles are supported!'],
     [url, 'Only system, developer, user and assistant roles are supported!'],
     ['https://inference.example.com/v1/responses', 'Unsupported role: developer'],
