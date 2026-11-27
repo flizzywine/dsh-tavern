@@ -1840,10 +1840,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-scene-hold:not(.is-resolved) { transition: none; }
 .fork-gal-scene-hold.is-resolved { opacity: 0; visibility: hidden; }
 /* First entry is atomic; resources/renderers still run behind an opacity-only veil. The veil and the scene are never shown
-   together (gal-entry.js): pending, loading and slow hide the whole stage, revealing cross-fades the ready scene in. */
+   together (admission.cjs): waiting and failure hide the stage, revealing cross-fades the ready scene in. */
 .fork-gal-stage[data-entry] > .fork-gal-scene-hold { display: none; }
 .fork-gal-stage[data-entry] > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { transition: opacity .25s ease-out; }
 .fork-gal-stage:is([data-entry="pending"], [data-entry="loading"], [data-entry="slow"]) > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { opacity: 0; pointer-events: none; transition: none; }
+.fork-gal-stage[data-entry="failed"] > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { visibility: hidden; pointer-events: none; }
+.fork-gal-stage[data-entry="failed"].is-menu > .fork-gal-menu { visibility: visible; pointer-events: auto; }
 /* The veil reads at a glance: the stage's reading size (scales with the viewport, 15px on a phone), the
    hold's own ink, a spinner as tall as the label and bar together, and a bar sized in the same em. */
 .fork-gal-entry-overlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-columns: 1fr auto auto 1fr; place-content: center; align-items: center; gap: .35em 0;
@@ -1851,6 +1853,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   pointer-events: auto; transition: opacity .25s ease-out; }
 .fork-gal-entry-spinner { --fork-spinner-size: 1.05em; grid-column: 2; margin-right: .5em; }
 .fork-gal-entry-overlay > span:not(.fork-spinner), .fork-gal-entry-step { grid-column: 3; }
+.fork-gal-entry-overlay[data-load-error] { grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 1em; text-align: center; }
+.fork-gal-entry-overlay[data-load-error] > span { grid-column: 1; }
+.fork-gal-entry-overlay[data-load-error] [aria-hidden] { color: var(--gal-ui-widget-warning); }
+.fork-gal-entry-overlay[data-load-error] > button { min-height: 36px; padding: 0 .5em; border: 0; background: none;
+  color: inherit; font: inherit; text-decoration: underline; text-underline-offset: .2em; cursor: pointer; }
+.fork-gal-entry-overlay[data-load-error] > button:focus-visible { outline: var(--gal-ui-focus); }
 /* The step line: the outgoing step fades out under the incoming one in the same cell; the item it
    works on (a figure · outfit) sits under it in the secondary hold ink, its row kept when empty so the bar never jumps. */
 .fork-gal-entry-step { display: grid; justify-items: start; white-space: nowrap; }

@@ -891,7 +891,7 @@ function GalStage(props) {
     // the veil was shown (so its leave uncovers the stage; a quick entry never showed it)
     // and the stage's reveal window (transitions.stage.enter plays on the box only then, not on every later box mount).
     const veilShown = React.useRef(false);
-    if (entryGate.phase === "loading" || entryGate.phase === "slow") veilShown.current = true;
+    if (["loading", "slow", "failed"].includes(entryGate.phase)) veilShown.current = true;
     const [stageEntering, setStageEntering] = React.useState(false);
     const revealed = entryGate.phase === "revealing" || entryGate.phase === "ready" || !entryGate.phase;
     React.useEffect(() => {
@@ -1637,7 +1637,8 @@ function GalStage(props) {
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
         ...stageHuds.elements,
         // The entry veil: it covers the whole stage until the gate is ready (gal-entry.js), never a notice over the scene.
-        h(GalEntryOverlay, {phase:entryGate.phase, progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
+        h(GalEntryOverlay, {phase:entryGate.phase, failure:entryGate.visible ? null : entryGate.failure, onExit:props.onExit,
+            progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
