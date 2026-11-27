@@ -66,6 +66,7 @@ jobs:
           mkdir -p "$sidebar_root"
           cp config/cli-runtime/package{,-lock}.json "$TAVERN_E2E_RUNTIME/lib/"
           npm ci --prefix "$TAVERN_E2E_RUNTIME/lib" --no-audit --no-fund
+          export DSH_BOOT_MODULE="$TAVERN_E2E_RUNTIME/lib/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js"
           # The profile already supplies the host peers. Do not install another DSH graph for the sidebar.
           cp .github/runtime-smoke/package{,-lock}.json "$sidebar_root/"
           npm ci --prefix "$sidebar_root" --legacy-peer-deps --no-audit --no-fund
