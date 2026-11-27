@@ -1567,10 +1567,6 @@ function GalStage(props) {
         h("svg", { className: "fork-gal-look-defs", "aria-hidden": true, width: 0, height: 0, focusable: "false" },
             h("filter", { id: "fork-gal-look-ui", colorInterpolationFilters: "sRGB", filterUnits: "userSpaceOnUse", x: "-640", y: "-640", width: "5200", height: "3400" }, h("feColorMatrix", { type: "matrix", values: "1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0" }))),
         h("div", { className: "fork-gal-letterbox", "aria-hidden": true }, h("i"), h("i")),
-        // the leasing game's own controls (lease-hud.cjs), between the top bar and the text box in this skin's theme scope.
-        // Follow the text box's held line through transitions, not the read high-water mark or game queue.
-        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
-            displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         h(stageEntryContextType().Provider, { value: entryStore }, h("div", { ref: topbarRef, className: "fork-gal-topbar", onClick: event => event.stopPropagation(), onFocus: hud.onFocus, onBlur: hud.onBlur },
             h("div", { className: "fork-gal-topleft" },
                 turn !== latestTurn && receivedDirection && !["done", "error"].includes(receivedDirection.status) ? h("div", { className: "fork-gal-history-direction", "data-state": receivedDirection.status, "aria-live": "polite" },
@@ -1647,6 +1643,11 @@ function GalStage(props) {
                     id === "backlog" ? control("backlog", "履历（L）", openBacklog) :
                     // ≡ opens the system menu for touch and mouse too; Esc still opens it.
                     menuButton()))),
+        // the leasing game's own controls (lease-hud.cjs), in this skin's theme scope.
+        // After the text box in the tree: its bottom line is CSS-anchored to the box's frame, and an anchor must precede the element positioned against it.
+        // Follow the text box's held line through transitions, not the read high-water mark or game queue.
+        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
+            displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         // the HUD slots (a countdown plate); its own pause button is the only control on it.
         // After the text box: a skin's box art may span the whole stage (e.g. a frame that carries the top-right flourish), and the
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
