@@ -214,7 +214,9 @@ function galCreateScene(host, options, own) {
         camera: cameraMotion.snapshot(),
         dof: galSpringValue(0),
 
-        frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0,
+        // videoBlend: 动态立绘 frame blending, the share of each video frame spent crossfading into the next
+        // (owner 11-26: always on over the whole frame, no setting; 0 off through forkGalDebug.videoBlend).
+        frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0, videoBlend: 1,
         offstage: new Map()            // call view figures not on stage: key → entry
     };
     // A debug light override of day or a time look (dusk, night …) drives the time-of-day grade, as the
@@ -250,7 +252,7 @@ function galCreateScene(host, options, own) {
     own(textures,value=>value.dispose());
     const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
-    const figureVideos=stageViews.figureVideos.create({PIXI});
+    const figureVideos=stageViews.figureVideos.create({PIXI,blend:()=>state.videoBlend});
     own(figureVideos,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
@@ -1182,6 +1184,8 @@ function galCreateScene(host, options, own) {
             if (entry.tapReaction && state.clock - entry.tapReaction.start < 2000) return "tap";
             if (entry.blink.active && entry.blink.phase() !== "open") return "blink";
             if (figure.speaking && figure.audio && !figure.audio.paused) return "voice";
+            // a blended video crossfades on every screen refresh; the settled rate would undo it
+            if (state.videoBlend > 0 && entry.videoShown) return "blend";
         }
         return "";
     }
@@ -1268,6 +1272,8 @@ function galCreateScene(host, options, own) {
         transition(kind, url) { const base = state.desc && state.desc.background || {}; state.override = galSceneMerge(state.override || {}, { background: Object.assign({}, base, { url: url || base.url || "", transition: kind }) }); },
         error() { return state.tickError || ""; },
         probe() { let render = "ok"; try { app.render(); } catch (error) { render = String(error && error.stack || error); } let step = "ok"; try { tick(); } catch (error) { step = String(error && error.stack || error); } return { started: app.ticker.started, count: app.ticker.count, desc: Boolean(state.desc), render, step }; },
+        // videoBlend(share): 动态立绘 frame blending for this stage (0 off, 1 a crossfade over each whole frame); returns it.
+        videoBlend(share) { if (share !== undefined) state.videoBlend = Math.min(1, Math.max(0, Number(share) || 0)); return state.videoBlend; },
         fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality, tier, settled: Boolean(state.settled), unsettled: state.unsettled || "" }; },
         // each figure's idle rhythm and its current idle signals, for phase traces.
         idlePhase() {
