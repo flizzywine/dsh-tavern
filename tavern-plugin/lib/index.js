@@ -3733,7 +3733,6 @@ export async function apply(ctx) {
   ctx.effect(() => () => saveUpgrade.dispose())
 
   const conversationBackgroundSettings = createConversationBackgroundSettings({
-    worldbookStrategies,
     readConfig: backgroundConfigForSession, readChat: chatForSession, updateChat,
     expandedCandidates: readExpandedCandidates,
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),

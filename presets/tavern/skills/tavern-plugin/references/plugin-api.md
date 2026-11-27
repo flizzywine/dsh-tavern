@@ -156,13 +156,14 @@ Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【�
 
 ## 注册世界书召回策略
 
-`ctx.tavern.worldbookStrategy({ name, label, description, select })` 注册静态非常驻世界书的自动注入策略。玩家可在「本局设置 → 功能 → 世界书策略」选择。宿主为 `name` 添加插件命名空间，返回取消注册的函数。注册后，本局仍使用玩家保存的策略，默认为「自动注入 + 主动检索」。用 `ctx.tavern.capabilities?.worldbookStaticSelection === 1` 检查是否支持静态条目筛选和排序。
+`ctx.tavern.worldbookStrategy({ name, label, description, enabled, select })` 注册静态非常驻世界书的自动注入策略。启用条件由插件代码决定。`enabled: true` 用于插件有权限的全部对局，也可以传 `enabled({ gameId })` 按局判断，默认关闭。函数可异步，Tavern 每次准备正文时检查，等待上限为 5 秒。宿主为 `name` 添加插件命名空间，返回取消注册的函数。用 `ctx.tavern.capabilities?.worldbookStrategyControl === 1` 检查是否支持插件控制。
 
 ```js
 ctx.tavern.worldbookStrategy({
   name: 'first-match',
   label: '首个匹配条目',
   description: '用于与现有召回策略进行对比',
+  enabled: true,
   select({ userText, history, entries }) {
     const scene = [history.at(-1)?.text, userText].filter(Boolean).join('\n')
     const entry = entries.find(entry => !entry.coolingDown && entry.primaryKeys?.some(key => key && scene.includes(key)))
@@ -175,7 +176,7 @@ ctx.tavern.worldbookStrategy({
 
 `entries` 包含本局可见、启用、使用自动通道的静态非常驻条目。字段为 `ref`、`sourceUid`、`sourcePath`、`title`、`content`、`constant`、`primaryKeys`、`secondaryKeys`、`order`、`position`、`depth`、`role`、`coolingDown`。返回其中的 `ref` 数组，按想要的顺序排列。空数组表示本轮跳过自动注入。Tavern 负责原文注入、去重、每轮 5 条上限、Token 预算和 10 回合冷却，成功压缩后重置。常驻、固定通道、动态模板、MVU 和 Agent 主动读取继续各自运行。
 
-卡内插件只参与所属人物卡的游戏。异常、超时、非法引用或插件不可用时，Tavern 当轮采用内置策略并保留玩家保存的选择。选择回调应只返回结果。插件卸载后，服务会移除其策略。
+卡内插件只参与所属人物卡的游戏。只有一个策略启用时才调用它的 `select`。无人启用、多个策略同时启用，或选择回调异常、超时、返回非法引用时，Tavern 当轮采用内置策略。插件卸载后，服务会移除其策略。旧版对局设置中的策略值会被忽略。
 
 ## 正文边写边润（replyRewriter）
 

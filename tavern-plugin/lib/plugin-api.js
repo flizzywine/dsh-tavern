@@ -219,7 +219,7 @@ export function createTavernPluginApi(deps) {
     }
     return name
   }
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, worldbookStrategyControl: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
     ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
@@ -1847,10 +1847,11 @@ export function createTavernPluginApi(deps) {
     },
 
     // Select references only; Tavern retains source ownership, rendering and mandatory entries.
-    worldbookStrategy({ name, label, description = '', select } = {}) {
+    worldbookStrategy({ name, label, description = '', enabled = false, select } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
       if (typeof select !== 'function') throw new TypeError('select 必须是函数')
+      if (typeof enabled !== 'boolean' && typeof enabled !== 'function') throw new TypeError('enabled 必须是布尔值或函数')
       if (!deps.worldbookStrategies || !deps.projectWorldbookSelection) throw new Error('世界书策略服务不可用')
       const id = 'plugin-' + createHash('sha256').update(owner).digest('hex').slice(0, 16) + '-' + name
       return owned(this, () => {
@@ -1859,6 +1860,26 @@ export function createTavernPluginApi(deps) {
           if (!active || !gameId) return false
           const choices = await choicesFor(gameId)
           return active && Boolean(choices.game) && !choices.disabled.has(owner)
+        }
+        async function shouldUse(input) {
+          const gameId = input.chat?.sessionId
+          try {
+            input.signal?.throwIfAborted()
+            if (enabled === false || !await available(gameId)) return false
+            await guardScope(owner, { gameId })
+            if (!active) return false
+            input.signal?.throwIfAborted()
+            if (enabled === true) return true
+            const request = enabled({ gameId })
+            const result = await bounded(input.signal ? untilAborted(request, input.signal) : request, '世界书策略启用条件 ' + name, POOL_TIMEOUT_MS)
+            input.signal?.throwIfAborted()
+            if (typeof result !== 'boolean') throw new TypeError('enabled 必须返回布尔值')
+            return active && result
+          } catch (error) {
+            input.signal?.throwIfAborted()
+            recordError(gameId, owner, '世界书策略启用条件 ' + name, error)
+            return false
+          }
         }
         async function selectForGame(input, { entries, history, scanText }) {
           const gameId = input.chat?.sessionId
@@ -1888,7 +1909,7 @@ export function createTavernPluginApi(deps) {
             return null
           }
         }
-        const dispose = deps.worldbookStrategies.register({ id, label, description, available,
+        const dispose = deps.worldbookStrategies.register({ id, label, description, shouldUse,
           project: input => deps.projectWorldbookSelection(input, { id, select: payload => selectForGame(input, payload) }) })
         return () => { active = false; dispose() }
       }, 'tavern.worldbookStrategy()')

@@ -5,15 +5,13 @@ import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
 export function createConversationBackgroundSettings({ readConfig, readChat, updateChat, modelCatalog, modelReasoning,
-  isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {},
-  worldbookStrategies = { list: () => [{ id: 'native-skills', label: '自动注入 + 主动检索' }], has: id => id === 'native-skills' } }) {
+  isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {} }) {
   function requirePlay(chat) {
     if (!chat || !isPlayMode(chat.mode)) throw new Error('请先打开游玩会话')
     return chat
   }
   async function present(chat) {
     return { ...presentExtras(chat), backgroundModel: chat.backgroundModelSelection || null,
-      worldbookStrategy: (!chat.worldbookStrategy || chat.worldbookStrategy === 'legacy') ? 'native-skills' : chat.worldbookStrategy,
       backgroundTasks: normalizeConfiguredBackgroundTasks(chat.backgroundTasks), webSearchEnabled: chat.webSearchEnabled === true,
       candidateTabs: await expandedCandidates(chat),
       disabledForegroundTools: normalizeDisabledForegroundTools(chat.disabledForegroundTools) }
@@ -33,9 +31,8 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
   }
   async function read(sessionId) {
     const chat = requirePlay(await readConfig(String(sessionId || '')))
-    return { ...await present(chat), ...await readExtras(chat), worldbookStrategies: await availableStrategies(sessionId), foregroundTools: await toolCatalog(chat, String(sessionId || '')), mvuCard: chat.mvu?.enabled === true && chat.mvu.owner === 'official', modelCatalog: await modelCatalog() }
+    return { ...await present(chat), ...await readExtras(chat), foregroundTools: await toolCatalog(chat, String(sessionId || '')), mvuCard: chat.mvu?.enabled === true && chat.mvu.owner === 'official', modelCatalog: await modelCatalog() }
   }
-  const availableStrategies = sessionId => worldbookStrategies.listForGame?.(sessionId) ?? worldbookStrategies.list()
   async function checkModel(value, label) {
     const selection = normalizeBackgroundModel(value)
     if (value !== null && !selection) throw new Error(label + '配置无效')
@@ -48,8 +45,6 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
   async function save(args = {}) {
     const sessionId = String(args.sessionId || '')
     const chat = requirePlay(await readChat(sessionId))
-    if (Object.hasOwn(args, 'worldbookStrategy') && args.worldbookStrategy !== 'legacy' &&
-        !(await availableStrategies(sessionId)).some(strategy => strategy.id === args.worldbookStrategy)) throw new Error('世界书策略不可用')
     await validatePatch(args, chat)
     if (Object.hasOwn(args, 'backgroundModel')) await checkModel(args.backgroundModel, '后台模型')
     const saved = await updateChat(chat.id, current => patchConversationBackground(current, args), { source: 'background-model.switch-conversation' })

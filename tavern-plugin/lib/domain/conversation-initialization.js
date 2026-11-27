@@ -200,7 +200,6 @@ export function createConversationInitialization(options) {
     chat.userProfileEnabled = profile?.hasConfirmed === true && profile.defaultEnabled === true
     chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && defaults.webSearchEnabled
     if (groupOfMode(chat.mode) === 'play') {
-      chat.worldbookStrategy = defaults.worldbookStrategy
       chat.candidateTabs = defaults.candidateTabs
     }
     chat.conversationFeaturesVersion = 1

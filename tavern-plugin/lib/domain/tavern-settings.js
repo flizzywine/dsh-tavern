@@ -234,7 +234,6 @@ export function normalizeConfiguredBackgroundTasks(value) {
 export function normalizePlayDefaults(value, legacyCandidateTabs) {
   const input = object(value)
   return { playerName: typeof input.playerName === 'string' ? input.playerName.trim().slice(0, 80) || '你' : '你',
-    worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
     candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs === true,
     backgroundTasks: normalizeConfiguredBackgroundTasks(input.backgroundTasks),
@@ -258,7 +257,6 @@ export function applyTavernSettingsPatch(current, patch) {
 
   if (Object.hasOwn(input, 'defaultPlaySettings')) {
     const patch = object(input.defaultPlaySettings)
-    if (Object.hasOwn(patch, 'worldbookStrategy') && !['legacy', 'native-skills'].includes(patch.worldbookStrategy)) throw new Error('默认世界书策略无效')
     if (Object.hasOwn(patch, 'webSearchEnabled') && typeof patch.webSearchEnabled !== 'boolean') throw new Error('默认开关必须为布尔值')
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')

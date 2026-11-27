@@ -202,7 +202,9 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, TAVERN_PLUGIN_API_VERSION)
-  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1 })
+  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1,
+    worldbookStaticSelection: 1, worldbookStrategyControl: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1,
+    bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)

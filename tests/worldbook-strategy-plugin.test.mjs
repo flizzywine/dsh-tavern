@@ -4,7 +4,7 @@ import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createWorldbookStrategies } from '../tavern-plugin/lib/domain/worldbook-strategies.js'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 
-function setup(select, { origin = 'global', prepareWorldbook, ...options } = {}) {
+function setup(select, { origin = 'global', prepareWorldbook, enabled = true, ...options } = {}) {
   const worldBook = { view: { entries: [
     { ref: 'built-in', title: '钟楼', content: '钟楼每天六点鸣钟。', enabled: true, primaryKeys: ['钟楼'] },
     { ref: 'plugin-first', title: '秘密通道', content: '地道入口藏在壁炉里。', enabled: true, primaryKeys: ['壁炉'] },
@@ -27,15 +27,14 @@ function setup(select, { origin = 'global', prepareWorldbook, ...options } = {})
     resolveGame: async sessionId => ({ sessionId }),
     projectWorldbookSelection: (input, staticStrategy) => project({ ...input, staticStrategy }),
     logger: { warn() {} }, ...options })
-  const dispose = api.service.worldbookStrategy({ name: 'choose', label: 'Choose', select })
-  const id = registry.list().find(row => row.id.startsWith('plugin-')).id
-  const chat = { sessionId: 'game-1', worldbookStrategy: id, messages: [
+  const dispose = api.service.worldbookStrategy({ name: 'choose', label: 'Choose', enabled, select })
+  const chat = { sessionId: 'game-1', messages: [
     { role: 'assistant', turn: 1, text: '开场菜单', greeting: true },
     { role: 'user', text: '往门里看看。' },
     { role: 'assistant', turn: 2, text: '你发现了壁炉。' },
     { role: 'user', placeholder: true, text: '你走到钟楼。' }
   ] }
-  return { registry, worldBook, dispose, id, chat, input: { chat, turn: 3, card: {}, userText: '你走到钟楼。', requestKey: 'request-3' } }
+  return { registry, worldBook, dispose, chat, input: { chat, turn: 3, card: {}, userText: '你走到钟楼。', requestKey: 'request-3' } }
 }
 
 test('插件替换静态条目的匹配和排序，宿主保留固定通道、提供独立的可见条目及近期对话', async () => {
@@ -50,7 +49,7 @@ test('插件替换静态条目的匹配和排序，宿主保留固定通道、�
     return ['plugin-second', 'plugin-first', 'plugin-second']
   })
   const result = await h.registry.project(h.input)
-  assert.equal(result.log.strategy, h.id)
+  assert.match(result.log.strategy, /^plugin-.+-choose$/)
   assert.deepEqual(result.log.entries.filter(row => row.reason === 'plugin-strategy').map(row => row.ref), ['plugin-second', 'plugin-first'])
   assert.match(result.automaticContext, /通行证[\s\S]*秘密通道/)
   assert.match(result.automaticContext, /地道入口藏在壁炉里/)
@@ -64,7 +63,8 @@ test('空列表跳过自动注入，非法 ID 或选择异常恢复内置排序'
   for (const [index, select] of selects.entries()) {
     const h = setup(select)
     const result = await h.registry.project(h.input)
-    assert.equal(result.log.strategy, index === 0 ? h.id : 'native-skills')
+    if (index === 0) assert.match(result.log.strategy, /^plugin-.+-choose$/)
+    else assert.equal(result.log.strategy, 'native-skills')
     assert.equal(result.automaticContext.includes('钟楼每天六点鸣钟。'), index > 0)
   }
 })
@@ -78,16 +78,17 @@ test('插件收到预处理后的可见条目，脚本隐藏的资料不会传�
   }) })
   h.worldBook.view.entries.push({ ref: 'script', title: '[GENERATE:BEFORE]', content: '@@generate\n<% run() %>', enabled: false })
   const result = await h.registry.project(h.input)
-  assert.equal(result.log.strategy, h.id)
+  assert.match(result.log.strategy, /^plugin-.+-choose$/)
   assert.match(result.automaticContext, /通行证是一张金色卡片/)
 })
 
 test('插件排序仍受预算、5 条上限和跨策略冷却约束', async () => {
   let asked = []
+  let pluginEnabled = true
   const h = setup(({ entries }) => {
     asked = entries.filter(entry => entry.coolingDown).map(entry => entry.ref)
     return ['large', ...Array.from({ length: 6 }, (_, i) => 'short-' + i)]
-  })
+  }, { enabled: async ({ gameId }) => pluginEnabled && gameId === 'game-1' })
   h.worldBook.view.raw = { token_budget: 110 }
   h.worldBook.view.entries.push({ ref: 'large', title: '长文', content: '太长了。'.repeat(100) },
     ...Array.from({ length: 6 }, (_, i) => ({ ref: 'short-' + i, title: '短文 ' + i, content: '简短内容。', primaryKeys: ['钟楼'] })))
@@ -99,7 +100,7 @@ test('插件排序仍受预算、5 条上限和跨策略冷却约束', async () 
   const next = await h.registry.project({ ...h.input, turn: 4, requestKey: 'request-4' })
   assert.deepEqual(asked, refs)
   assert.deepEqual(next.log.entries.filter(row => row.reason === 'plugin-strategy').map(row => row.ref), ['short-5'])
-  h.chat.worldBookStrategy = 'native-skills'
+  pluginEnabled = false
   const native = await h.registry.project({ ...h.input, turn: 4, requestKey: 'request-4' })
   assert.ok(refs.every(ref => !native.refs.includes(ref)))
   assert.ok(native.refs.includes('short-5'))
@@ -108,9 +109,9 @@ test('插件排序仍受预算、5 条上限和跨策略冷却约束', async () 
 test('card-scoped plugin cannot inspect another game and unload revokes pending callback', async () => {
   let called = false
   const scoped = setup(() => { called = true; return [] }, {
+    enabled: () => { called = true; return true },
     origin: 'card', cardScope: async () => new Map([['test/plugin@one', { cards: ['/cards/own.json'] }]]), cardPathOf: async () => '/cards/other.json'
   })
-  assert.deepEqual((await scoped.registry.listForGame('game-1')).map(choice => choice.id), ['native-skills'])
   assert.equal((await scoped.registry.project(scoped.input)).log.strategy, 'native-skills')
   assert.equal(called, false)
   let release, started
