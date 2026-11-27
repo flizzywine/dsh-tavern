@@ -1,8 +1,8 @@
 import { projectPlayerContent } from './player-input-content.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { canUndoRollback, restoreSurface, preflightSurfaceRestore, unchangedSinceRollback } from './surface-restoration.js'
-import { rewindBackgroundSurface } from './background-surface.js'
-import { releaseOpeningTurn, sessionEvents, withSurfaceEditTurn } from './session-events.js'
+import { createRollbackProjection } from './rollback-projection.js'
+import { releaseOpeningTurn, sessionEvents } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
@@ -13,7 +13,7 @@ import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
-import { assertPluginRegenerationTarget, assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
+import { assertPluginRegenerationTarget, assertRegenerationSourceCurrent } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
@@ -25,7 +25,8 @@ import { computeSceneTarget } from './scene-illustration.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
-import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
+import { restoreDiscardedRegeneration } from './regeneration-discard.js'
+import { commitRegeneratedRound, createRegeneratedRoundHandoff } from './regenerated-round.js'
 import { compactUserInput, frameUserInput } from './agent-input-frame.js'
 import { legacyMessageUid } from './message-uid.js'
 import { nextPlainDamperState, readDamperStateSnapshot, summarizeDamperRulingOutcome } from './narrative-damper.js'
@@ -412,7 +413,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const REGENERATION_FRAME_CACHE_LIMIT = 8
   const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id) })
   const acquireBackgroundSession = sessions.acquireBackground || sessions.acquire
-  const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
+  const projectRollback = createRollbackProjection({ sessions, timeline, dispatchEvent: event => scripts.dispatchEvent(event) })
+  const finishRegeneratedRound = createRegeneratedRoundHandoff({ queueSettlement, readChat, updateChat, replyCommitted })
+  const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, finishRegeneratedRound, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
     recovery: regenerationRecovery, acquireAgent: acquireRegenerationAgent, pendingRegenerations, pendingRollbacks, selectTarget: selectRegenerationTarget })
 
@@ -839,39 +842,25 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         draft.scriptState = scriptContinuity.transition({ script, state: draft.scriptState,
           event: { kind: 'commit', userText: str(originalUser?.text), nativeTurn: storyTurn } }).state
       }
-      const begun = storyTimeline.apply({ chat: draft, detach: false, intent: { kind: 'body.begin', turn: storyTurn, userText: str(originalUser?.text) } })
-      draft = begun.chat
-      const bodyOperation = draft.timeline.operations[begun.value.operationId]
       const checkpoint = !failedTail && storyTimeline.inspect({ chat: originalChat }).checkpointCount ? originalChat.timeline?.checkpoints?.at(-1) : null
       const oldOperation = Object.values(originalChat.timeline?.operations || {}).find(operation =>
         operation?.kind === 'body' && Number(operation.turn) === Number(oldTurn))
-      bodyOperation.beforeRevision = failedTail ? roundBaselineRevision : (checkpoint?.beforeRevision ?? oldOperation?.beforeRevision ?? 0)
-      bodyOperation.beforeParticipants = failedTail ? structuredClone(originalChat.timeline?.participants || {})
-        : structuredClone(checkpoint?.participants || oldOperation?.beforeParticipants || rollbackIntent?.beforeChat?.timeline?.participants || {})
-      draft.foregroundFrames = { ...draft.foregroundFrames, [bodyOperation.id]: { ...cloneFrame(candidateFrame),
-        frameId: 'foreground:' + chat.id + ':' + draft.timeline.branchId + ':' + bodyOperation.id,
-        operationId: bodyOperation.id, branchId: draft.timeline.branchId,
-        basedOnRevision: bodyOperation.basedOn.revision, turn: storyTurn } }
-      // An unanswered tail already holds the player's row: the round adds the
-      // reply it never produced, and nothing is replaced or replayed.
+      const baseline = {
+        revision: failedTail ? roundBaselineRevision : (checkpoint?.beforeRevision ?? oldOperation?.beforeRevision ?? 0),
+        participants: failedTail ? originalChat.timeline?.participants || {}
+          : checkpoint?.participants || oldOperation?.beforeParticipants || rollbackIntent?.beforeChat?.timeline?.participants || {}
+      }
+      // A failed tail already holds the player's input. Only append its missing reply.
       const failedTailMessages = failedTail ? structuredClone(originalChat.messages) : null
       if (failedTailMessages && inputIndex >= 0 && failedTailMessages[inputIndex]?.placeholder === true) {
         delete failedTailMessages[inputIndex].placeholder
       }
-      const merged = failedTail ? { chat: { ...draft, messages: [...failedTailMessages, row] } }
-        : replaceLastRound({ originalChat, regeneratedChat: draft, replacement: row, assistantIndex: oldAssistantIndex, inputIndex })
-      if (!failedTail && targetMessageUid) merged.chat.messages[oldAssistantIndex].messageUid = targetMessageUid
-      const completed = storyTimeline.complete({ chat: merged.chat, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
-        outcome: { status: 'success' }, apply(current) {
-          delete current.promptTemplateInput
-          current.settleStatus = 'pending'
-          current.settleError = null
-          current.lastSettle = null
-          current.foregroundError = null
-          current.presentationWarnings = structuredClone(prose.projectionWarnings || [])
-        } })
-      if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
-      const next = completed.chat
+      const { chat: next, operationId: bodyOperationId } = commitRegeneratedRound({
+        timeline: storyTimeline, chat: draft, turn: storyTurn, userText: str(originalUser?.text), baseline,
+        frame: cloneFrame(candidateFrame), frameTurn: storyTurn, projectionWarnings: prose.projectionWarnings,
+        replacement: failedTail ? { appendMessages: [...failedTailMessages, row] }
+          : { originalChat, row, assistantIndex: oldAssistantIndex, inputIndex, messageUid: targetMessageUid }
+      })
       const appendAnchor = appending ? attemptNativeAnchor(session, eventStart, syntheticTurn) : null
       const rewriteFailedTail = failedTail && (keptStreamed || appendAnchor === null)
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
@@ -935,7 +924,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
             generatedAt: Date.now(),
             script: undefined,
             requestId: 'fg-choices-regen-' + operationId,
-            operationId: bodyOperation.id,
+            operationId: bodyOperationId,
             traceSessionId: effectiveSessionId,
             traceSessionIds: effectiveSessionId ? [effectiveSessionId] : [],
             traceMode: 'one-shot',
@@ -962,38 +951,16 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const pluginRegeneration = expectedReply && (stopped ? { aborted: true }
       : { turn: storyTurn, textVersion: computeSceneTarget(committedChat, storyTurn).key })
-    committedChat = await attempt.project() || committedChat
-    replyCommitted?.(committedChat.sessionId, committedChat._storageRevision)
-    // The body is already the save's truth; settlement is a background task. Waiting
-    // for it unbounded held the whole response open, so the page sat on
-    // 「正在重新生成正文…」 long after the reply was written and the replacement's
-    // view never reached the transcript. A failed or slow settlement must not keep
-    // the new body off the page: report what has been committed, and let the
-    // settlement's own state (settleStatus / activity) arrive through the save.
-    const saveSettlementFailure = error => {
-      const message = str(error?.message || error) || '后台结算失败'
-      return updateChat(committedChat.id, current => {
-        if (!current || typeof current !== 'object') return current
-        current.settleStatus = 'failed'
-        current.settleError = message
-        return current
-      }, { source: 'settlement.regen-failed' })
-    }
-    let settledChat = committedChat
-    const settlement = Promise.resolve(queueSettlement(committedChat.id))
-    try {
-      const finished = await stage('regen.settlement', () => Promise.race([
+    const settledChat = await finishRegeneratedRound({
+      attempt, committed: committedChat,
+      waitForSettlement: settlement => stage('regen.settlement', () => Promise.race([
         settlement.then(() => true),
         new Promise(resolve => setTimeout(resolve, REGEN_SETTLEMENT_WAIT_MS, false))
-      ]))
-      if (finished) settledChat = await stage('regen.settled-read', () => readChat(committedChat.id)) || committedChat
-      else void settlement.catch(async error => {
-        try { await saveSettlementFailure(error) }
-        catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
-      })
-    } catch (error) {
-      settledChat = await saveSettlementFailure(error)
-    }
+      ])),
+      readSettled: chatId => stage('regen.settled-read', () => readChat(chatId)),
+      failureSource: 'settlement.regen-failed',
+      failureMessage: error => str(error?.message || error) || '后台结算失败'
+    })
     if (pluginRegeneration) return { pluginRegeneration }
     const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
@@ -1480,100 +1447,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return { header: { ...header, messages: [] }, changes, count: head.messageCount }
   }
 
-  // After the story commit: hide the round on the native surface (aborting the
-  // commit if the host refuses), rewind background contexts, notify scripts and
-  // publish the undo point. Shared by the complete and the bounded rollback.
-  async function finishRollback({ chat, card, agent, session, rollbackSurface, undo, rollbackWarning, removedUserText, removedAssistantText, messageCount, dispatchChat, abort, saveUndoPoint }) {
-    const { turn: hiddenTurn } = rollbackSurface
-    // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
-    try {
-      if (rollbackSurface.alreadyShadowed && !isDeepStrictEqual(session.surface.nodes, undo.foreground.nodes)) {
-        throw new Error('回退期间模型上下文已变化，请刷新后重试')
-      }
-      const shadow = rollbackSurface.alreadyShadowed ? rollbackSurface.cleanup : rollbackSurface
-      if (shadow) {
-        // A rollback runs between turns. The replacement needs a native edit
-        // turn so the session can still be loaded from the append-only log.
-        const { toolReplay: _toolReplay, replayState: _replayState, ...source } = shadow.source
-        withSurfaceEditTurn(session, agent, (turn, step) => replaceSessionSurface(session, 'assistant/message', {
-          turn,
-          step,
-          message: {
-            id: randomUUID(),
-            role: 'assistant',
-            content: [],
-            source
-          }
-        }, { start: shadow.userSeq, end: shadow.endSeq, sourceEventSeqs: shadow.shadowedSeqs }))
-      }
-    } catch (error) {
-      // Keep append-only history intact. A rejected surface replacement must not
-      // consume the story checkpoint, and nothing is rewritten behind the save.
-      try {
-        await abort()
-      } catch (restoreError) {
-        throw new Error('回退失败且剧情恢复未完成：' + str(error?.message || error) + '；' + str(restoreError?.message || restoreError), { cause: error })
-      }
-      throw error
-    }
-    // The Chat commit above already hides this round. Persist its model-side
-    // shadow now, not on the host's delayed live buffer behind slower background
-    // and script steps: a crash in between would leave the round in the context.
-    if (typeof sessions.flush === 'function') {
-      try { await sessions.flush(session) }
-      catch (error) { rollbackWarning = [rollbackWarning, '正文已回退，模型上下文保存失败：' + str(error?.message || error)].filter(Boolean).join('；') }
-    }
-    // Rewind immediately after the foreground commit; retain the timeline's retry
-    // boundary so the next task can safely retry if this best-effort step fails.
-    for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
-      if (participant.status !== 'needs-rewind' || !participant.sessionId) continue
-      let restoredHandle
-      try {
-        let worker = sessions.get(participant.sessionId)
-        let background = worker?.session || sessions.getSession?.(participant.sessionId)
-        if (acquireBackgroundSession || (!background && typeof sessions.resume === 'function')) {
-          restoredHandle = await (acquireBackgroundSession || sessions.resume)(participant.sessionId)
-          worker = restoredHandle.agent
-          background = worker?.session
-        }
-        if (!background) throw new Error('后台会话尚未加载，将在下次后台任务启动时重试')
-        if (worker?.phase?.kind === 'running') {
-          worker.cancel({ kind: 'parent' })
-        }
-        if (typeof worker?.whenIdle === 'function') {
-          let timeout
-          try {
-            await Promise.race([worker.whenIdle(), new Promise((_, reject) => {
-              timeout = setTimeout(() => reject(new Error('后台尚未停止，将在下次任务启动时重试')), 3000)
-            })])
-          } finally { clearTimeout(timeout) }
-        }
-        if (typeof sessions.flush !== 'function') throw new Error('当前宿主未提供后台会话保存接口')
-        const checkpoint = { formatVersion: 4, sessionId: participant.sessionId, nodes: [...background.surface.nodes] }
-        rewindBackgroundSurface(background, participant.rewindTo, worker, participant.formatVersion || 3)
-        checkpoint.afterCount = sessionEvents(background).length
-        undo.background.push(checkpoint)
-        await sessions.flush(background)
-      } catch (error) {
-        rollbackWarning = [rollbackWarning, '正文已回退，后台上下文回退未完成：' + str(error?.message || error)].filter(Boolean).join('；')
-      } finally {
-        if (restoredHandle) {
-          try { await restoredHandle.dispose() }
-          catch (error) { rollbackWarning = [rollbackWarning, '后台回退临时会话释放失败：' + str(error?.message || error)].filter(Boolean).join('；') }
-        }
-      }
-    }
-    // Notify scripts only after both authoritative story and native surface have committed.
-    try {
-      await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, ...(dispatchChat ? { chat: dispatchChat } : { recent: true }), name: 'MESSAGE_DELETED', args: [messageCount] })
-    } catch (error) { rollbackWarning = '回退已完成，但脚本联动失败：' + str(error?.message || error) }
-    try {
-      if (typeof sessions.flush === 'function') await sessions.flush(session)
-      chat = await saveUndoPoint()
-    } catch (error) { rollbackWarning = [rollbackWarning, '回退已完成，但撤销恢复点保存失败：' + str(error?.message || error)].filter(Boolean).join('；') }
-    const result = await view(chat, card)
-    if (rollbackWarning !== '') result.rollbackWarning = rollbackWarning
-    result.rolledBack = { hiddenTurn: hiddenTurn, removedUserText: removedUserText, removedAssistantText: removedAssistantText }
+  async function finishRollback({ card, removedUserText, removedAssistantText, ...input }) {
+    const projected = await projectRollback(input)
+    const result = await view(projected.chat, card)
+    if (projected.warning !== '') result.rollbackWarning = projected.warning
+    result.rolledBack = { hiddenTurn: input.rollbackSurface.turn, removedUserText, removedAssistantText }
     return result
   }
 

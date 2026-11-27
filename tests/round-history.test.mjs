@@ -435,6 +435,27 @@ test('重生成先交回正文后，迟到的结算错误仍写入存档', async
   assert.equal(h.chat.messages.at(-1).text, '新正文3')
 })
 
+for (const coordinate of ['branchId', 'revision']) test(`迟到的重生成结算错误不会写入已经推进的 ${coordinate}`, async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const settlement = Promise.withResolvers()
+  h.options.queueSettlement = () => settlement.promise
+  h.options.trace = { stage: (name, task) => name === 'regen.settlement' ? false : task() }
+
+  await h.create().regenerate('chat', '', 'session')
+  await h.options.chats.update('chat', current => {
+    if (coordinate === 'branchId') current.timeline.branchId += '-fork'
+    else current.timeline.revision++
+    current.settleStatus = 'done'
+    return current
+  }, { source: 'test.advance-story' })
+
+  settlement.reject(new Error('上一轮后台连接断开'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(h.chat.settleStatus, 'done')
+  assert.equal(h.chat.settleError, null)
+  assert.equal(h.chat.messages.at(-1).text, '新正文3')
+})
+
 for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 保持旧正文已删除且不排后台结算', async () => {
   const h = harness()
   const original = structuredClone(h.chat.messages)
