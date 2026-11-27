@@ -25,7 +25,7 @@ REPOSITORY_URL=${DSH_TAVERN_GIT_URL:-https://github.com/${REPOSITORY}.git}
 CDN_METADATA_URL=${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}@runtime-archive-main/dsh-tavern-runtime.json}
 CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}}
 # This installer's release (package.json, written by bin/build-installer-scripts.mjs): never install older code.
-INSTALLER_VERSION='3.4.0'
+INSTALLER_VERSION='3.5.0'
 LEGACY_DSH_ROOT=${DSH_TAVERN_LEGACY_DSH_HOME:-${DSH_HOME:-${HOME}/.dsh}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 if [ "${INSTALL_HOST}" = "next" ]; then DSH_ROOT=${DSH_HOME:-${DSH_DESKTOP_NEXT_HOME:-${HOME}/.dsh}}; fi
