@@ -28423,22 +28423,31 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createBgmPlayer, bgmStep, bgmSearch, bgmKey, BGM_STORAGE};
 
-        // The server owns availability; wake signals only request a fresh authoritative read.
+        // The chat host publishes readiness. The plugin owns only the mounted views.
 function watchStageAvailability({source,activate,report=error=>console.error('[dsh-tavern-stage] availability failed',error)}) {
-    let closed=false,revision=0,release=null;
-    function stop(){const old=release;release=null;if(old)try{old();}catch(error){report(error);}}
-    async function refresh(){
-        const expected=++revision;
-        try {
-            const value=await source.read();
-            if(closed || expected!==revision)return;
-            if(value?.status!=='ready'){stop();return;}
-            if(!release)release=activate();
-        }catch(error){if(!closed && expected===revision){stop();report(error);}}
+    let closed = false, mounting = false, release = null;
+    function stop() {
+        const dispose = release;
+        release = null;
+        try { dispose?.(); } catch (error) { report(error); }
     }
-    const unsubscribe=source.subscribe(refresh);
-    void refresh();
-    return ()=>{if(closed)return;closed=true;revision++;unsubscribe();stop();};
+    function reconcile() {
+        if (closed || !source.getSnapshot()) { stop(); return; }
+        if (release || mounting) return;
+        mounting = true;
+        try {
+            release = activate();
+            if (closed || !source.getSnapshot()) stop();
+        } catch (error) { report(error); }
+        finally { mounting = false; }
+    }
+    const unsubscribe = source.subscribe(reconcile);
+    reconcile();
+    return () => {
+        if (closed) return;
+        closed = true;
+        try { unsubscribe(); } finally { stop(); }
+    };
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={watchStageAvailability};
 

@@ -23,9 +23,6 @@ const galStageShortcut = () => stageNavigation.galStageShortcut();
 const galStageLifetime = () => stageNavigation.galStageLifetime();
 const galCurrentEntry = () => stageNavigation?.getEntry() || null;
 const galHoldLeave = hold => stageNavigation?.holdLeave(hold) || (() => {});
-// Pages that need the stage client for any card (设置 › 舞台) hold the loader (stage-client-loader.cjs hold); main.js binds it.
-let stageClientHold = null;
-const galStageHold = () => stageClientHold ? stageClientHold() : () => {};
 // hooks: the isolated clip export page enters its one session silently, with no setup check (clip-render.cjs).
 function bindStageNavigation(createNavigation, ctx, hooks) {
     if (stageNavigation) throw new Error('Stage navigation already mounted');
