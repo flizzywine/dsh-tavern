@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -30,11 +29,9 @@ runtime.env.DSH_TEST_NODE_EXECUTABLE = process.env.DSH_TEST_NODE_EXECUTABLE || p
 
 // Optional file arguments run a focused subset; no arguments runs the full suite (release only).
 const selected = process.argv.slice(2).map(file => path.resolve(file))
-const tests = selected.length ? selected : ['tests', 'testsets/tests'].flatMap(directory =>
-  readdirSync(path.join(SOURCE_ROOT, directory))
-    .filter(name => name.endsWith('.test.mjs'))
-    .sort()
-    .map(name => path.join(SOURCE_ROOT, directory, name)))
+// Let Node expand the patterns to keep the Windows command line bounded.
+const tests = selected.length ? selected : ['tests/*.test.mjs', 'testsets/tests/*.test.mjs']
+  .map(pattern => path.join(SOURCE_ROOT, pattern))
 const result = spawnSync(runtime.command, [...runtime.args,
   '--import', runtimePreload,
   '--import', pathToFileURL(path.join(SOURCE_ROOT, 'tests/fixtures/host-session-patch-preload.mjs')).href, '--test', ...tests], {

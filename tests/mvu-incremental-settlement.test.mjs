@@ -12,7 +12,15 @@ import {createBackgroundTaskCoordinator} from '../tavern-plugin/lib/domain/backg
 import {applyMvuSettlementEffect} from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import {projectTavernHelperContext} from '../tavern-plugin/lib/domain/tavern-helper-context.js'
 import {helperClient} from './fixtures/helper-host-harness.mjs'
-const tick=()=>new Promise(r=>setImmediate(r))
+function readyDispatch(t) {
+ const queued=Promise.withResolvers()
+ const gate=createTavernScriptDispatch({publishSignal(id,signal){
+  if(id==='s'&&signal.kind==='runtime-work') queued.resolve()
+ }})
+ t.after(()=>gate.dispose('s'))
+ gate.touch('s','browser',true)
+ return {gate,waitForWork:pending=>Promise.race([queued.promise,pending.then(()=>assert.fail('dispatch must queue browser work'))])}
+}
 
 for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} floors (append=${append}): bounded wire and atomic scoped commit including historical edits`,async t=>{
  const root=await mkdtemp(join(tmpdir(),'mvu-delta-'));t.after(()=>rm(root,{recursive:true,force:true}))
@@ -29,7 +37,7 @@ for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} 
   }}})
  const task=await coordinator.begin(await persistence.read('c'),'settlement')
  let browser=projectTavernHelperContext(await persistence.read('c'))
- const gate=createTavernScriptDispatch();t.after(()=>gate.dispose('s'));gate.touch('s','browser',true)
+ const {gate,waitForWork}=readyDispatch(t)
  const adapter=createTavernScriptHostAdapter({resolveChat:()=>{fullReads++;return persistence.read('c')},writeChat:persistence.write,
   resolveSettlementBase:()=>persistence.readSettlementBase('c'),
   resolveChatSlice:(_s,indices)=>persistence.readSlice('c',indices),resolveChangedChatSlice:(_s,revision)=>persistence.readChangedSlice('c',revision),
@@ -42,7 +50,7 @@ for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} 
  visits=0
  const settlement=adapter.settleMvuUpdate({operationId:task.operationId,branchId:task.basedOn.branchId,basedOnRevision:task.basedOn.revision,
   sessionId:'s',messageId:targetId,swipeId:0,compactResult:true,storyText:'body',command:'<UpdateVariable/>',baselineVariables:browser.messages.at(-1).variables})
- while(!gate.status('s').busy) await tick()
+ await waitForWork(settlement)
  const offer=await adapter.claimWork('s','browser',true,'',{workContextVersion:1,appendContextVersion:1,complete:true,chatId:'c',stateRevision:browser.stateRevision,lifecycleRevision:0,messageCount:rows})
  assert.ok(offer.event.context.contextDelta)
  assert.equal(fullReads,0,'settlement must not load full history')
@@ -91,11 +99,11 @@ for(const reason of ['old-turn-change','old-client']) test(`append dispatch reta
  await db.write({id:'c',sessionId:'s',mvu:{enabled:true},messages:[row(1),row(2)]})
  const browser=projectTavernHelperContext(await db.read('c'))
  await db.update('c',c=>{if(reason==='old-turn-change')c.messages[0].turn=10;c.messages.push(row(3));return c})
- const gate=createTavernScriptDispatch();t.after(()=>gate.dispose('s'));gate.touch('s','browser',true)
+ const {gate,waitForWork}=readyDispatch(t)
  const adapter=createTavernScriptHostAdapter({resolveChat:()=>db.read('c'),writeChat:db.write,resolveSettlementBase:()=>db.readSettlementBase('c'),
   resolveChangedChatSlice:(_s,r)=>db.readChangedSlice('c',r),readCard:async()=>({}),worldBooks:{bound:async()=>null},scriptDispatch:gate})
  const pending=adapter.settleMvuUpdate({operationId:'test-layout',sessionId:'s',messageId:2,swipeId:0,compactResult:true,storyText:'body',command:'<UpdateVariable/>'})
- for(let tries=0;!gate.status('s').busy;tries++){assert.ok(tries<1000,'dispatch must become ready');await tick()}
+ await waitForWork(pending)
  const offer=await adapter.claimWork('s','browser',true,'',{workContextVersion:1,appendContextVersion:1,complete:true,chatId:'c',stateRevision:browser.stateRevision,lifecycleRevision:0,messageCount:2,...(reason==='old-client'?{appendContextVersion:undefined}:{})})
  assert.equal(offer.event.context.contextDelta,undefined)
  assert.equal(offer.event.context.turnMessageIds[reason==='old-turn-change'?'10':'1'],0)

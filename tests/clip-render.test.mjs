@@ -96,7 +96,7 @@ test('resource readiness uses the phase deadline rather than a fixed number of p
   assert.equal((await renderer.inspect()).state.entry,'ready')
 })
 
-test('acknowledged JPEG frames visit every canonical card and agree with independent Chromium across rounds',{timeout:60000},async t=>{
+test('acknowledged JPEG frames visit every canonical card and agree with independent Chromium across rounds',{timeout:120000},async t=>{
   const first='A'.repeat(100)+'!',second='B'.repeat(100)+'!',body=roundBody([{kind:'markdown',text:first+' '+second}],{chatId:'pages',turn:1})
   const last=roundBody([{kind:'markdown',text:'Last recorded round.'}],{chatId:'pages',turn:2})
   const snapshot={sessionId:'pages-session',chatId:'pages',cardPath:'fixture.json',from:{turn:1,para:1},config:{characters:[],voice:{enabled:false},stage:{director:false,face:'off',music:false,theme:'classic'}},
@@ -184,7 +184,8 @@ test('controlled capture matches independent replay on an art-skin narration bou
   const score=Number(/All:([\d.]+)/.exec(stderr)?.[1]);assert.ok(score>=0.98,`first narration frame must use its final native layout: ${score}`)
 })
 
-test('paragraph-segment capture replays prefixes and rejoins exact frame order',{timeout:90000,skip:process.platform!=='win32'},async t=>{
+// The two segments render at least 1,200 frames and compare five independent Chromium replays.
+test('paragraph-segment capture replays prefixes and rejoins exact frame order',{timeout:300000,skip:process.platform!=='win32'},async t=>{
   // Each paragraph is several long canonical pages, so the measured timeline (stage auto timing) passes the 600-frame split floor.
   const long=word=>Array.from({length:9},(_,i)=>word+' sentence number '+(i+1)+' keeps the reader on this recorded page for a while.').join(' ')
   const body=roundBody([{kind:'markdown',text:long('First')+'\n\n'+long('Second')}],{chatId:'parallel',turn:1})

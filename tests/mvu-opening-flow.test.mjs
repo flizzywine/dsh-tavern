@@ -77,7 +77,7 @@ test('official MVU initializes a greeting or no-greeting start before its first 
     const status = await page.locator('#result').textContent()
     assert.equal(JSON.parse(status).hp, 10)
     const result = await page.evaluate(async () => {
-      const response = await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'run', sessionId: id }) })
+      const response = await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'run', sessionId: id, args: { configReaderMode } }) })
       return { ok: response.ok, value: await response.json() }
     })
     assert.equal(result.ok, true, mode + ': ' + JSON.stringify(result.value))

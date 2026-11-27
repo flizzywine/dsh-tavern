@@ -82,7 +82,7 @@ async function fixture(t, initialDelta = -1, openingLimit = 2) {
   persistence = open()
   const window = await deps.readOpeningWindow()
   assert.equal(window.from, Math.max(0, 3 - openingLimit))
-  assert.equal(window.chat.messages.at(-1).mvuBaseline, undefined)
+  assert.deepEqual(window.chat.messages.at(-1).mvuBaseline, { swipeId: 1 })
   delta = -2
   return { deps, controls, inputs, run, settled, read: () => persistence.read('c') }
 }

@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { validateInstallationRequest, inspectInstallation, performInstallation } from '../tavern-plugin/packages/dsh-tavern/lib/installation.mjs'
 import { readLastResult, registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
@@ -60,10 +62,33 @@ test('unregistered external profile and symlinked registry fail closed', async t
 })
 for (const host of ['desktop', 'next']) test(`standalone worker removes Tavern from the active session (${host})`, async t => {
   const f = fixture(t, host)
-  // The process fence has its own tests. Give the POSIX worker a stable inventory
-  // so an unrelated DSH desktop on the machine cannot block this test.
+  // The process fence has its own tests. Give the worker a stable inventory so
+  // a desktop outside this fixture cannot affect the transaction test.
   const tools = path.join(f.root, 'tools')
-  if (process.platform !== 'win32') {
+  if (process.platform === 'win32') {
+    const preload = path.join(f.root, 'inventory.mjs')
+    fs.writeFileSync(preload, `import cp from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+import { promisify } from 'node:util'
+const execFile = promisify(cp.execFile)
+const fixtureExecFile = cp.execFile.bind(cp)
+fixtureExecFile[promisify.custom] = (command, args, options) => {
+  if (command === 'powershell.exe' && args.at(-1)?.includes('Get-CimInstance Win32_Process')) {
+    return Promise.resolve({stdout: JSON.stringify({rows:[{pid:42,name:'fixture-idle.exe'}]})})
+  }
+  return execFile(command, args, options)
+}
+cp.execFile = fixtureExecFile
+syncBuiltinESMExports()
+`)
+    const originalSpawn = childProcess.spawn
+    t.mock.method(childProcess, 'spawn', (command, args, options) => {
+      const worker = path.basename(args[0] || '') === 'worker.mjs'
+      return originalSpawn(command, worker ? ['--import', pathToFileURL(preload).href, ...args] : args, options)
+    })
+    syncBuiltinESMExports()
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  } else {
     fs.mkdirSync(tools)
     fs.writeFileSync(path.join(tools, 'ps'), '#!/bin/sh\nprintf "42 /usr/bin/fixture-idle\\n"\n', { mode: 0o755 })
   }
