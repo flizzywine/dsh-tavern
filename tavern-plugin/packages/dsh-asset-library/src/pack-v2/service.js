@@ -528,7 +528,7 @@ export function createAssetPackService(options) {
       async take(zip, entry, index) {
         const file = path.join((await dir()).dir, index + path.posix.extname(entry.path)), hash = createHash('sha256')
         await zip.consume(entry, compose(new Transform({transform(chunk, encoding, callback) { hash.update(chunk); callback(null, chunk) }}), createWriteStream(file, {flags:'wx'})))
-        return new SpooledFile(entry.size, file, hash.digest('hex'), spoolFileStamp(await stat(file, {bigint:true})))
+        return new SpooledFile(entry.size, file, hash.digest('hex'))
       },
       retain() { users++ },
       // resolves when the last user's release has removed the spool; callers that can wait do, so nothing runs after them
