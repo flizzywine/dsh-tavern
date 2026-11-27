@@ -14,20 +14,28 @@ function text(message) {
   return (Array.isArray(message?.content) ? message.content : []).filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('').trim()
 }
 
-/** Story rounds the model sees, in surface order: one entry per native turn that shows a reply. */
-export function nativeStoryTurns(session) {
+/** Story rounds the model sees, in surface order. The save may map an untagged native reply to an older round. */
+export function nativeStoryTurns(session, regeneratedDshTurns = {}) {
   const events = sessionEvents(session)
   const bySeq = new Map(events.filter(event => Number.isSafeInteger(event?.seq)).map(event => [event.seq, event]))
   const ended = new Map()
   for (const event of events) if (event?.type === 'turn/end') ended.set(storyEventTurn(event), event.data?.reason?.kind || '')
   const turns = []
   const seen = new Set()
+  const storyByNative = new Map()
+  for (const [story, native] of Object.entries(regeneratedDshTurns || {})) {
+    const storyTurn = Number(story), nativeTurn = Number(native)
+    if (Number.isSafeInteger(storyTurn) && storyTurn > 1 && Number.isSafeInteger(nativeTurn) && nativeTurn > 1) {
+      storyByNative.set(nativeTurn, storyTurn)
+    }
+  }
   for (const seq of session.surface?.nodes || []) {
     const event = bySeq.get(Number(seq))
     const message = event?.type === 'assistant/message' ? event.data?.message : null
     if (message?.source?.kind !== 'model' || !text(message) || String(message.id || '').startsWith('tavern-game-mode:')) continue
-    const turn = storyEventTurn(event)
     const hostTurn = Number(event.data?.turn)
+    const turn = Number.isSafeInteger(message.source.tavernStoryTurn)
+      ? message.source.tavernStoryTurn : (storyByNative.get(hostTurn) ?? hostTurn)
     // A projected reply can carry a story number from an older, failed attempt.
     // Its completion belongs to the host turn that actually wrote the reply.
     const endKind = ended.get(hostTurn)
@@ -67,7 +75,7 @@ export function turnRepliedByModel(events, turn) {
  */
 export function inspectStoryAlignment({ session, header = {}, storyTurns = [], storyAnchors = [] }) {
   if (header.regenInProgress) return { aligned: false, state: 'regenerating', adopt: [], rolledBackVisible: [], mismatch: null, anchors: { checked: 0, lost: [] } }
-  const native = nativeStoryTurns(session)
+  const native = nativeStoryTurns(session, header.regeneratedDshTurns)
   const suppressed = new Set((Array.isArray(header.suppressedDshTurns) ? header.suppressedDshTurns : []).map(Number))
   const adopt = uncommittedRounds(session, header)
   const adoptTurns = new Set(adopt.map(round => round.turn))
