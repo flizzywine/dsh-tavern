@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7c3117560e6f7098546209b55a09c61dea89d5ee",
-  "releaseSequence": 2238,
+  "revision": "9099f501d6cd967ef5d6fd5ec1a83c6e6acbfeb7",
+  "releaseSequence": 2239,
   "version": "3.5.0",
   "files": [
     {
@@ -186,8 +186,8 @@
     },
     {
       "path": "android/native/shims/source-update.mjs",
-      "sha256": "111f732eab97d6b175901edc3c0f53d960d2f4e9e0900cd00b871e25e696e965",
-      "size": 22834
+      "sha256": "4f6e7fda0080df4da118f046b94944783d4fa9675b41758f3a9c6d92393c75db",
+      "size": 22848
     },
     {
       "path": "android/native/shims/termux-preload.cjs",
@@ -206,8 +206,8 @@
     },
     {
       "path": "android/setup.sh",
-      "sha256": "f412068135f220c61063f95f5b9b8bdd91302f538717ce50cd335dc55610b383",
-      "size": 20870
+      "sha256": "a0718275fd341020d6fb080388a99d469aca5e9ea4c678a4b3362cb22b4c41e4",
+      "size": 20858
     },
     {
       "path": "android/update.sh",
@@ -346,8 +346,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "0cbc73ecddcfb648532b2f79d2d03930d15dd37b306871bfa77f7c59b2dec830",
-      "size": 29893
+      "sha256": "9b624580d73fe0dad3ba566b433424d96a6e9e56fe3d8a26219d93be85afa2a0",
+      "size": 32886
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -516,8 +516,8 @@
     },
     {
       "path": "bin/relocate-pnpm-install.mjs",
-      "sha256": "323adcbc99dbdf898bf4dc4d39243a73cc055e1b256a730b90914fa34cf50b6c",
-      "size": 2547
+      "sha256": "51c7b5cc1f50f391b31adcc533ab4383f125786393e8bfddc90c15df37bd21b3",
+      "size": 2936
     },
     {
       "path": "bin/repair-session-log.mjs",
@@ -696,13 +696,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "57bee758426e46f1cc3b766a8162a88cb90ad9c94384bae813b5586ece8b019e",
-      "size": 127845
+      "sha256": "adfe939dd19fe38afa9219eb192adf85b81443fc77005b090b86ca7dc570ebff",
+      "size": 130802
     },
     {
       "path": "install.sh",
-      "sha256": "726b7854db905511f84111e7501764fc45cb588266c0071f92c9e89db8536222",
-      "size": 94935
+      "sha256": "16e32e8f2f0944647faa945f4811497f86f79865d158f079419bc21ac57af06c",
+      "size": 99361
     },
     {
       "path": "package.json",
@@ -10410,10 +10410,19 @@
       "size": 107
     }
   ],
+  "executables": [
+    "android/install.sh",
+    "android/setup.sh",
+    "android/update.sh",
+    "bin/dsh-tavern",
+    "bin/dsh-tavern.mjs",
+    "install.sh",
+    "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
+  ],
   "archive": {
-    "commit": "81d46f8ccff5d54b5388d34646bbbc2bb5ad1e8f",
+    "commit": "363f0b3eae8725a35c85f8b8b455c0f8ae2abc43",
     "path": "runtime.zip",
-    "sha256": "683dcc3cbc52b8714000c37fe2678f9aabbb7c0691a9928c2a386339ea6cf0bc",
-    "size": 18346405
+    "sha256": "9a5a34f7f38d15f8bf3827fc68f079a8288888a0b63ba97470993056dc28415f",
+    "size": 18349386
   }
 }
