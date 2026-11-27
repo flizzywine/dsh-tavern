@@ -34,11 +34,55 @@ const ICON = {
     lock:['M6.5 11h11v9h-11z','M9 11V8.5a3 3 0 0 1 6 0V11'],
     warn:['M12 4.5l8.5 15h-17z','M12 10v4.5','M12 17.3v.2'],
     check:['M5 12.5l4.5 4.5L19 7.5'],
+    // 新的在前: the long bar on top; 旧的在前 turns it upside down (CSS).
+    sort:['M4 6h16','M4 12h11','M4 18h6'],
 };
 const icon = name => React.createElement('svg',{className:'fork-cg-icon',viewBox:'0 0 24 24','aria-hidden':true},ICON[name].map((d,i)=>React.createElement('path',{key:i,d})));
 // a glass icon button over the picture; its name is the hover tip.
 const round = (k,label,onClick,props) => React.createElement('button',{type:'button',className:'fork-cg-round','data-k':k,'aria-label':label,'data-tip':label,onClick,...props},icon(k));
 const refKey = item => JSON.stringify(item.ref);
+// 回想's filter (全部 | 卡自带 | 自动生成) is this device's choice, never the card's or the save's.
+// So is its order (新的在前 | 旧的在前).
+const SOURCE_KEY = 'dsh-tavern:cg-gallery-source', SOURCES = [['all','全部'],['card','卡自带'],['scene','自动生成']];
+const ORDER_KEY = 'dsh-tavern:cg-gallery-order';
+function stored(key, values, fallback) { try { const value = window.localStorage.getItem(key); return values.includes(value) ? value : fallback; } catch (_) { return fallback; } }
+function remember(key, value) { try { window.localStorage.setItem(key, value); } catch (_) {} }
+// the grid's drawn scroll indicator: a thin thumb at the right edge, faint at rest, clear while the list moves or under the
+// pointer, draggable; it hides when everything fits. The list itself scrolls by wheel, touch and keys as before.
+function GalleryScrollbar({scroller}) {
+    const h=React.createElement,bar=React.useRef(null),drag=React.useRef(null);
+    useEffect(()=>{
+        const box=scroller.current,node=bar.current;
+        if (!box || !node) return;
+        let timer=0;
+        const paint=()=>{
+            if (disposed) return;
+            const track=node.clientHeight,room=box.scrollHeight-box.clientHeight;
+            node.toggleAttribute('data-scrollable',room>1);
+            if (room<=1) return;
+            const size=Math.max(32,Math.round(track*box.clientHeight/box.scrollHeight));
+            node.style.setProperty('--cg-sb-size',size+'px');node.style.setProperty('--cg-sb-at',Math.round((track-size)*box.scrollTop/room)+'px');
+        };
+        const moved=()=>{paint();node.setAttribute('data-moving','');window.clearTimeout(timer);timer=window.setTimeout(()=>node.removeAttribute('data-moving'),1200);};
+        const resize=new ResizeObserver(paint);resize.observe(box);for(const child of box.children)resize.observe(child);
+        const children=new window.MutationObserver(()=>{for(const child of box.children)resize.observe(child);paint();});children.observe(box,{childList:true});
+        box.addEventListener('scroll',moved,{passive:true});paint();
+        return ()=>{window.clearTimeout(timer);resize.disconnect();children.disconnect();box.removeEventListener('scroll',moved);};
+    },[]);
+    // the thumb follows the pointer; a press on the track pages toward it.
+    function press(event) {
+        const box=scroller.current,node=bar.current;
+        if (!box || !node || event.pointerType==='mouse'&&event.button!==0) return;
+        event.preventDefault();event.stopPropagation();
+        const thumb=node.firstChild.getBoundingClientRect();
+        if (event.target!==node.firstChild) {box.scrollBy({top:(event.clientY<thumb.top?-1:1)*box.clientHeight*.9,behavior:'smooth'});return;}
+        node.setPointerCapture(event.pointerId);node.setAttribute('data-drag','');
+        drag.current={y:event.clientY,top:box.scrollTop,k:(box.scrollHeight-box.clientHeight)/Math.max(1,node.clientHeight-thumb.height)};
+    }
+    function move(event) {const d=drag.current;if(d&&scroller.current)scroller.current.scrollTop=d.top+(event.clientY-d.y)*d.k;}
+    function lift() {drag.current=null;bar.current?.removeAttribute('data-drag');}
+    return h('div',{ref:bar,className:'fork-cg-scrollbar','aria-hidden':true,onPointerDown:press,onPointerMove:move,onPointerUp:lift,onPointerCancel:lift},h('b'));
+}
 // isolated gallery preview. No canonical state writes or played acknowledgements.
 // onAspect hears the picture's width / height once it has loaded (the viewer fits its controls around it).
 function CgGalleryImage({image,authority,focus,thumb=false,onAspect}) {
@@ -95,6 +139,8 @@ function CgGalleryImage({image,authority,focus,thumb=false,onAspect}) {
 function CgGallery({sessionId,store,onClose,onExit}) {
     const h=React.createElement,root=React.useRef(null),opener=React.useRef(null),lastCell=React.useRef(null),more=React.useRef(null);
     const [items,setItems]=React.useState([]),[cursor,setCursor]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(true);
+    // newest first (the server's order); the filter shows only while the card has both its own and 自动生成 CGs (mixed).
+    const [filter,setFilter]=React.useState(()=>stored(SOURCE_KEY,SOURCES.map(([key])=>key),'all')),[order,setOrder]=React.useState(()=>stored(ORDER_KEY,['newest','oldest'],'newest')),[mixed,setMixed]=React.useState(false),scroller=React.useRef(null);
     // the viewer shows the CG whose ref key is selected; the item itself is read from the latest list.
     const [selected,setSelected]=React.useState(null),[variant,setVariant]=React.useState(''),[focus,setFocus]=React.useState(null);
     const [uiOff,setUiOff]=React.useState(false),[active,setActive]=React.useState(false),[cropOpen,setCropOpen]=React.useState(false);
@@ -114,10 +160,10 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         if (disposed) return;
         const token=++generation.current;setBusy(true);setError('');
         try {
-            const result=await rpc('getCgGallery',{...(next?{cursor:next}:{})},sessionId);
+            const result=await rpc('getCgGallery',{source:filter,order,...(next?{cursor:next}:{})},sessionId);
             if(disposed||token!==generation.current)return;
             if(next)reread.current=false;
-            setItems(old=>next?[...old,...result.items]:result.items);setCursor(result.nextCursor);
+            setItems(old=>next?[...old,...result.items]:result.items);setCursor(result.nextCursor);setMixed(result.mixed===true);
         } catch(e) {
             if(disposed||token!==generation.current)return;
             // a later page's cursor names the list as its first page was read; the list has changed since (a CG unlocked,
@@ -128,7 +174,17 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         finally {if(!disposed&&token===generation.current)setBusy(false);}
     }
     // a new revision re-reads the list in place; the open CG stays open while it still exists.
-    useEffect(()=>{void load();return()=>{generation.current++;};},[sessionId,revision]);
+    useEffect(()=>{void load();return()=>{generation.current++;};},[sessionId,revision,filter,order]);
+    function restart() {setItems([]);setCursor(null);if(scroller.current)scroller.current.scrollTop=0;}
+    function pick(next) {
+        if (disposed || next===filter) return;
+        remember(SOURCE_KEY,next);setFilter(next);restart();
+    }
+    function flip() {
+        if (disposed) return;
+        const next=order==='newest'?'oldest':'newest';
+        remember(ORDER_KEY,next);setOrder(next);restart();
+    }
     useEffect(()=>{
         opener.current=document.activeElement;root.current?.focus();
         return ()=>{if(idle.current)window.clearTimeout(idle.current);if(opener.current?.isConnected)opener.current.focus();};
@@ -333,8 +389,12 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     }
     function grid() {
         return h('div',{className:'fork-cg-grid-page'},
-            h('header',{className:'fork-cg-grid-top'},h('h2',null,'回想'),round('close','关闭',onClose)),
-            h('div',{className:'fork-cg-gallery-scroll'},
+            h('header',{className:'fork-cg-grid-top'},h('h2',null,'回想'),
+                mixed?h('div',{className:'fork-cg-filter',role:'group','aria-label':'筛选'},SOURCES.map(([key,label])=>h('button',{key,type:'button',className:'fork-cg-compose-mode','aria-pressed':filter===key,onClick:()=>pick(key)},label))):null,
+                round('sort',order==='newest'?'新的在前':'旧的在前',flip,{'data-order':order}),
+                round('close','关闭',onClose)),
+            h('div',{className:'fork-cg-gallery-body'},
+            h('div',{ref:scroller,className:'fork-cg-gallery-scroll'},
                 !busy&&!error&&!items.length&&EmptyState?h(EmptyState,{text:'还没有 CG',icon:'empty'}):null,
                 items.length?h('div',{className:'fork-cg-gallery-grid'},items.map(row=>{
                     const open=row.unlocked&&row.available,label=open?row.label:row.unlocked?'素材不可用':'尚未解锁';
@@ -343,7 +403,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
                         open?h(CgGalleryImage,{image:row.variants.find(v=>v.key===row.defaultVariant)?.image,authority,thumb:true}):icon(row.unlocked?'warn':'lock'),
                         open?h('span',{className:'fork-cg-cell-title'},row.label):null);
                 })):null,
-                cursor?h('div',{ref:more,className:'fork-cg-more'},busy&&Spinner?h(Spinner,null):null):null));
+                cursor?h('div',{ref:more,className:'fork-cg-more'},busy&&Spinner?h(Spinner,null):null):null),
+            h(GalleryScrollbar,{scroller})));
     }
     return h('section',{ref:root,tabIndex:-1,role:'dialog','aria-modal':true,'aria-label':'回想',className:'fork-cg-gallery'+(item?' is-viewing':''),
             onClick:e=>e.stopPropagation(),onWheel:e=>e.stopPropagation(),onContextMenu:e=>{e.preventDefault();e.stopPropagation();}},
