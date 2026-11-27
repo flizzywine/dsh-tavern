@@ -65,8 +65,7 @@ import { registerPresetTools } from './tools/preset.js'
 import { registerRegexLibraryTools } from './tools/regex-library.js'
 import { registerCardEditingTools } from './tools/card-editing.js'
 import { createConversationGuides } from './domain/conversation-guides.js'
-import { withConversationReadLane } from './domain/conversation-read-lanes.js'
-import {recoverRuntimeHistory as recoverHistory} from './domain/runtime-history-recovery.js'
+import { scheduleRuntimeHistoryRecovery } from './domain/runtime-history-recovery.js'
 import { createGuideLibrary } from './domain/guide-library.js'
 import { createRegexLibrary } from './domain/regex-library.js'
 import { createTavernRegexSettings } from './domain/regex-settings.js'
@@ -4550,21 +4549,6 @@ export async function apply(ctx) {
     await resourceGraph.recover()
     return await readIndex()
   }
-  function recoverRuntimeHistory(recoveredIndex, startedBefore) {
-    return recoverHistory(recoveredIndex, {
-      recoverRegeneration:id=>requestPerformance.stage('recovery.regeneration', () => recoverRegeneration(id)),
-      readSlice:(...args)=>requestPerformance.stage('recovery.page-store', () => chatPersistence.readSlice(...args)),readChat,
-      restoreChat:chat=>presetLibrary.restoreChat(chat),writeChat,
-      syncSummary:async chat=>{
-        try { await requestPerformance.stage('recovery.registry-sync', () => conversationRegistry.sync(chat, { metadataOnly: true })) }
-        catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:',str(error?.message || error)) }
-      },
-      // Runs after the service is ready: work started since startup belongs to this process and is left alone.
-      recoverHandoff:ids=>requestPerformance.stage('recovery.handoff', () => foregroundHandoff.recover(ids, { startedBefore })),
-      recoverCandidates:ids=>requestPerformance.stage('recovery.candidates', () => candidateTasks.recover(ids, { startedBefore })),
-      scanSettlement:()=>mvuSettlementReconciler.scan()
-    })
-  }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: nativeRegenBody, regenerateWithProvider, recover: recoverRegeneration, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
     diagnostics: mvuDiagnostics,
@@ -5445,11 +5429,9 @@ export async function apply(ctx) {
     await conversationDeletion.resumePending(pendingChatDeletions)
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
-    setImmediate(function () {
-      requestPerformance.run('startup-history', '', () =>
-        withConversationReadLane('background', () => recoverRuntimeHistory(recoveredIndex, startedAt))).catch(function (error) {
-        console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)
-      })
+    scheduleRuntimeHistoryRecovery(recoveredIndex, startedAt, {
+      requestPerformance, recoverRegeneration, chatPersistence, readChat, writeChat,
+      presetLibrary, conversationRegistry, foregroundHandoff, candidateTasks, mvuSettlementReconciler,
     })
   } catch (error) {
     settleRuntimeReadiness({ ok: false, error })
