@@ -85,8 +85,8 @@ function useGalEntry(store, rootRef, heldRef = null) {
             const state = store.getSnapshot(), root = rootRef.current, elapsed = performance.now() - start;
             const images = root ? [...root.querySelectorAll('.fork-gal-box img, .fork-gal-standins img')] : [];
             const revision = state.accepted.presentationRevision;
-            // Audio may wait indefinitely for an autoplay gesture; only visual resources gate entry.
-            const drawn = !!root?.querySelector('.fork-gal-box') && document.fonts.status !== 'loading' && images.every(image => image.complete && image.naturalWidth > 0);
+            // Audio may wait indefinitely for an autoplay gesture; only visual resources gate entry. A broken image has finished loading and degrades to its alt/placeholder rather than holding the entry.
+            const drawn = !!root?.querySelector('.fork-gal-box') && document.fonts.status !== 'loading' && images.every(image => image.complete);
             const accepted = !!state.source && galEntryBackdropAccepted(state);
             const base = accepted && galEntryBackdropSettled(state) && drawn;
             const ready = base && (presented.current === revision || backdrop.current === revision) || galEntryNothingToShow(state) && drawn;
