@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9bb8385d50eb93b2c312612b51290df0320e9e60",
-  "releaseSequence": 2202,
+  "revision": "b9a9820935271caa798aa0d1d741cb6965295800",
+  "releaseSequence": 2203,
   "version": "3.4.0",
   "files": [
     {
@@ -1951,8 +1951,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-deletion.js",
-      "sha256": "3f0aabed2f01b60a4e0d73f34546b17a81ca287acb4a83766590bee118b64c92",
-      "size": 2701
+      "sha256": "a85258d58afab61e1287568247380c1f21b4a5d53003d8aa3c769ac4fde15e6d",
+      "size": 10419
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork-point.js",
@@ -1973,6 +1973,11 @@
       "path": "tavern-plugin/lib/domain/conversation-guides.js",
       "sha256": "85276cdc9dbb679b2b95e2d63bb27d3a5e900d4488aa0ea7bfc71d6238a14426",
       "size": 2575
+    },
+    {
+      "path": "tavern-plugin/lib/domain/conversation-index.js",
+      "sha256": "80139cdd8645e48f17770eb1948ce3b92641206a6c74c78091ded9160c74939e",
+      "size": 2593
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-initialization.js",
@@ -4526,8 +4531,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "a0f033fada2f3c53e9dc8785f5c8263737a06388a1f02eef285f023655df39b4",
-      "size": 332240
+      "sha256": "2e54a57d2d1b61fbdf431882b28d4f1ca027e1bd8e22abb0ccd6478f42b1e8ca",
+      "size": 322963
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10351,9 +10356,9 @@
     }
   ],
   "archive": {
-    "commit": "63cb85ea8d095f70c429559143a7f4c167c6cc76",
+    "commit": "a86283750f724f9b353110a119b9baa8b11c99f8",
     "path": "runtime.zip",
-    "sha256": "e4398a22c0679b82f97dde32f178d554669ebade1152fb41edfebf4953919cec",
-    "size": 18320723
+    "sha256": "4c99ac2c54edfada9181659997c098b56ee8da8d7d2a568b97e0d8fcbca458cc",
+    "size": 18321368
   }
 }
