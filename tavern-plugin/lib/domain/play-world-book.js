@@ -7,7 +7,7 @@ import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js
 import { projectMvuNpcRegistration } from './mvu-npc-registration.js'
 
 // The world book a game plays with, as the background and recall read it.
-export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, readOnlyTemplateRuntime, globalVariables = async () => ({}) }) {
+export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, readOnlyTemplateRuntime, globalVariables = async () => ({}) }) {
   async function mvuUpdateRules(chat, card, target) {
     const worldBook = await worldBooks.bound(chat.cardPath, card, chat)
     const cardEntries = card?.character_book?.entries && typeof card.character_book.entries === 'object'
@@ -46,7 +46,7 @@ export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, readO
     const record = await worldBooks.bound(chat.cardPath, card, chat)
     if (!chat?.sessionId) return record
     const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
-    return withPluginWorldbookEntries(record, await pluginApi.worldbookPoolEntries({ gameId: chat.sessionId, turn }))
+    return withPluginWorldbookEntries(record, await poolEntries({ gameId: chat.sessionId, turn }))
   }
 
   return { playWorldBook, worldBookScanDepth, mvuUpdateRules }

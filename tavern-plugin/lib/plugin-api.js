@@ -1852,7 +1852,7 @@ export function createTavernPluginApi(deps) {
       sectionName(name)
       if (typeof select !== 'function') throw new TypeError('select 必须是函数')
       if (typeof enabled !== 'boolean' && typeof enabled !== 'function') throw new TypeError('enabled 必须是布尔值或函数')
-      if (!deps.worldbookStrategies || !deps.projectWorldbookSelection) throw new Error('世界书策略服务不可用')
+      if (!deps.registerWorldbookStrategy) throw new Error('世界书策略服务不可用')
       const id = 'plugin-' + createHash('sha256').update(owner).digest('hex').slice(0, 16) + '-' + name
       return owned(this, () => {
         let active = true
@@ -1909,8 +1909,7 @@ export function createTavernPluginApi(deps) {
             return null
           }
         }
-        const dispose = deps.worldbookStrategies.register({ id, label, description, shouldUse,
-          project: input => deps.projectWorldbookSelection(input, { id, select: payload => selectForGame(input, payload) }) })
+        const dispose = deps.registerWorldbookStrategy({ id, label, description, shouldUse, select: selectForGame })
         return () => { active = false; dispose() }
       }, 'tavern.worldbookStrategy()')
     },
