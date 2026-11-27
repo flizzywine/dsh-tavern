@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "78de92616664f6a2d39fd02a033bd1e2eaec10ac",
-  "releaseSequence": 2201,
+  "revision": "9bb8385d50eb93b2c312612b51290df0320e9e60",
+  "releaseSequence": 2202,
   "version": "3.4.0",
   "files": [
     {
@@ -1720,6 +1720,11 @@
       "size": 13313
     },
     {
+      "path": "tavern-plugin/lib/domain/card-plugin-runtime.js",
+      "sha256": "144044e317409732ee6fee0c6a287b0805ae7433f39ffa7a01c224e52b87b543",
+      "size": 2189
+    },
+    {
       "path": "tavern-plugin/lib/domain/card-plugins.js",
       "sha256": "c727eb1d493927957a97b9aa87ef42c164248e7be51ee018c46bdec96dc96e3d",
       "size": 30010
@@ -1918,6 +1923,11 @@
       "path": "tavern-plugin/lib/domain/compaction-request.js",
       "sha256": "d4e00b3f3d27a755b67d31c46521c9b648ab11ae807782891a139745181b07f1",
       "size": 4977
+    },
+    {
+      "path": "tavern-plugin/lib/domain/context-host.js",
+      "sha256": "43fe2f9d6363b5159e33083118189267faebcf733daf83f6ae4f7cec6fed42db",
+      "size": 11535
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
@@ -4516,8 +4526,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "6da855ca4dec3dc4807a25dbfc58d8412c2fef2c7c2ff20ea85bab691e66791e",
-      "size": 345621
+      "sha256": "a0f033fada2f3c53e9dc8785f5c8263737a06388a1f02eef285f023655df39b4",
+      "size": 332240
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10341,9 +10351,9 @@
     }
   ],
   "archive": {
-    "commit": "ef31a8dc9b3571c2e813ebf4cd6c8b63d0c2b1f1",
+    "commit": "63cb85ea8d095f70c429559143a7f4c167c6cc76",
     "path": "runtime.zip",
-    "sha256": "a1c26eee2ef98c865181677e96b2723384274fe778a789de49b9f5da5024ea6c",
-    "size": 18319876
+    "sha256": "e4398a22c0679b82f97dde32f178d554669ebade1152fb41edfebf4953919cec",
+    "size": 18320723
   }
 }
