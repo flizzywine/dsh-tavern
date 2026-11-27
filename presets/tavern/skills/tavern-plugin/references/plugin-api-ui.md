@@ -11,7 +11,7 @@
 - `presentation: 'page'` 使用独立游戏页面，隐藏正文内重复的玩法界面；默认在正文内展示。宿主提供进入游戏、返回酒馆和再次进入的入口。
 - `presentation: 'stage'` 另需 `stage: { scene(props), hud?(props) }`，让玩法借用舞台（见下文「舞台借用」）；舞台不可用时与 `'page'` 完全相同，`render` 仍是页面视图。缺少 `stage.scene` 函数或 `stage.hud` 不是函数时注册直接报错。
 - 可选 `lobby({ busy, start })` 返回开局大厅，调用 `start()` 创建本局；当前大厅入口不接收自定义开局参数，服务端 `create` 收到的 `input` 为 null。
-- `render({ gameId, data, revision, busy, paused, error, resume, advance, page, foreground })` 返回 React 元素。`data` 仅为服务端 `project` 的玩家可见投影；`page` 表示独立页面，`foreground` 表示原生正文投射模式。
+- `render({ gameId, data, revision, busy, paused, error, resume, advance, page, foreground, Avatar })` 返回 React 元素。`data` 仅为服务端 `project` 的玩家可见投影；`page` 表示独立页面，`foreground` 表示原生正文投射模式。`Avatar({ name, size? })` 画这个名字在聊天里的头像（本卡人物），认不出时是人形剪影，舞台关着时页面也有头像。
 - `advance(input)` 提交结构化行动，成功返回 true，失败返回 false。自动推进应尊重 busy、paused、error，按 revision 去重；`resume()` 清除错误并恢复推进。
 
 宿主提供停止、回退和撤销回退控件；停止、失败或回退后暂停自动推进。页面关闭会卸载视图，已提交状态仍保存；再次进入读取同一局进度。自动推进由页面驱动，插件应在组件卸载时清理定时器和订阅。
