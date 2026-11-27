@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "92dd35bb8bbbed60148d8e74bbe8cc818ca6ac35",
-  "releaseSequence": 2245,
+  "revision": "0aff54ef22d7573a185854b11ae461eace4c1db0",
+  "releaseSequence": 2246,
   "version": "3.5.0",
   "files": [
     {
@@ -1256,8 +1256,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "3acef03fed7faa46dae5484add31d27ee15e5d843338ca9a4812fb59ac33ae53",
-      "size": 6938762
+      "sha256": "9b37494412ae0d28049b4bf07b1267e7abc6677e5b97123fd07e09eefb4441ec",
+      "size": 6939756
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8901,8 +8901,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "fba95ace95dff9e8f2a899f926321df86e0f1492b1c14137da7b4f53986b1ce5",
-      "size": 3728625
+      "sha256": "5049685f9a4b0ef8992e6305479cf1649f1db88eae215de0c706ed45e58e25f1",
+      "size": 3728711
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "3191befb1a9be0fe7c153d2af77c2dd8ece6addf",
+    "commit": "3524e69151017f697873629df119642d3b6595ab",
     "path": "runtime.zip",
-    "sha256": "1babc36c112f3f0c467abcda0086cbdfa61a8050c3201c4672e4ca00c500771d",
-    "size": 18353459
+    "sha256": "07d11c1821de6b38a60117ee6c7cc3ca147d5ca0ef4b61f2486205255495c7ae",
+    "size": 18353530
   }
 }
