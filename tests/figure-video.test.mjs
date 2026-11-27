@@ -12,7 +12,7 @@ import {copyFigureAssets} from '../tavern-plugin/packages/dsh-asset-library/src/
 import {copyPackItems} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/copy-items.js'
 
 const require = createRequire(import.meta.url)
-const {createStageFigureVideos} = require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-video.cjs')
+const {createStageFigureVideos, videoCadence} = require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-video.cjs')
 
 const videoEntry = (fields = {}) => ({kind: 'videos', id: 'calm-loop', name: 'Calm loop', enabled: true, recall: {mode: 'constant', keywords: []}, directorNote: '',
   bundleKey: 'video-calm-loop', entry: 'loop.mp4', poster: 'poster.png', durationMs: 3000, loop: true, size: [640, 1536], alpha: 'right', ...fields})
@@ -131,6 +131,8 @@ test('the host projects the shown still\'s video once: off, opaque or another im
 function fakeDom() {
   const videos = []
   const document = {createElement(tag) {
+    // the cadence sampler while blending
+    if (tag === 'canvas') return {getContext: () => ({drawImage() {}, getImageData: (x, y, w, h) => ({data: new Uint8ClampedArray(w * h * 4)})})}
     assert.equal(tag, 'video')
     const listeners = {}
     const video = {tag, attributes: {}, paused: true, ended: false, currentTime: 0, readyState: 0, videoWidth: 1280, videoHeight: 1536, src: '', loads: 0, plays: 0,
@@ -143,10 +145,10 @@ function fakeDom() {
   class Node { constructor() { this.children = []; this.position = {set: (x, y) => { this.x = x; this.y = y }}; this.scale = {set: (x, y) => { this.sx = x; this.sy = y }}; this.visible = true; this.alpha = 1 }
     addChildAt(child, index) { child.parent = this; this.children.splice(index, 0, child) } removeChild(child) { this.children = this.children.filter(c => c !== child); child.parent = null }
     destroy() { this.destroyed = true } }
-  const PIXI = {MIPMAP_MODES: {OFF: 0}, VideoResource: class { constructor(source, options) { this.source = source; this.options = options; this.autoUpdate = true; this.updates = 0 } update() { this.updates++ } },
-    BaseTexture: class { constructor(resource) { this.resource = resource } destroy() { this.destroyed = true } },
+  const PIXI = {MIPMAP_MODES: {OFF: 0, ON: 1}, VideoResource: class { constructor(source, options) { this.source = source; this.options = options; this.autoUpdate = true; this.updates = 0 } update() { this.updates++ } },
+    BaseTexture: class { constructor(resource, options) { this.resource = resource; this.options = options } destroy() { this.destroyed = true } },
     Texture: class { constructor(base) { this.baseTexture = base } }, Program: {from: () => ({})},
-    MeshMaterial: class { constructor(texture, options) { this.texture = texture; this.options = options } }, PlaneGeometry: class {}, Mesh: class extends Node { constructor(geometry, material) { super(); this.material = material } }}
+    MeshMaterial: class { constructor(texture, options) { this.texture = texture; this.options = options; this.uniforms = options.uniforms } }, PlaneGeometry: class {}, Mesh: class extends Node { constructor(geometry, material) { super(); this.material = material } }}
   const sprite = new Node()
   sprite.anchor = {x: 0.5, y: 1}; sprite.texture = {width: 1440, height: 2160}
   sprite.draws = 0; sprite._render = function () { this.draws++ }
@@ -167,6 +169,7 @@ test('the figure video plays over the still only while it is wanted, crossfades,
   handle.update({on: true}); assert.equal(handle.tick(16), false); sprite._render(); assert.equal(sprite.draws, 1)
   video.fire('loadeddata')
   const mesh = sprite.children[0]
+  assert.equal(mesh.material.texture.baseTexture.options.mipmap, PIXI.MIPMAP_MODES.ON, 'mipmapped: the downscaled figure does not shimmer')
   assert.ok(mesh instanceof PIXI.Mesh); assert.deepEqual([mesh.x, mesh.y, mesh.sx, mesh.sy], [351 - 720, 254 - 2160, 757, 1817])
   handle.tick(16); assert.equal(video.plays, 1); assert.equal(video.currentTime, 0)
   handle.tick(120); assert.ok(mesh.alpha > 0 && mesh.alpha < 1); sprite._render(); assert.equal(sprite.draws, 2, 'the still stays under a fading video')
@@ -178,6 +181,56 @@ test('the figure video plays over the still only while it is wanted, crossfades,
   assert.equal(released, 1); assert.equal(video.src, ''); assert.equal(mesh.destroyed, true); assert.equal(sprite.children.length, 0)
   sprite._render(); assert.equal(sprite.draws, 4, 'the still draws itself again')
   scope.dispose(); owner.dispose()
+})
+
+test('a loop drawn on twos is told from one that changes every frame', () => {
+  const intervals = (diff, from = 1) => Array.from({length: 40}, (_, i) => [from + i, diff(from + i)])
+  assert.deepEqual(videoCadence(intervals(() => 1)), {step: 1, phase: 0})
+  assert.deepEqual(videoCadence(intervals(i => i % 2 ? 0.6 + (i % 3) * 0.1 : 1.3)), {step: 1, phase: 0}, 'an uneven but every-frame loop')
+  assert.deepEqual(videoCadence(intervals(i => i % 2 ? 4 : 0.6)), {step: 2, phase: 1}, 'the measured joy loop: a fifth of the change between drawings')
+  assert.deepEqual(videoCadence(intervals(i => i % 3 === 2 ? 3 : 0.1)), {step: 3, phase: 2})
+})
+
+test('every decoded frame reaches the texture; blending keeps the frame before and crossfades on a steady clock', async () => {
+  const {document, PIXI, sprite, videos} = fakeDom()
+  let share = 0, clock = 0
+  const scope = createStageFigureVideos({document, acquire: () => ({video: Promise.resolve('blob:x'), release() {}}), foreground: null}).create({PIXI, blend: () => share, now: () => clock})
+  const handle = scope.attach(sprite, {source: {hash: 'h'}, rect: [0, 0, 10, 10]})
+  await flush()
+  const [video] = videos
+  let callback = null
+  video.requestVideoFrameCallback = fn => { callback = fn }
+  video.fire('loadeddata')
+  const material = sprite.children[0].material, first = material.texture
+  assert.equal(first.baseTexture.resource.options.updateFPS, 0, 'no throttle of PIXI\'s own: it counts its ticker, not the frames')
+  assert.equal(first.baseTexture.resource.autoUpdate, false)
+  const frame = (index, at) => { clock = at; callback(at, {mediaTime: index / 24, presentedFrames: index}) }
+  for (let i = 0; i < 3; i++) frame(i, i * 1000 / 24)
+  assert.equal(first.baseTexture.resource.updates, 3, 'one upload per frame')
+  assert.equal(material.texture, first, 'not blending: one texture')
+  // Blending: each frame goes into the texture of the frame before last, which becomes the latest.
+  share = 1
+  frame(3, 125)
+  const second = material.texture
+  assert.notEqual(second, first); assert.equal(material.uniforms.uPrev, first)
+  frame(4, 125 + 1000 / 24)
+  assert.equal(material.texture, first); assert.equal(material.uniforms.uPrev, second)
+  // At a new frame the clock stands on the one before and reaches it as the next arrives: an even pace in between.
+  handle.update({on: true})
+  const mixAt = at => { clock = at; handle.tick(16); return Math.round(material.uniforms.uMix * 100) / 100 }
+  const arrived = 125 + 1000 / 24
+  assert.deepEqual([mixAt(arrived), mixAt(arrived + 1000 / 48), mixAt(arrived + 1000 / 24), mixAt(arrived + 100)], [0, 0.5, 1, 1])
+  // Half: the frame holds for the first half, then crossfades.
+  share = 0.5
+  assert.deepEqual([mixAt(arrived + 1000 / 48), mixAt(arrived + 1000 / 32)], [0, 0.5])
+  // A start from the first frame shows the new frame alone.
+  share = 1; handle.tick(16); video.ended = true; handle.update({on: true}); handle.tick(16)
+  video.ended = false; video.currentTime = 0
+  frame(0, 1000)
+  assert.equal(mixAt(1000), 1)
+  handle.destroy()
+  assert.ok(first.baseTexture.destroyed && second.baseTexture.destroyed, 'both textures released')
+  scope.dispose()
 })
 
 test('a video that cannot play leaves the still for good', async () => {
@@ -292,6 +345,31 @@ test('a transition that ends while the voice is heard hands over to the talking 
   const off = lateScope.attach(late.sprite, {source: {id: 'idle'}, rect: [0, 0, 10, 10], enter: {source: {id: 'enter'}, rect: [0, 0, 10, 10]}})
   off.update({on: false}); off.tick(16); assert.equal(off.entering(), null)
   lateScope.dispose()
+})
+
+test('the shown picture loads its transitions out ahead and hands the loaded one to the picture that enters through it', async () => {
+  const {document, PIXI, sprite, videos} = fakeDom()
+  let released = 0
+  const scope = createStageFigureVideos({document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() { released++ }}), foreground: null}).create({PIXI})
+  const shown = scope.attach(sprite, {source: {id: 'calm'}, rect: [0, 0, 10, 10], into: {joy: {source: {id: 'calm-joy'}, rect: [0, 0, 10, 10]}, sad: {source: {id: 'calm-sad'}, rect: [0, 0, 10, 10]}}})
+  await flush()
+  const [, ahead, other] = videos
+  assert.equal(ahead.src, 'blob:calm-joy'); assert.equal(ahead.loop, false); assert.equal(other.src, 'blob:calm-sad')
+  ahead.fire('loadeddata'); other.fire('loadeddata')
+  assert.equal(sprite.children.length, 0, 'loaded ahead without a figure: nothing draws')
+  // The change: the next picture takes the loaded clip, which shows at once.
+  const next = fakeDom().sprite
+  const entering = scope.attach(next, {source: {id: 'joy'}, rect: [0, 0, 10, 10], enter: {source: {id: 'calm-joy'}, rect: [0, 0, 20, 10], clip: shown.lend('joy')}})
+  await flush()
+  assert.equal(shown.lend('joy'), null, 'lent once')
+  assert.equal(videos.length, 4, 'no second element for the transition')
+  assert.equal(next.children.length, 1); assert.deepEqual([next.children[0].sx, next.children[0].sy], [20, 10])
+  entering.update({on: true}); entering.tick(16)
+  assert.equal(ahead.plays, 1); assert.equal(entering.entering(), 'on')
+  // The old picture goes with the transitions it kept, not the lent one.
+  shown.destroy()
+  assert.equal(released, 2); assert.equal(other.src, ''); assert.equal(ahead.src, 'blob:calm-joy')
+  scope.dispose()
 })
 
 test('copying a figure takes its still loops along as entries of the target, renamed where the target has the id', async () => {

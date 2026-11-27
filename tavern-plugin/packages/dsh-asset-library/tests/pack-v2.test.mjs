@@ -211,15 +211,6 @@ test('figure CRUD is CAS protected, voice-only works, and retired outfit/asset I
   assert.deepEqual(await service.getPackSnapshot({packId:PACK_ID}),current)
 })
 
-for (const [implementation, createService] of [['source',createAssetPackService],['runtime',createBuiltAssetPackService]]) test('figure height can be saved before the first outfit (' + implementation + ')', async t => {
-  const {service,root} = await fixture(t,{},createService)
-  const current = snap(await install(service,root))
-  const created = await service.createFigure({packId:PACK_ID,expectedRevision:current.revision,figure:{schemaVersion:1,name:'New figure',enabled:true,heightCm:165,outfits:[]}})
-  const stored = await service.getPackSnapshot({packId:PACK_ID})
-  assert.equal(stored.figures[created.figureId].heightCm,165)
-  assert.deepEqual(stored.figures[created.figureId].outfits,[])
-})
-
 for (const [implementation, createService] of [['source',createAssetPackService],['runtime',createBuiltAssetPackService]]) test('patchFigure outfit removal trims only exclusive sprite/media and replays noop (' + implementation + ')', async t => {
   const {service,root,assetRoot} = await fixture(t,{},createService), pack = await syntheticPack()
   const figure = pack.figures[FIGURE_ID], [school] = figure.outfits

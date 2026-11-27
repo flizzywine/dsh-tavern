@@ -21,7 +21,7 @@ function subscribeAudio(listener){
 function useEffect(setup,deps){React.useEffect(()=>disposed?undefined:setup(),deps);}
 function usePlayback(frame,{advance,finishSkip,finishTyping}){
     const {sessionId,runtime,reading,auto,skipping,hidden,overlay,typed,current,atEnd,awaiting,sceneHolding,line,performance}=frame;
-    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount,rollPlace}=line;
+    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,voiceEnded,heldMs,film,pageCount,rollPlace}=line;
     const dialogueHeld=performance.dialogueHeld,presentationBusy=performance.busy;
     const pages={length:pageCount};
     // a history page the reader settles on plays its own
@@ -73,12 +73,17 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
             }, 80);
         }
         if (audioBusy) {autoDeadline.current=null;return;}
-        const key=JSON.stringify([sessionId,turn,page,card,inputCard,transitioning ? inputSubtitles.text : subtitles.text,Boolean(voice) && lastCard,reading.autoWait,reading.autoSpeed]);
-        if(autoDeadline.current?.key!==key)autoDeadline.current={key,at:now()+handoffDelay(timing.delay(reading.autoWait,reading.autoSpeed,Boolean(voice) && lastCard,!transitioning ? subtitles.text : inputSubtitles.text),heldMs)};
+        // Only a finished clip earns the post-voice wait. A binding or failed lease is not playback.
+        const voiced=voiceEnded && lastCard, text=transitioning ? inputSubtitles.text : subtitles.text;
+        const key=JSON.stringify([sessionId,turn,page,card,inputCard,text,voiced,reading.autoWait,reading.autoSpeed]);
+        if(autoDeadline.current?.key!==key){
+            const delay=timing.delay(reading.autoWait,reading.autoSpeed,voiced,text);
+            autoDeadline.current={key,at:now()+(voiced ? handoffDelay(delay,heldMs) : delay)};
+        }
         const remaining=timing.remaining(autoDeadline.current.at-now(),holds);
         if(remaining===Infinity)return;
         return timeout(() => advance(), remaining);
-    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible, performance.holdKey]);
+    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, voiceEnded, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible, performance.holdKey]);
     // skip turns a page every GAL_SKIP_PAGE_MS and never waits for a performance (a
     // text card, title or anything still sounding is cut by the next turn); staging snaps and nothing sounds. Only data
     // holds it: a streaming page's text and a paragraph's director prefix. Input, the round's end, its choices or

@@ -21,3 +21,6 @@ test('background candidate failures preserve the last good picture and completio
  f.update('bad',120);f.requests[1].reject(Error('missing'));await tick();assert.equal(f.scene.pending,'');assert.equal(f.scene.layers[0].url,'a');assert.equal(f.warnings.length,1)
  f.owner.dispose();assert.equal(f.made[1].destroyed,1)
 })
+test('a failed first background still opens an empty layer so figures can enter',async()=>{
+ const f=fixture();f.update('bad',0);assert.equal(f.scene.layers.length,0);f.requests[0].reject(Error('missing'));await tick();assert.equal(f.scene.layers.length,1);assert.equal(f.scene.layers[0].url,'')
+})

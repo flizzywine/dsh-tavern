@@ -69,7 +69,7 @@ export function stageHostScript() {
   const Nothing=()=>null,Spinner=Nothing,entries=stageEntries;
   // the core's (?) (settings-ui.js HelpTip) as its closed button; the explanation stays behind it.
   const HelpTip=props=>React.createElement('span',{className:'fork-help-tip'},React.createElement('button',{type:'button',className:'fork-help-tip-button','aria-label':props.label},'?'));
-  const player={cancelPrefetch:noop,play:async()=>{},prefetch:async()=>{},stopPlayback:noop,stop:noop,get:()=>null,getError:()=>null,prioritize:noop,subscribe:off,setEnabled:noop};
+  const player={cancelPrefetch:noop,play:async()=>{},prefetch:async()=>{},stopPlayback:noop,stop:noop,get:()=>null,getError:()=>null,hasEnded:()=>false,prioritize:noop,subscribe:off,setEnabled:noop};
   const options=(overrides={})=>({rpc,
     speech:{player,available:()=>false,speechInput:()=>null,character:()=>null,language:()=>'zh',open:async()=>null},
     sceneColorMath:{galMatrix,galClamp01},
@@ -132,7 +132,7 @@ export function stageHostScript() {
     configFields:{HelpTip,Segmented:Nothing,Slider:Nothing,ResetButton:Nothing,InlineField:Nothing,sounds,classify:()=>null},
     phoneLayout:{storage:null,width:()=>innerWidth,ResetButton:Nothing,sections:[]},
     sourceWidgets:{storage:null,foreground,rpc,sounds,fillInput:noop,signals:{subscribe:off},characters:{character:()=>null,mood:()=>null,moods:()=>[],actor:()=>null,face:()=>null},avatarCache:null,
-      phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,
+      phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,useModOptions:()=>null,
       sandbox:{stopSfx:noop,scroll:noop,theme:()=>null}},
     presentation:{foreground,titleTiming:STAGE_EFFECTS.title,matchMedia,getComputedStyle,ResizeObserver,MutationObserver},
     // the core's face picture (pack-playback.cjs PackImage, real); layered sprite faces stay inert offline

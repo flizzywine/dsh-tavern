@@ -8,7 +8,7 @@
 [
   { "id": "title", "label": "标题", "showOn": { "event": "stage-enter" }, "size": "full", "html": "…" },
   { "id": "status", "label": "状态", "shortcut": "s", "menu": true,
-    "ledger": ["items"], "figures": [{ "name": "辉夜", "emotion": "平静" }], "html": "…" }
+    "ledger": ["items"], "figures": [{ "name": "林小雨", "emotion": "平静" }], "html": "…" }
 ]
 ```
 
@@ -23,7 +23,7 @@
 | `showOn` | 否 | 只能是 `{"event": "stage-enter"}`：进入舞台时打开，见「入口」。 |
 | `initial` | 否 | 只能是 `true`，且必须同时有 `showOn`：只在新聊天里出现的开场页。 |
 | `opening` | 否 | 只能是 `true`，需要 `size:"full"`、不能有 `showOn`，一张卡最多一页，且本卡要有 v2 开局设置（`openingSetup`）：本卡的**开局页**。玩家开新游戏时舞台直接打开这一页，不再出现通用的「游戏准备」；页面用 `opening()` 读开场白、用 `startGame(choice)` 开局，见「开局页」。 |
-| `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口）。手机宽度下两者都铺满。 |
+| `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口；页面开着时舞台停住不再重画，透出来的是它最后一帧）。手机宽度下两者都铺满。 |
 | `closeControl` | 否 | 只能是 `"page"`，且需要 `size:"full"`：页面自己负责关闭和返回。页面显示出来后舞台不画关闭按钮；Esc、本页快捷键、右键交给页面的 `onCloseRequest`，页面决定是先返回自己的上一层（比如从详情回到地图）还是 `close()`。没有登记 `onCloseRequest` 时照常关闭；页面读取中、读取失败时舞台仍画关闭按钮。页面要自己画一个关闭按钮。 |
 | `ledger` | 否 | 要读的台账分区名，最多 8 个、不重复：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。 |
 | `figures` | 否 | 要显示头像的人物，最多 8 个、名字不重复：`name` 是本卡人物名（最多 40 字）；写 `{{user}}` 就是这个聊天里玩家的名字，用来显示玩家自己的头像；`emotion` 是可选的表情名（最多 24 字）。 |
@@ -161,12 +161,12 @@ tavern_update_card({ rawOperations: [
 ```js
 {
   ledger: { items: [{ name: '钥匙', qty: 1, carried: true }] },
-  figures: [{ name: '辉夜', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
+  figures: [{ name: '林小雨', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
   theme: { accent: '#c79060', accentText: '#171717', surface: '#242321', surfaceText: '#faf7f2',
            muted: '#c6c0b8', border: '#70685f', radius: 12, fontFamily: '…', headingFont: '…' },
   saved: true,
   entry: false,
-  card: { name: '辉夜大小姐' }
+  card: { name: '雨巷咖啡馆' }
 }
 ```
 
