@@ -162,7 +162,7 @@ test('开始更新复用已有检查结果，不重复请求或刷新本地身�
   let launchedArguments
   const child = { pid: process.pid, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
   const updater = createApplicationUpdater({
-    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
+    dataRoot: path.join(root, 'data'), sourceRoot: root, dshHome: root, runtimeHost: 'cli', now: () => 1000,
     readLocalIdentity: async () => { identityReads += 1; return knownIdentity },
     fetchGithubManifest: async () => { networkChecks += 1; return publication(latest) },
     compareCommits: async () => { networkChecks += 1; return 'ahead' },
@@ -174,6 +174,7 @@ test('开始更新复用已有检查结果，不重复请求或刷新本地身�
   assert.equal(networkChecks, 2, 'start 不得重复整套远端检查')
   assert.equal(identityReads, 2, 'check 一次，start 只刷新一次身份')
   assert.equal(launchedArguments[launchedArguments.indexOf('--target-commit') + 1], latest)
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, '.tavern-install.lock', 'runtime-manifest.json'), 'utf8')), publication(latest))
   assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
 })
 

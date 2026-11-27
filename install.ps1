@@ -590,7 +590,8 @@ async function readManifest({ metadataUrl, exact, minVersion, targetCommit = '',
     // raw 在受限网络里可能完全不通：给它更短的等待，别让主源拖慢整次安装。
     const rawHost = hostOf(url) === RAW_HOST
     const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, rawHost ? 4000 : 15000),
-      attempts: rawHost ? 1 : attempts, signal: controller.signal, fetch: request })
+      attempts: rawHost ? 1 : attempts, signal: controller.signal, fetch: request,
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } })
     const metadata = JSON.parse(bytes.toString('utf8'))
     runtimeFiles(metadata)
     return { url, metadata }
@@ -958,8 +959,15 @@ async function main(argv) {
   if (command === 'manifest') {
     const [metadataUrl, destination] = rest
     if (!metadataUrl || !destination) throw new Error('用法：download.cjs manifest <清单 URL> <目标文件>')
-    const manifest = await readManifest({ metadataUrl, targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT,
+    const targetCommit = process.env.DSH_TAVERN_TARGET_COMMIT || ''
+    const checkedFile = targetCommit && process.env.DSH_TAVERN_INSTALL_MANIFEST
+    const manifest = checkedFile ? JSON.parse(await fs.readFile(checkedFile, 'utf8')) : await readManifest({ metadataUrl, targetCommit,
       minVersion: options['min-version'], exact: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL) })
+    if (checkedFile) {
+      runtimeFiles(manifest)
+      if (manifest.revision.toLowerCase() !== targetCommit.toLowerCase()) throw new Error('已检查的运行清单与目标提交不符，请重新检查更新。')
+      assertManifestVersion(manifest, options['min-version'])
+    }
     await fs.writeFile(destination, JSON.stringify(manifest))
     return
   }

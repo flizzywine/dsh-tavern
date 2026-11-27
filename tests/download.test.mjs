@@ -235,6 +235,24 @@ test('指定版本的清单一到就取消滞后的镜像请求', async () => {
   assert.deepEqual(aborted.sort(), ['cdn.jsdelivr.net', 'gcore.jsdelivr.net'])
 })
 
+test('安装器使用更新检查保存的清单，仍核对提交和最低版本', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'download-checked-manifest-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const targetCommit = 'a'.repeat(40)
+  const checked = path.join(root, 'checked.json')
+  const destination = path.join(root, 'published.json')
+  const metadata = { revision: targetCommit, version: '3.5.0', files: [{ path: 'package.json', sha256: 'b'.repeat(64), size: 1 }] }
+  await writeFile(checked, JSON.stringify(metadata))
+  const { base, hits } = await serve(t, {})
+  const env = { ...process.env, DSH_TAVERN_TARGET_COMMIT: targetCommit, DSH_TAVERN_INSTALL_MANIFEST: checked }
+  const run = (extra = [], override = {}) => execute(process.execPath, [moduleFile, 'manifest', `${base}/newer-manifest`, destination, ...extra], { env: { ...env, ...override } })
+  await run()
+  assert.deepEqual(JSON.parse(await readFile(destination, 'utf8')), metadata)
+  await assert.rejects(run([], { DSH_TAVERN_TARGET_COMMIT: 'c'.repeat(40) }), /目标提交不符/)
+  await assert.rejects(run(['--min-version', '3.6.0']), /还没更新到 v3\.6\.0/)
+  assert.equal(hits.size, 0)
+})
+
 // A minimal zip writer for tests (stored or deflated entries, UTF-8 names).
 function zipOf(entries) {
   const { deflateRawSync } = require('node:zlib')
