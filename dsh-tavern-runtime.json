@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "66b909066aa00274abdfd71d7278f9ecd6fe61f9",
-  "releaseSequence": 2257,
+  "revision": "b9fbc3f097e4c4cfe00231eeb218415968948c0d",
+  "releaseSequence": 2258,
   "version": "3.5.0",
   "files": [
     {
@@ -1311,8 +1311,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-generation.js",
-      "sha256": "768aff64261f49a804535ffaac0fecedae78a62a3c16c4100bc4fc177b8e309f",
-      "size": 59761
+      "sha256": "c1ecf4a0802ddd93422cf238204ac367ec2e7f53b2abe897920e08c90b381c82",
+      "size": 59801
     },
     {
       "path": "tavern-plugin/lib/domain/asset-image-processing.js",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "95b33c4387938793cd0915273b049d7cdf564376",
+    "commit": "fe88dd919a83d5532841e1fa4ae28aa044bd124d",
     "path": "runtime.zip",
-    "sha256": "d00e11a892d2284ce797e3cd62f7e53578973b3166442f47603fab2636fefed5",
-    "size": 18356533
+    "sha256": "f3a6e1d2ce006f88dd6816aec22dfe446d2a968a3fea9e4318395180ed234251",
+    "size": 18356537
   }
 }
