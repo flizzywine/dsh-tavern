@@ -35,8 +35,13 @@ test('settlement: an out-of-range delta rolls back with the reason, the correcte
   assert.equal(feedback[0].ok, false)
   assert.equal(feedback[0].retryable, true)
   assert.equal(feedback[0].rolledBack, true)
-  assert.match(feedback[0].failures[0].message, /\/stat_data\/机构\/混沌 应不小于 0；这批操作执行后是 -3（执行前 2）/)
-  assert.deepEqual(feedback[0].rejectedOperations, [{ operation: 'delta', path: '/stat_data/机构/混沌', submittedJson: '-5', observedJson: '2' }])
+  // Segmented: only the failing operation goes back, with what it sent, the value now, what is allowed and why.
+  assert.equal(feedback[0].segmented, true)
+  assert.deepEqual(feedback[0].kept, [])
+  assert.equal(feedback[0].currentVariables, undefined)
+  const [row] = feedback[0].rejected
+  assert.deepEqual({ ...row, reason: undefined }, { path: '/stat_data/机构/混沌', op: 'delta', submitted: -5, current: 2, allowed: '应不小于 0', reason: undefined })
+  assert.match(row.reason, /\/stat_data\/机构\/混沌 应不小于 0；这批操作执行后是 -3（执行前 2）/)
   assert.equal(feedback[1].ok, true)
   assert.deepEqual(saved, [0])
   assert.equal(result.receipt.status, 'updated')

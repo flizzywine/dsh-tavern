@@ -13,9 +13,9 @@ function str(value) {
 
 export function createCardOpeningRuntime({
   readCard, worldBooks, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
-  helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime
+  helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime, writeGate
 }) {
-  const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance,
+  const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance, writeGate,
     // the card's extensions with its remote script assets pinned, as getCardOpenings reads them (openingSetup included)
     readRuntimeExtensions: async cardPath => { const extensions = await readCardExtensions(cardPath); return { ...extensions, ...await tavernRemoteAssets.pinExtensions(extensions) } },
     generateRaw: (config, context) => defaultOrderedRawConfig(config) ? openingGenerate(defaultOrderedRawConfig(config), context)

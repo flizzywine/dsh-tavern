@@ -10,6 +10,8 @@ import { persistentStatusDeclarations } from './status-view-declaration.js'
 import { projectTavernHelperWorldbook } from './tavern-helper-worldbook.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
 import { rebindImportedStage } from './stage-import-rebind.js'
+import { validateMvuLimits } from './mvu-limits.js'
+import { admitMvuWrite, createMvuWriteGate } from './mvu-write-gate.js'
 
 const clone = value => structuredClone(value)
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -33,8 +35,8 @@ function location(root, path, create = false) {
   if (Array.isArray(parent)) throw Error('数组内字段迁移需要单独的迁移方案：' + path)
   return object(parent) ? { parent, key } : {}
 }
-const MIGRATION_OPS = ['move', 'remove', 'convert', 'map']
-const MIGRATION_OPS_TEXT = '变量迁移仅支持 move、remove、convert、map'
+const MIGRATION_OPS = ['move', 'remove', 'convert', 'map', 'meter']
+const MIGRATION_OPS_TEXT = '变量迁移仅支持 move、remove、convert、map、meter'
 // A value map renames enumerated values in place: every field the path reaches (a * segment
 // matches each key or element at that level) whose value equals an old value exactly.
 function mapValues(root, path, values) {
@@ -49,10 +51,24 @@ function mapValues(root, path, values) {
   }
   walk(root, 0)
 }
+// A meter joins two integers, the current value and its cap, into one "current/cap" text at path; both sources go.
+function meterValues(data, op) {
+  const current = location(data, op.current), cap = location(data, op.cap)
+  const has = side => side.parent && Object.hasOwn(side.parent, side.key)
+  if (!has(current) && !has(cap)) return // field may not exist in an earlier turn
+  if (!has(current) || !has(cap)) throw Error('「当前/上限」迁移的两项要同时存在：' + op.current + '、' + op.cap)
+  const [now, max] = [current.parent[current.key], cap.parent[cap.key]].map(Number)
+  if (!Number.isInteger(now) || !Number.isInteger(max)) throw Error('「当前/上限」迁移的两项都要是整数：' + op.current + '、' + op.cap)
+  delete current.parent[current.key]; delete cap.parent[cap.key]
+  const target = location(data, op.path, true)
+  if (!target.parent || Object.hasOwn(target.parent, target.key)) throw Error('变量迁移目标已存在：' + op.path)
+  target.parent[target.key] = now + '/' + max
+}
 function migrate(data, operations) {
   for (const op of operations) {
     if (!MIGRATION_OPS.includes(op.op)) throw Error(MIGRATION_OPS_TEXT)
     if (op.op === 'map') { mapValues(data, op.path, op.values); continue }
+    if (op.op === 'meter') { meterValues(data, op); continue }
     const source = location(data, op.op === 'move' ? op.from : op.path)
     pointer(op.path)
     if (!source.parent || !Object.hasOwn(source.parent, source.key)) continue // field may not exist in an earlier turn
@@ -95,6 +111,7 @@ function validatePlans(plans) {
       if (!object(operation) || !MIGRATION_OPS.includes(operation.op)) throw Error(MIGRATION_OPS_TEXT)
       pointer(operation.path)
       if (operation.op === 'move') pointer(operation.from)
+      if (operation.op === 'meter') { pointer(operation.current); pointer(operation.cap) }
       if (operation.op === 'map') {
         const values = operation.values
         if (!object(values) || !Object.keys(values).length || Object.values(values).some(value => typeof value !== 'string')) throw Error('取值映射 values 必须是 {"旧值": "新值"} 形式的非空对象：' + operation.path)
@@ -106,8 +123,16 @@ function validatePlans(plans) {
     }
   }
 }
-/** Only card-authored, declarative migrations execute; arbitrary JS never rewrites saves. */
-export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = []) {
+// Without the card's own gate (its rules too, lib/mod-tools.js cardWriteGate): the limits of the new initial values.
+function defaultsGate(defaults) {
+  const limits = validateMvuLimits(defaults).normalized || []
+  return limits.length ? createMvuWriteGate({ limits }) : null
+}
+/**
+ * Only card-authored, declarative migrations execute; arbitrary JS never rewrites saves. Each migrated snapshot passes the
+ * card's write gate as migration (only the values it changed): a break fails the update, a clamp limit brings a value back.
+ */
+export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = [], gate = defaultsGate(defaults)) {
   validatePlans(plans)
   let count = 0
   function visit(value) {
@@ -115,6 +140,7 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
     if (object(value.stat_data) && Object.hasOwn(value, 'schema')) {
       // Change check only: keep the serialized snapshot instead of hashing it before and after.
       const beforeData = JSON.stringify(value.stat_data)
+      const original = gate ? clone(value.stat_data) : null
       const done = value.dshCardMigrations || {}
       if (plans.length) value.dshCardMigrations = done
       for (const plan of plans) {
@@ -125,6 +151,7 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
         const schemaPath = path => '/' + pointer(path).flatMap(key => ['properties', key.replace(/~/g, '~0').replace(/\//g, '~1')]).join('/')
         for (const op of plan.operations) {
           if (op.op === 'map') continue // values only; the shape stays
+          if (op.op === 'meter') { migrate(value.schema, [op.current, op.cap].map(path => ({ op: 'remove', path: schemaPath(path) }))); continue } // regenerated below
           if (op.op === 'convert') {
             const target = location(value.schema, schemaPath(op.path))
             if (target.parent) target.parent[target.key] = { ...target.parent[target.key], type: op.type }
@@ -138,6 +165,7 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
       value.schema = {...value.schema,...generateSchema(clone(value.stat_data), value.schema)}
       for (const key of ['strictTemplate','concatTemplateArray','strictSet']) if (Object.hasOwn(defaults.$meta || {},key)) value.schema[key] = defaults.$meta[key]
       cleanUpMetadata(value.stat_data)
+      if (gate) value.stat_data = admitMvuWrite(gate, { source: 'migration', before: { stat_data: original }, after: { stat_data: value.stat_data } }).variables.stat_data
       if (JSON.stringify(value.stat_data) !== beforeData) {
         value.display_data = clone(value.stat_data)
         value.delta_data = {}
@@ -174,7 +202,7 @@ function refreshOpeningInitvar(chat, states) {
 }
 
 /** Preview executes with detached state and an RPC allowlist, never the live session. */
-export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldBook} = {}) {
+export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldBook, writeGate} = {}) {
   const previews = new Map(), cache = new Map()
   const runtime = createServerTemplateRuntime({ readOnly: true, maxSessions: 2, timeoutMs: 15000, rpc: async (method, args) => {
     const snapshot = previews.get(args.sessionId)
@@ -293,7 +321,7 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     // game already had over to the new prefix, as an imported save does, so its rounds keep their scenes.
     rebindImportedStage(chat, migrated, () => {})
     if (unchanged) return migrated
-    const count = migrateCardSnapshots(migrated, defaults, plans, removedPaths)
+    const count = migrateCardSnapshots(migrated, defaults, plans, removedPaths, writeGate ? writeGate(card) : undefined)
     if ((Object.keys(defaults).length && chat.mvu?.enabled || plans.length || removedPaths.length) && !count) throw Error('当前存档缺少可迁移的 MVU 快照，未应用更新')
     return migrated
   }

@@ -103,6 +103,7 @@ export function createMvuSettlementEngine(deps) {
         ...(await deps.pluginApi?.guideSections?.(snapshot.sessionId) || [])],
       variableSchema: mvuTarget.variables.schema,
       variableLimits: cardMvuLimits(card) || [],
+      variableConstraints: deps.variableConstraints?.(card) || null,
       charName: card && card.name,
       macroState: snapshot.macroState,
       updateRules: damperBudgetRule ? [...(Array.isArray(baseUpdateRules) ? baseUpdateRules : []), damperBudgetRule] : baseUpdateRules,

@@ -1,4 +1,5 @@
 import { createMvuSettlementTransactions, mutationIsCurrent } from './mvu-settlement-transactions.js'
+import { admitMvuWrite } from './mvu-write-gate.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
@@ -208,8 +209,12 @@ export function createTavernScriptHostAdapter(options = {}) {
     })
   }
 
-  async function updateVariables(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline) {
-    return serializeMutation('variables:' + sessionId, () => updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline))
+  // source is the interface's, never the caller's: the page's script bridge writes as script, the variable panel as panel.
+  async function updateVariables(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, source = 'script') {
+    const admitted = {}
+    const result = await serializeMutation('variables:' + sessionId, () => updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, true, source, admitted))
+    // What was saved when the gate brought values back into their limits, so the writer shows the saved values.
+    return admitted.clamped?.length && result?.updated ? { ...result, variables: admitted.variables, clamped: admitted.clamped } : result
   }
 
   async function variableMutationSlice(sessionId, option, expectedLifecycleRevision, eventId, baseline) {
@@ -237,7 +242,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { chat:selected.chat, messageId }
   }
 
-  async function updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, allowSlice = true) {
+  async function updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, allowSlice = true, source = 'script', admitted = {}) {
     const scoped = allowSlice ? await variableMutationSlice(sessionId, option, expectedLifecycleRevision, eventId, contextBaseline) : null
     // Global/card variables live outside Chat history. Validate the same
     // lifecycle and script permissions from the header, without decoding messages.
@@ -248,7 +253,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     const chat = scoped?.chat || resourceHeader?.chat || await mutationChat(sessionId, eventId)
     await assertScriptEnabled(chat)
-    if (scoped && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
+    if (scoped && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false, source, admitted)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(resourceHeader ? await resolveChat(sessionId) : chat)
     if (option && option.type === 'global') {
       if (!options.globalVariables || typeof options.globalVariables.save !== 'function') throw new Error('全局变量存储未连接')
@@ -280,7 +285,12 @@ export function createTavernScriptHostAdapter(options = {}) {
       && contextBaseline.lifecycleRevision === (chat.tavernHelperLifecycleRevision || 0)
       && (scoped || (chat.messages || []).every(message => message && typeof message === 'object'))
     if (!option?.type || option.type === 'message') await settlement.touchMessage(sessionId, option?.message_id, eventId)
-    if (canPatch && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
+    if (canPatch && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false, source, admitted)
+    // A write outside a settlement passes the write gate whole (a settlement's own writes are checked by its audit).
+    if (!settlement.has(str(sessionId))) {
+      variables = await admitHostVariables(chat, option, variables, source, undefined, admitted)
+      admitted.variables = variables
+    }
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     const startApplied = layOpeningStartValues(chat, updated)
     // A blank opening has no floor: official MVU initializes it in the chat scope.
@@ -360,11 +370,49 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { updated: true, target: updated, context: await fullContext(chat) }
   }
 
+  // The variables a message or chat write replaces, the gate's source for it (a script on the opening floor before the
+  // first story turn writes the opening), and the variables to save; a broken write throws and is logged for the panel.
+  function variablesBefore(chat, option) {
+    if (option?.type === 'chat') return option.localMutation === undefined ? chat.variables : undefined
+    if (option?.type && option.type !== 'message') return undefined
+    const messages = chat.messages ?? []
+    const message = messages[normalizeMessageId(messages, option?.message_id)]
+    const swipe = Object.hasOwn(option || {}, 'swipe_id') ? Math.max(0, Number(option.swipe_id) || 0) : Math.max(0, Number(message?.swipeId) || 0)
+    return Array.isArray(message?.variables) ? message.variables[swipe] : undefined
+  }
+  async function admitHostVariables(chat, option, variables, source, before = variablesBefore(chat, option), admitted = {}) {
+    if (!variables?.stat_data || (option?.type && !['message','chat'].includes(option.type)) || option?.localMutation !== undefined) return variables
+    const gate = await options.variableGate?.(chat)
+    if (!gate) return variables
+    const from = source === 'script' && (chat.messages?.length ?? 0) <= 1 ? 'opening' : source
+    try {
+      const checked = admitMvuWrite(gate, { source: from, before, after: variables })
+      if (checked.clamped.length) {
+        admitted.clamped = [...(admitted.clamped || []), ...checked.clamped]
+        await options.diagnostics?.record(chat.sessionId, { stage: 'variable-write-clamped', source: from, clamped: checked.clamped })
+      }
+      return checked.variables
+    } catch (error) {
+      if (error?.code === 'DSH_MVU_WRITE_REJECTED') await options.diagnostics?.record(chat.sessionId, { stage: 'variable-write-rejected', source: from, failures: error.failures })
+      throw error
+    }
+  }
+
   async function updateMessages(sessionId, messages, expectedLifecycleRevision, eventId) {
     const chat = await mutationChat(sessionId, eventId)
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
-    const patches = await settlement.prepareMessages(sessionId, messages, eventId)
+    let patches = await settlement.prepareMessages(sessionId, messages, eventId)
+    // data / swipes_data replace a floor's variables: each one passes the write gate like a variables write.
+    if (!settlement.has(str(sessionId)) && Array.isArray(patches)) patches = await Promise.all(patches.map(async patch => {
+      if (!patch || typeof patch !== 'object') return patch
+      const messageId = normalizeMessageId(chat.messages || [], patch.message_id)
+      const row = chat.messages?.[messageId]
+      const next = { ...patch }
+      if (Object.hasOwn(patch, 'data')) next.data = await admitHostVariables(chat, { type: 'message', message_id: messageId, ...(Object.hasOwn(patch, 'swipe_id') ? { swipe_id: patch.swipe_id } : {}) }, patch.data, 'script')
+      if (Array.isArray(patch.swipes_data)) next.swipes_data = await Promise.all(patch.swipes_data.map((value, index) => admitHostVariables(chat, { type: 'message' }, value, 'script', Array.isArray(row?.variables) ? row.variables[index] : undefined)))
+      return next
+    }))
     const canPatch = options.patchChat && Number.isSafeInteger(chat._storageRevision) && chat._storageRevision > 0
       && !settlement.has(str(sessionId))
     let before
@@ -956,7 +1004,16 @@ export function createTavernScriptHostAdapter(options = {}) {
     context,
     dispatchEvent,
     settleMvuUpdate: settlement.settle,
-    editMvuVariables: input => settlement.settle({ ...input, variableEdit: true, durable: false, preserveForeground: true, compactResult: true, baselineVariables: undefined, validate: undefined }),
+    // A widget's edit runs the official executor; its result passes the write gate as widget before the draft commits.
+    // A value past a clamp limit cannot be brought back in the executor's result: it is refused like any other break.
+    editMvuVariables: async input => {
+      const gate = await options.variableGate?.(await resolveChat(input.sessionId))
+      return settlement.settle({ ...input, variableEdit: true, durable: false, preserveForeground: true, compactResult: true, baselineVariables: undefined,
+        validate: gate ? async ({ before, after }) => {
+          const checked = gate.check({ source: 'widget', before, after })
+          return { failures: [...checked.failures, ...checked.clamped.map(row => ({ path: row.path, rule: 'range', value: row.from, message: row.path + ' 超出卡写的范围（应为 ' + JSON.stringify(row.to) + ' 以内）' }))] }
+        } : undefined })
+    },
     updatePrompts,
     updateVariables,
     updateMessages,
