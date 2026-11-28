@@ -2098,17 +2098,7 @@
 			// Whether the left drawer is open on narrow layouts, as of the last render. Opening the right
 			// column used to close it as a side effect; now that it stays shut (#213), close the drawer here.
 			let sidebarWide = false;
-			// dsh-go 在 768..1023px 用自己的抽屉（html[data-dsh-app-layout="drawer"] 且无 data-sidebar-drawer）：
-			// 内部侧栏常驻展开，抽屉显隐由 window.__dshApp 切换 frame[data-dsh-app-drawer]，不能调 ctx.layout.toggleSidebar 折叠内栏。
-			function dshGoAppDrawer() {
-				if (typeof document === "undefined" || typeof window === "undefined") return null;
-				if (document.documentElement.getAttribute("data-dsh-app-layout") !== "drawer") return null;
-				const frame = document.querySelector('[data-slot="root"] > [class*="_frame"]');
-				return frame && !frame.hasAttribute("data-sidebar-drawer") && window.__dshApp ? window.__dshApp : null;
-			}
 			function closeNarrowSidebar() {
-				const appDrawer = dshGoAppDrawer();
-				if (appDrawer && typeof appDrawer.closeSidebar === "function") { appDrawer.closeSidebar(); return; }
 				const frame = typeof document !== "undefined" ? document.querySelector('[data-slot="root"] > [class*="_frame"]') : null;
 				if (frame && frame.hasAttribute("data-sidebar-collapsed")) { sidebarWide = false; return; }
 				if (sidebarWide) { sidebarWide = false; ctx.layout.toggleSidebar(); }
@@ -2145,11 +2135,7 @@
 						notifyTavernDataChanged(["sessions"], "conversation.rename");
 					},
 					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
-					toggleSidebar: function () {
-						const appDrawer = dshGoAppDrawer();
-						if (appDrawer && typeof appDrawer.toggleSidebar === "function") { appDrawer.toggleSidebar(); return; }
-						if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar();
-					},
+					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
 					// Entering a game or the card workspace opens these tabs beside it. On phone-width
 					// layouts the right column covers the story, so leave it closed and show the story (#213).
 					openConversationSettingsTab: async function (sessionId) {
