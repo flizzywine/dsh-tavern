@@ -41,13 +41,14 @@ test('游玩通过一个工具保留 DSH 的正文加载和 Tavern 的受限参�
   } })
   registerSkillTools({ tools, tavernSkills: skills, playSkillAvailable: async () => available,
     skillRoleFor: async () => 'foreground', skillEnabledFor: async () => enabled })
-  const call = (action, path) => definitions.get(USE_SKILL_TOOL).execute({ action, name: 'dialogue', ...(path ? { path } : {}) }, { agent, signal })
+  const call = (action, path, name = 'dialogue') => definitions.get(USE_SKILL_TOOL).execute({ action, name, ...(path ? { path } : {}) }, { agent, signal })
   assert.match((await call('load')).content, /<skill_content name="dialogue"[\s\S]*按场景展开/)
+  await assert.rejects(call('load', undefined, 'future-host-skill'), /未分配/)
   assert.deepEqual(await call('read_reference', 'references/dialogue.md'), { content: '参考写法' })
   await assert.rejects(call('read_reference'), /需要填写 path/)
   await assert.rejects(call('read_reference', '../dialogue.md'), /相对/)
   enabled = false
-  await assert.rejects(call('load'), /unknown|no longer available/)
+  await assert.rejects(call('load'), /未分配/)
   await assert.rejects(call('read_reference', 'references/dialogue.md'), /未分配/)
   available = false
   await assert.rejects(call('load'), /本局未开放/)

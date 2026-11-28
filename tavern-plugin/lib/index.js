@@ -292,7 +292,7 @@ import { appendWritingSkillState } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
-import { createTavernSkillProvider } from './domain/tavern-skill-provider.js'
+import { createTavernSkillProvider, installTavernPlaySkillScope } from './domain/tavern-skill-provider.js'
 import { canonicalTavernSkillName, createTavernSkillModule } from './domain/tavern-skills.js'
 import { readZipEntries } from './domain/zip-entries.js'
 import { createGameFootprint } from './domain/game-footprint.js'
@@ -624,21 +624,23 @@ export async function apply(ctx) {
     if (!sessionId) return null
     if (backgroundAgentRunner.owns(sessionId)) return 'background'
     const chat = await backgroundConfigForSession(sessionId)
-    return chat ? (chat.mode === 'card' ? 'card' : 'foreground') : null
+    return chat ? (groupOfMode(chat.mode) === 'play' ? 'foreground' : 'card') : null
   }
   async function skillEnabledFor(skill, agent) {
     if (await skillRoleFor(agent) !== 'foreground') return true
     const chat = await chatHeaderForSession(agent?.session?.id, ['disabledWritingSkills'])
     return !(chat?.disabledWritingSkills || []).map(canonicalTavernSkillName).includes(skill.name)
   }
+  async function playSkillsFor(sessionId, state) {
+    if (!sessionId || backgroundAgentRunner.owns(sessionId)) return null
+    const chat = state || await chatHeaderForSession(sessionId, ['mode', 'disabledWritingSkills'])
+    if (!chat || groupOfMode(chat.mode) !== 'play') return null
+    const disabled = new Set((chat.disabledWritingSkills || []).map(canonicalTavernSkillName))
+    return (await tavernSkills.list()).filter(skill => skill.agents.includes('foreground') && !disabled.has(skill.name))
+  }
   let invalidateTavernSkills = () => {}
-  // 0.2.x 适配：官方桌面的宿主没有 sessionSkillCatalog 服务；DSH NEXT 有，但它的 scopeFor 改成
-  // scopeFor(agentPreset) 返回可释放的 lease，installSkillCatalogSessionScope 认出后不安装（静默降级）。
-  // tavern 的 Skill 来源仍由下方 host `skills` registry 的 registerProvider 提供；冷菜单查询
-  // 在这个宿主上拿不到 session 身份，按角色过滤（enabledFor）只对活会话生效。
-  // 若宿主后续给出等价接缝，改挂到那个服务上；在此之前保留注入与模块，避免留下孤儿模块。
   ctx.inject(['sessionSkillCatalog'], scope => {
-    scope.effect(() => installSkillCatalogSessionScope(scope.get('sessionSkillCatalog')))
+    scope.effect(() => installSkillCatalogSessionScope(scope.get('sessionSkillCatalog'), playSkillsFor))
   })
   // Plugins' own skills directories (tavern.skillSource): one read-only file provider each.
   const pluginSkillRoots = new Set()
@@ -665,6 +667,7 @@ export async function apply(ctx) {
   }
   const skillRegistry = ctx.get('skills')
   if (!skillRegistry) throw new Error('dsh-tavern: 缺少原生 Skills 服务')
+  ctx.effect(() => installTavernPlaySkillScope(skillRegistry, async scope => await skillRoleFor(scope) === 'foreground'))
   skillRegistry.registerProvider(control => {
     invalidateTavernSkills = () => control.invalidate()
     const providers = [
@@ -4186,6 +4189,7 @@ export async function apply(ctx) {
     fullTemplateRuntime,
     modelRequestLog,
     modelSelection,
+    playSkillsFor,
     pluginCompactionNotes: pluginApi.compactionNotes,
     pluginSettlementProgress,
     requestCoordinates,

@@ -20,6 +20,7 @@ import { isAutoToolOnlyModel, runWithToolProtocolDirective } from '../domain/too
 import { createToolReplyStreamTracker } from '../domain/tool-reply-stream-parser.js'
 import { projectWritingPreparationRequest, PURE_WRITING_REQUEST, WRITING_PREPARATION_REQUEST } from '../domain/pure-writing-request.js'
 import { filterPlayMessages, installPlayContextPolicy } from '../domain/play-request-policy.js'
+import { hasPlaySkillContext } from '../domain/play-skill-context.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -80,6 +81,7 @@ export function registerModelStreamHooks({
   fullTemplateRuntime,
   modelRequestLog,
   modelSelection,
+  playSkillsFor,
   pluginCompactionNotes,
   pluginSettlementProgress,
   replyStarted,
@@ -117,10 +119,11 @@ export function registerModelStreamHooks({
   installPlayContextPolicy(ctx, {
     async stateFor(id) {
       if (backgroundAgentRunner.owns(id)) return null
-      const head = await chatHeaderForSession(str(id), ['mode', 'disabledForegroundTools'])
+      const head = await chatHeaderForSession(str(id), ['mode', 'disabledForegroundTools', 'disabledWritingSkills'])
       return head ? { ...head, mode: head.mode || 'story' } : null
     },
-    systemSectionsFor: foregroundStrategies.systemSectionsFor
+    systemSectionsFor: foregroundStrategies.systemSectionsFor,
+    skillsFor: playSkillsFor
   })
   // Keep scripted openings from old saves out of request and compaction context.
   ctx.on('llm/stream', (request, next) => {
@@ -143,8 +146,11 @@ export function registerModelStreamHooks({
     // verbatim after the summary; other sessions keep DSH's prompt.
     const head = await chatHeaderForSession(str(request.sessionId), [])
     if (!usesStoryCompaction(head)) return { request: routed }
-    if (foreground) routed = projectWithoutStyleReference({ ...routed, messages: filterPlayMessages(routed.messages,
-      text => foregroundStrategies.systemSectionsFor?.(request.sessionId, text)) })
+    if (foreground) {
+      const skills = hasPlaySkillContext(routed.messages) ? (await playSkillsFor?.(request.sessionId)) || [] : undefined
+      routed = projectWithoutStyleReference({ ...routed, messages: filterPlayMessages(routed.messages,
+        text => foregroundStrategies.systemSectionsFor?.(request.sessionId, text), { skills }) })
+    }
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.

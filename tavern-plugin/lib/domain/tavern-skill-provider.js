@@ -1,5 +1,40 @@
 import { realpath } from 'node:fs/promises'
 
+const TAVERN_PROVIDER = 'tavern'
+const isTavernSkill = skill => skill?.provider === TAVERN_PROVIDER
+
+// A provider only controls its own entries. Apply the play policy to the host's
+// merged view as well, including the native /skill invocation path.
+export function installTavernPlaySkillScope(registry, isPlayScope) {
+  const { list, snapshot, get } = registry
+  async function allowedSkills(skills, options) {
+    return skills.every(isTavernSkill) || !await isPlayScope(options?.scope) ? skills : skills.filter(isTavernSkill)
+  }
+  async function scopedList(options) {
+    return allowedSkills(await list.call(this, options), options)
+  }
+  async function scopedSnapshot(options) {
+    const result = await snapshot.call(this, options)
+    const skills = await allowedSkills(result.skills, options)
+    return skills === result.skills ? result : { ...result, skills }
+  }
+  async function scopedGet(name, options) {
+    if (!await isPlayScope(options?.scope)) return get.call(this, name, options)
+    const skills = await list.call(this, options)
+    if (!skills.some(skill => skill.name === name && isTavernSkill(skill))) return undefined
+    const skill = await get.call(this, name, options)
+    return isTavernSkill(skill) ? skill : undefined
+  }
+  registry.list = scopedList
+  if (typeof snapshot === 'function') registry.snapshot = scopedSnapshot
+  registry.get = scopedGet
+  return () => {
+    if (registry.list === scopedList) registry.list = list
+    if (registry.snapshot === scopedSnapshot) registry.snapshot = snapshot
+    if (registry.get === scopedGet) registry.get = get
+  }
+}
+
 async function sameSkillFile(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return false
   if (left === right) return true
@@ -16,7 +51,7 @@ async function sameSkillFile(left, right) {
 // The native registry retains its catalog, scope cache, watchers and skill loader.
 // This provider narrows filesystem candidates to the calling Tavern Agent's role.
 export function createTavernSkillProvider({ providers, library, roleFor, enabledFor = async () => true }) {
-  const name = 'tavern'
+  const name = TAVERN_PROVIDER
   async function allowed(candidate, lookup) {
     const role = await roleFor(lookup.scope)
     if (!role) return false

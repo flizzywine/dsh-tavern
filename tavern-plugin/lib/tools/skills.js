@@ -14,11 +14,16 @@ export function registerSkillTools({
   tavernSkills,
   tools,
 }) {
-  async function readReference({ name, path }, { agent }) {
+  async function modelSkill(name, agent) {
     const role = await skillRoleFor(agent)
     const skill = await tavernSkills.read(name)
     if (!role || !skill?.modelInvocable || !skill.agents.includes(role) || !await skillEnabledFor(skill, agent)) throw new Error('此 Skill 未分配给当前 Agent')
-    return { content: await tavernSkills.readReference(name, path) }
+    return skill
+  }
+
+  async function readReference({ name, path }, { agent }) {
+    const skill = await modelSkill(name, agent)
+    return { content: await tavernSkills.readReference(skill.name, path) }
   }
 
   tools.register(defineTool({
@@ -37,9 +42,10 @@ export function registerSkillTools({
         if (!args.path?.trim()) throw new Error('读取 Skill 参考需要填写 path')
         return readReference(args, exec)
       }
+      const skill = await modelSkill(args.name, exec.agent)
       const native = typeof tools.executable === 'function' ? tools.executable('skill', exec.agent) : tools.get('skill', exec.agent)
       if (!native) throw new Error('当前 Agent 没有可用的 DSH Skill 加载器')
-      const input = { name: args.name }
+      const input = { name: skill.name }
       const value = await native.execute(input, exec)
       return { content: native.output.render(input, value).filter(block => block.type === 'text').map(block => block.text).join('') }
     }

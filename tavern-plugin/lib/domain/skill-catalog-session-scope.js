@@ -9,10 +9,19 @@ const { bindScopeParent } = await import(pathToFileURL(hostRequire.resolve('@dee
 // preset scope. Preserve its ancestry while giving Tavern a session identity and isolated cache key.
 // DSH 0.2.x's scopeFor(agentPreset) returns a disposable preset lease instead (DSH NEXT still mounts
 // this service); wrapping it would hand the host a plain object to dispose, so it is left as it is.
-export function installSkillCatalogSessionScope(catalog) {
+export function installSkillCatalogSessionScope(catalog, playSkillsFor) {
   if (typeof catalog?.scopeFor !== 'function') throw new Error('Skill catalog scopeFor is unavailable')
-  if (catalog.scopeFor.length < 2) return () => {}
-  const original = catalog.scopeFor
+  const { list, scopeFor: original } = catalog
+  // A cold 0.2.x preset lease cannot identify the game to the skill registry.
+  // The remote entry point still has the session ID, so apply the same policy there.
+  async function listForSession(request, signal) {
+    const result = await list.call(this, request, signal)
+    const skills = await playSkillsFor(request.sessionId)
+    signal?.throwIfAborted()
+    return skills ? { ...result, skills: skills.filter(skill => skill.userInvocable).map(({ name, path, description, modelInvocable }) =>
+      ({ name, path, description, modelInvocable })) } : result
+  }
+  if (playSkillsFor && typeof list === 'function') catalog.list = listForSession
   const scopes = new Map()
   async function scopeFor(sessionId, preset) {
     const parent = await original.call(this, sessionId, preset)
@@ -26,8 +35,9 @@ export function installSkillCatalogSessionScope(catalog) {
     if (scopes.size > 512) scopes.delete(scopes.keys().next().value)
     return scope
   }
-  catalog.scopeFor = scopeFor
+  if (original.length >= 2) catalog.scopeFor = scopeFor
   return () => {
+    if (catalog.list === listForSession) catalog.list = list
     if (catalog.scopeFor === scopeFor) catalog.scopeFor = original
     scopes.clear()
   }

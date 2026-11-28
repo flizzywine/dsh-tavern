@@ -2,6 +2,7 @@ import { isCompactionCheckpointMessage } from './compaction-checkpoint.js'
 import { normalizeDisabledForegroundTools, QUERY_LOREBOOK_TOOL, USE_SKILL_TOOL } from './foreground-tools.js'
 import { isSystemPromptSource, sourceProducerName } from './message-source.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
+import { hasPlaySkillContext, projectPlaySkillMessages } from './play-skill-context.js'
 import reminders from './system-reminders.cjs'
 
 export const isPlayMode = mode => mode === 'story' || mode === 'script'
@@ -36,7 +37,7 @@ function labelledSystem(text, systemSections) {
     .filter(section => section.text)
 }
 
-function playMessage(message, systemSections, skillToolEnabled) {
+function playMessage(message, systemSections) {
   const source = message?.source
   if (message?.role === 'system') {
     if (tavernProducers.has(sourceProducerName(source))) return message
@@ -52,38 +53,31 @@ function playMessage(message, systemSections, skillToolEnabled) {
   if (message?.role === 'assistant') return !source || source.kind === 'model' || tavernProducers.has(sourceProducerName(source)) ? message : null
   if (message?.role === 'tool') return message
   if (message?.role !== 'user') return null
-  if (skillToolEnabled !== undefined && (source?.kind === 'skill-catalog' ||
-    (reminders.tavernIsSkillReminder(source) && message.content?.some(block => block.type === 'text' && block.text?.includes('<available_skills>'))))) {
-    if (!skillToolEnabled) return null
-    const content = message.content?.map(block => {
-      if (block.type !== 'text' || !block.text?.includes('`skill` tool')) return block
-      return { ...block, text: block.text.replaceAll('`skill` tool', '`' + USE_SKILL_TOOL + '` tool') }
-    })
-    return content?.some((block, index) => block !== message.content[index]) ? { ...message, content } : message
-  }
   if (!source || ['user', 'human'].includes(source.kind) || tavernProducers.has(sourceProducerName(source)) ||
     reminders.tavernIsSkillReminder(source) || isCompactionCheckpointMessage(message)) return message
   return null
 }
 
-export function filterPlayMessages(messages, systemSections, { skillToolEnabled } = {}) {
+export function filterPlayMessages(messages, systemSections, { skills, skillToolEnabled = false } = {}) {
   if (!Array.isArray(messages)) return messages
-  const allowed = messages.map(message => playMessage(message, systemSections, skillToolEnabled))
-  return allowed.every((message, index) => message === messages[index]) ? messages : allowed.filter(Boolean)
+  const projected = skills ? projectPlaySkillMessages(messages, skills, skillToolEnabled) : messages
+  const allowed = projected.map(message => playMessage(message, systemSections))
+  return allowed.every((message, index) => message === projected[index]) ? projected : allowed.filter(Boolean)
 }
 
 const PROJECTED = 'tavern-play-context'
 
 // Also check at the model boundary. DSH can refresh required contexts after assembly,
 // and resumed sessions may still carry previously accepted host messages.
-export function installPlayContextPolicy(ctx, { stateFor, systemSectionsFor }) {
+export function installPlayContextPolicy(ctx, { stateFor, systemSectionsFor, skillsFor }) {
   ctx.on('llm/stream', (request, next) => (async function * () {
     const state = request?.sessionId && request.purpose === undefined && !requestHandledBy(request, PROJECTED)
       ? await stateFor(request.sessionId) : null
     if (isPlayMode(state?.mode)) {
       const systemSections = text => systemSectionsFor?.(request.sessionId, text)
       const skillToolEnabled = !normalizeDisabledForegroundTools(state.disabledForegroundTools).includes(USE_SKILL_TOOL)
-      const messages = filterPlayMessages(request.messages, systemSections, { skillToolEnabled })
+      const skills = hasPlaySkillContext(request.messages) ? (await skillsFor?.(request.sessionId, state)) || [] : undefined
+      const messages = filterPlayMessages(request.messages, systemSections, { skills, skillToolEnabled })
       const { toolHistory, system, ...current } = request
       if (typeof system === 'string' && system) {
         // Older hosts render plain `system` text instead of structured system messages.

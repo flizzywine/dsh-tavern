@@ -8,6 +8,20 @@ const hostRequire = createRequire(pluginRequire.resolve('@deepseek-ai/dsh-tools'
 const { SessionSkillCatalog } = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/dsh-api-session-controller')))
 const { scopeChainOf } = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/dsh-scope')))
 
+test('cold play menus list only user-invocable writing skills while other sessions keep the host menu', async () => {
+  const host = { skills: [{ name: 'host-probe' }] }
+  const catalog = { async scopeFor(preset) { return { key: preset } }, async list() { return host } }
+  const restore = installSkillCatalogSessionScope(catalog, async id => id === 'play' ? [
+    { name: 'dialogue', description: '写作', userInvocable: true, modelInvocable: false },
+    { name: 'model-only', userInvocable: false, modelInvocable: true }
+  ] : id === 'empty' ? [] : null)
+  assert.deepEqual((await catalog.list({ sessionId: 'play' })).skills.map(skill => [skill.name, skill.modelInvocable]), [['dialogue', false]])
+  assert.deepEqual(await catalog.list({ sessionId: 'empty' }), { skills: [] })
+  assert.equal(await catalog.list({ sessionId: 'card' }), host)
+  restore()
+  assert.equal(await catalog.list({ sessionId: 'play' }), host)
+})
+
 test('DSH 0.1.5: cold skills/list scopes get a session identity, keep the preset ancestry, and reuse one key per session', async () => {
   const presetScope = {}
   const catalog = { async scopeFor(sessionId, preset) { return preset === 'tavern' ? presetScope : undefined } }
