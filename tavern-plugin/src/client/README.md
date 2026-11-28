@@ -20,5 +20,7 @@
 `@include-esm <文件> as <绑定>` 将标准 ES 模块及其导入打包到独立作用域。
 对话启动、失败重试和首份视图接入使用这个入口，测试可以直接导入源码。
 
+`stage-session-binding.js` 装配聊天宿主提供给舞台的会话数据和生命周期。`stage-client-loader.cjs` 根据服务器状态、打开的会话和工作台需求发布可用性，舞台插件订阅同一份快照来挂载或清理视图。排查重复查询或关闭后的迟到加载时，先看 `tests/stage-client-on-demand.test.mjs`。
+
 修改后运行构建、`node bin/build-tavern-client.mjs --check` 和相关测试。
 需要执行客户端函数的测试读取构建产物，避免依赖函数位于哪个源码片段。

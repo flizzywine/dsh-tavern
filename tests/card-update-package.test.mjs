@@ -190,3 +190,14 @@ test('a release sent before releases were recorded is read back from its file as
   const again = await exported(author.files, cardPath, { baseRelease: added.id }, join(author.root, 'again.dshcard'))
   assert.equal(JSON.parse(again.entries.get('dsh.json')).formatVersion, 2)
 })
+
+test('清空记录: every release of the card is forgotten and no earlier version is a base any more', async t => {
+  const { author, cardPath, files, packId } = await authorRelease(t)
+  const added = await author.files.addCardReleaseFromFile(cardPath, files.v1, 'v1.dshcard')
+  assert.ok((await author.files.listCardReleases(cardPath)).releases.length >= 1)
+  const { removed } = await author.files.clearCardReleases(cardPath)
+  assert.ok(removed >= 1)
+  assert.deepEqual((await author.files.listCardReleases(cardPath)).releases, [])
+  await assert.rejects(author.files.estimateCardUpdate(cardPath, added.id, [packId]), /找不到作为基础的版本/)
+  assert.deepEqual(await author.files.clearCardReleases(cardPath), { removed: 0 }, 'clearing nothing is fine')
+})

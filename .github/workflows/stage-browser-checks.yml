@@ -1,0 +1,48 @@
+name: Stage browser checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stage-browser-checks.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/**'
+      - 'bin/build-tavern-client.mjs'
+      - 'tavern-plugin/packages/dsh-tavern-stage/**'
+      - 'tavern-plugin/packages/dsh-asset-library/**'
+      - 'tavern-plugin/packages/dsh-presentation-protocol/**'
+      - 'tavern-plugin/src/client/**'
+      - 'tavern-plugin/shared/**'
+      - 'tavern-plugin/lib/client.js'
+      - 'tavern-plugin/lib/vendor/**'
+      - 'tavern-plugin/lib/domain/stage-*.cjs'
+      - 'tavern-plugin/lib/domain/pack-avatar.cjs'
+      - 'tests/fork-stage-figure-video-scene-browser.test.mjs'
+      - 'tests/fixtures/browser-react.mjs'
+      - 'tests/fixtures/stage-video/**'
+      - 'tests/helpers/**'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-browser:
+    name: Stage browser
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.12.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium --only-shell
+      - name: Create a Pixi stage and render figures in headless Chromium
+        run: node --test tests/fork-stage-figure-video-scene-browser.test.mjs
