@@ -1,7 +1,7 @@
 {
   "name": "dsh-tavern-style-recall",
-  "version": "1.3.0",
-  "description": "全局配置文风联想，可绑定剧本库里的小说，或由后台模型联想范文。",
+  "version": "1.4.0",
+  "description": "文风参考：从剧本库选取小说原文，供正文写作参考。",
   "type": "module",
   "exports": { ".": "./lib/index.js", "./client": "./client.js" },
   "dsh": { "client": { "platform": "web", "inject": ["dsh-tavern-plugin"] } },

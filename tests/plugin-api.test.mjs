@@ -188,7 +188,7 @@ test('剧本库顺序读取接口（scriptLibraryRead）：支持元信息哈希
   await assert.rejects(cardPlugin.readScriptRange({ path: source, start: 0, count: 4 }), { code: 'TAVERN_PLUGIN_SCOPE' })
 })
 
-test('文风联想从全局小说直接选段，或用后台模型为本轮生成范文', { skip: !cordis }, async t => {
+test('文风参考只从全局小说选段，旧自行联想设置升级后关闭', { skip: !cordis }, async t => {
   const cards = { one: 'cards/a.json', another: 'cards/a.json', other: 'cards/b.json' }
   const source = 'materials/夜雨.txt'
   const chunks = Array.from({ length: 20 }, (_, order) => ({ id: 'chunk-' + order, order,
@@ -198,22 +198,19 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   const scriptLibrary = createScriptLibrary({ fileResources: { list: async () => book ? [source] : [] },
     readScript: async path => { await beforeReadScript(); return path === source ? book : undefined } })
   let stored = { bindings: { [cards.one]: { source, enabled: true } } }
-  let generate = async () => ({ text: '一阵雨落在深巷。' })
-  const runTask = t.mock.fn(input => generate(input))
   const h = await harness(t, {
     scriptLibrary,
-    tools: { register() { assert.fail('文风联想不注册前台工具') } },
+    tools: { register() { assert.fail('文风参考不注册前台工具') } },
     data: createPluginData({ store: memoryStore() }),
     resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
     cardPathOf: async gameId => cards[gameId],
-    readCard: async gameId => cards[gameId] ? { name: '阿雨', scenario: '旧城' } : null,
     cardScope: async () => new Map([['card-plugin', { cards: [cards.one] }]]),
     pluginData: { read: async () => structuredClone(stored), save: async (_owner, data) => { stored = structuredClone(data) } },
     readHistory: async (_game, from, to) => {
       assert.deepEqual([from, to], [1, 2])
       return [{ input: '走进长街', text: '他们在长街避雨。' }]
     },
-    runTask
+    runTask() { assert.fail('文风参考不调用后台模型') }
   })
   const fiber = await h.root.plugin(styleRecall)
   let otherPlugin
@@ -224,16 +221,16 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   await assert.rejects(otherPlugin.getGameCardId({ gameId: 'other' }), { code: 'TAVERN_PLUGIN_SCOPE' })
   const rpc = (action, args) => h.api.callHandler(styleRecall.name + '/' + action, args)
   const turn = (gameId = 'one', options = {}) => h.api.turnContext({ gameId, turn: 8, storyTurn: 3, input: '继续', ...options })
-  const novel = (source, enabled) => ({ source, enabled, mode: 'novel', guidance: '' })
+  const novel = (source, enabled) => ({ source, enabled })
 
   assert.deepEqual(await rpc('settings', {}), {
-    sources: [{ path: source, title: book.title }], settings: novel('', false), backgroundAvailable: true, reference: null
+    sources: [{ path: source, title: book.title }], settings: novel('', false)
   })
   assert.deepEqual((await rpc('settings', { gameId: 'one' })).settings, novel('', false), '升级时等玩家选择全局小说')
   await assert.rejects(rpc('save', { source: 'materials/不存在.txt', enabled: true }), /找不到/)
   assert.deepEqual(await turn(), [])
   assert.deepEqual(await turn('other'), [])
-  await rpc('save', { source, enabled: true })
+  stored.settings = { ...novel(source, true), mode: 'novel', guidance: '' }
   assert.deepEqual((await rpc('settings', { gameId: 'other' })).settings, novel(source, true))
   assert.deepEqual(await turn('one', { target: 'call' }), [])
   const [section] = await turn()
@@ -252,77 +249,43 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   assert.equal(projected[0].content[0].text, '其他插件内容')
   assert.equal(projected[2], nativeFrame)
   assert.equal(projectWithoutStyleReference({ messages: projected }).messages.at(-1), nativeFrame)
-  assert.equal(runTask.mock.callCount(), 0, '小说选段不调用后台模型')
   assert.deepEqual(await rpc('save', { enabled: false }), novel(source, false))
   assert.deepEqual(await turn('other'), [], '关闭后其他人物卡也不再收到参考小说')
 
-  const background = { source, enabled: true, mode: 'background', guidance: '写得克制一些' }
-  stored.settings = { ...background, mode: 'foreground' }
-  assert.deepEqual((await rpc('settings', {})).settings, background, '旧设置沿用后台模式')
-  assert.deepEqual(await rpc('save', background), background)
-  assert.deepEqual(await turn('one', { target: 'call' }), [])
-  const [generated] = await turn()
-  assert.equal(runTask.mock.callCount(), 1)
-  const [task] = runTask.mock.calls[0].arguments
-  assert.equal(task.gameId, 'one')
-  assert.match(task.system, /只输出范文本身/)
-  assert.deepEqual(task.tools, [])
-  assert.deepEqual(JSON.parse(task.prompt), {
-    人物: { 名字: '阿雨', 描述: '', 性格: '', 情境: '旧城' }, 前情: [{ 输入: '走进长街', 正文: '他们在长街避雨。' }],
-    本轮输入: '继续', 文风偏好: background.guidance
-  })
-  assert.equal(generated.writingReference, true)
-  assert.equal(generated.text, '<文风参考>\n模仿以下文风。\n\n一阵雨落在深巷。\n</文风参考>')
-  assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
-  assert.equal((await rpc('settings', { gameId: 'another' })).reference, null)
-
-  generate = async () => { throw new Error('后台模型不可用') }
-  assert.deepEqual(await turn(), [])
-  assert.ok(h.errors().some(error => error.message === '后台模型不可用'))
-  const started = Promise.withResolvers()
-  const finish = Promise.withResolvers()
-  const abort = new AbortController()
-  generate = async task => { started.resolve(task.signal); return await finish.promise }
-  const abortedTurn = turn('one', { signal: abort.signal })
-  const taskSignal = await started.promise
-  abort.abort()
-  assert.equal(taskSignal.aborted, true)
-  finish.resolve({ text: '过期范文' })
-  assert.deepEqual(await abortedTurn, [])
-  assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
-  const disabling = Promise.withResolvers()
-  const lateQuote = Promise.withResolvers()
-  generate = async task => { disabling.resolve(task.signal); return await lateQuote.promise }
-  const pendingBackground = turn()
-  const disablingSignal = await disabling.promise
-  assert.deepEqual(await rpc('save', { enabled: false }), { ...background, enabled: false })
-  assert.equal(disablingSignal.aborted, true)
-  lateQuote.resolve({ text: '关闭后迟到的范文' })
-  assert.deepEqual(await pendingBackground, [])
-  assert.deepEqual(await turn('other'), [])
-  assert.deepEqual(await rpc('save', { guidance: '新的文风偏好' }), { ...background, guidance: '新的文风偏好', enabled: false })
-  assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
-  await rpc('save', novel(source, true))
-
-  const ready = Promise.withResolvers()
-  const release = Promise.withResolvers()
-  const controller = new AbortController()
-  beforeReadScript = async () => {
-    ready.resolve()
-    await release.promise
+  for (const mode of ['background', 'foreground']) {
+    stored.settings = { ...novel(source, true), mode, guidance: '旧文风偏好' }
+    assert.deepEqual((await rpc('settings', { gameId: 'one' })).settings, novel(source, false))
+    assert.deepEqual(await turn(), [])
+    await assert.rejects(rpc('save', { enabled: true, mode }), /只支持从剧本库选段/)
   }
-  const pending = turn('one', { signal: controller.signal })
-  await ready.promise
-  controller.abort()
-  release.resolve()
-  assert.deepEqual(await pending, [])
+  assert.deepEqual(await rpc('save', { enabled: true }), novel(source, true))
+  assert.deepEqual(stored.settings, novel(source, true))
+  assert.deepEqual(await turn(), [section])
+
+  for (const stop of ['turn', 'setting']) {
+    const ready = Promise.withResolvers()
+    const release = Promise.withResolvers()
+    const controller = new AbortController()
+    beforeReadScript = async () => { ready.resolve(); await release.promise }
+    const pending = turn('one', { signal: controller.signal })
+    await ready.promise
+    if (stop === 'turn') controller.abort()
+    else {
+      await rpc('save', { enabled: false })
+      beforeReadScript = async () => {}
+      await rpc('save', { enabled: true })
+    }
+    release.resolve()
+    assert.deepEqual(await pending, [])
+  }
+  beforeReadScript = async () => {}
   book = undefined
   assert.deepEqual(await turn(), [])
   await rpc('save', { source, enabled: false })
   assert.deepEqual((await rpc('settings', { gameId: 'another' })).settings, novel(source, false))
   await rpc('save', { source: '', enabled: false })
   assert.deepEqual(stored.bindings, { [cards.one]: { source, enabled: true } })
-  assert.equal(runTask.mock.callCount(), 4)
+  assert.deepEqual(h.errors(), [])
   await fiber.dispose()
   assert.deepEqual(await turn(), [])
 })
