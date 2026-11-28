@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0b6de1f170f055e820a93b2a558ecd5aa2eaf330",
-  "releaseSequence": 2251,
+  "revision": "7b5acbb9dff1ad7b7765d563140de8970c828911",
+  "releaseSequence": 2252,
   "version": "3.5.0",
   "files": [
     {
@@ -2011,8 +2011,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-text-export.js",
-      "sha256": "b2fcda0ab0e8449742852f7dba7e406dd24b74b0742e9615a3bf700491aace9d",
-      "size": 6717
+      "sha256": "b62d3b29c4cee73d3858c9f8b6adcaf4fc4bf6569b2025c8aee4af20c88c3a05",
+      "size": 7178
     },
     {
       "path": "tavern-plugin/lib/domain/coordination-event-publisher.js",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "2873a169a65e35d305ba8247e96879eb57286155",
+    "commit": "ea4cb3c1ed19eeb6240a1ebfd04c72b39bc1d652",
     "path": "runtime.zip",
-    "sha256": "8e2f2069616101af9c3095da992110d450f532d878da0c0117af95c176fa9fa5",
-    "size": 18354460
+    "sha256": "b4ba94f639177c014d055553ad9f2d2b18d2da49b993a239b68631f824493155",
+    "size": 18354599
   }
 }
