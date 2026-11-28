@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildBodyRegenerationMaterials, captureBodyRegenerationSource, visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
+import { publicBodyMaterials } from '../tavern-plugin/lib/domain/body-generation-materials.js'
 
 test('正文生成与旧轮重生成材料只保留玩家称呼和人物卡上下文', () => {
   const card = { name: '人物卡' }
@@ -12,11 +13,15 @@ test('正文生成与旧轮重生成材料只保留玩家称呼和人物卡上�
   assert.equal(capture.cardContext, stable)
   assert.deepEqual(capture.persona, { name: '玩家', description: '' })
   const archived = { ...capture, cardContext: cardContextSnapshot, persona: { name: '玩家', description: '旧偏好' } }
-  const frame = { kind: 'foreground', turn: 2, userInput: { sourceText: '继续' }, contributions: [], source: { regenerationMaterials: archived } }
+  const frame = { kind: 'foreground', turn: 2, userInput: { sourceText: '继续' }, contributions: [
+    { slot: 'currentStateProjection', text: '本轮范文', source: { writingReference: true } },
+    { slot: 'currentStateProjection', text: '其他插件状态' }
+  ], source: { regenerationMaterials: archived } }
   const chat = { ...beforeChat, foregroundFrames: { frame } }
   const dto = buildBodyRegenerationMaterials({ chat, beforeChat, turn: 2, kind: 'generate', targetInput: { raw: '继续' } })
   assert.equal(dto.cardContext, stable)
   assert.deepEqual(dto.persona, { name: '玩家', description: '' })
+  assert.deepEqual(publicBodyMaterials(dto).context.filter(section => section.kind === 'writing-rules').map(section => section.text), ['本轮范文'])
   assert.equal(frame.source.regenerationMaterials.persona.description, '旧偏好')
 })
 

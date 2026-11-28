@@ -207,8 +207,10 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
   const worldText = [...new Set([text(captured?.worldbookPrefix), ...entries.map(entry => entry.text), ...worldSections, lookupText].filter(Boolean))].join('\n\n')
   const refs = [...new Set([...entries.map(entry => entry.ref), ...(frame.source?.worldBook?.refs || []).map(ref =>
     typeof ref === 'string' ? ref : text(ref?.ref)).filter(Boolean)])]
-  const requirements = frame.contributions.filter(item => ['writingRules', 'guide', 'scriptReference'].includes(item?.slot))
-    .map(item => ({ kind: item.slot, text: text(item.text) })).filter(item => item.text)
+  const requirements = frame.contributions
+    .filter(item => item?.source?.writingReference === true || ['writingRules', 'guide', 'scriptReference'].includes(item?.slot))
+    .map(item => ({ kind: item.source?.writingReference === true ? 'writingRules' : item.slot, text: text(item.text) }))
+    .filter(item => item.text)
   const dto = {
     schemaVersion: 1,
     trigger: kind === 'generate' ? 'normal' : 'regenerate',

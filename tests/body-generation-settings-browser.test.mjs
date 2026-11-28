@@ -47,8 +47,8 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
     if (name === 'dsh-tavern-stcontext/config') return { presets: [], settings: {}, hostReady: true }
     if (name === 'dsh-tavern-stcontext/models') return { groups: [] }
     if (name === 'dsh-tavern-style-recall/settings') return {
-      settings: { enabled: false, mode: 'foreground', guidance: '', source: '' },
-      sources: [], foregroundAvailable: true
+      settings: { enabled: false, mode: 'background', guidance: '', source: '' },
+      sources: [], backgroundAvailable: true
     }
     throw new Error('Unexpected plugin request: ' + name)
   })
@@ -97,5 +97,6 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
   assert.deepEqual(defaults, { mode: 'plugin-tool-call', hostRegex: true })
   await page.getByRole('button', { name: '文风联想', exact: true }).click()
   await page.getByRole('heading', { name: '文风联想', exact: true }).waitFor()
+  await page.getByText('每轮由本局后台模型联想范文，正文生成时参考。', { exact: true }).waitFor()
   await page.getByRole('textbox', { name: /文风偏好/ }).waitFor()
 })

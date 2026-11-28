@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const name = 'dsh-tavern-style-recall'
     const { createElement: h, useEffect, useId, useState } = require('react')
-    const modes = [['novel', '从剧本库选段'], ['foreground', '前台自行联想']]
+    const modes = [['novel', '从剧本库选段'], ['background', '后台自行联想']]
 
     function BookList({ components, sources, selected, missing, disabled, onSelect }) {
       const { EmptyState, Icon, SearchBox } = components
@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
           setSettings(result)
           setDraft(result.settings)
           setReference(result.reference)
-          if (result.foregroundAvailable && gameId) unwatch = ui.watchState(gameId, 'foreground-reference', next => {
+          if (result.backgroundAvailable && gameId) unwatch = ui.watchState(gameId, 'background-reference', next => {
             if (active && next) setReference(next)
           })
         }).catch(reason => {
@@ -73,9 +73,9 @@ window.__ModuleLoader__.load({
           : h('p', { className: 'style-recall-feedback', role: 'status' }, h(Spinner), '正在读取剧本库…'))
       const available = settings.sources.some(item => item.path === draft.source)
       const missing = Boolean(draft.source) && !available
-      const foreground = draft.mode === 'foreground'
+      const background = draft.mode === 'background'
       const dirty = Object.keys(draft).some(key => draft[key] !== settings.settings[key])
-      const canSave = dirty && !saving && (foreground || !missing || !draft.enabled)
+      const canSave = dirty && !saving && (!draft.enabled || (background ? settings.backgroundAvailable : available))
 
       async function save(event) {
         event.preventDefault()
@@ -101,28 +101,28 @@ window.__ModuleLoader__.load({
           h('div', { className: 'style-recall-toggle' },
             h('label', { htmlFor: switchId }, '启用'),
             h(Switch, { id: switchId, label: '开启文风联想', checked: draft.enabled,
-              disabled: saving || (!foreground && !available && !draft.enabled),
+              disabled: saving || (!draft.enabled && (background ? !settings.backgroundAvailable : !available)),
               onChange: enabled => setDraft({ ...draft, enabled }) }))),
         h('section', { className: 'style-recall-section', 'aria-labelledby': wayId },
           h('h3', { id: wayId }, '联想方式'),
-          settings.foregroundAvailable && h(Segmented, { base: 'style-recall-mode', label: '联想方式', value: draft.mode,
-            options: modes, disabled: saving, onChange: mode => setDraft({ ...draft, mode, enabled: draft.enabled && (mode === 'foreground' || available) }) }),
-          h('p', { className: 'style-recall-meta' }, foreground ? '正文模型自行联想范文，仅用于自由游玩。' : '每轮按关键词匹配一段小说原文，同分时随机抽取。')),
-        foreground ? h('label', { className: 'style-recall-section style-recall-guidance' },
+          (settings.backgroundAvailable || background) && h(Segmented, { base: 'style-recall-mode', label: '联想方式', value: draft.mode,
+            options: settings.backgroundAvailable ? modes : [modes[0], [...modes[1], true]], disabled: saving,
+            onChange: mode => setDraft({ ...draft, mode, enabled: draft.enabled && (mode === 'background' || available) }) }),
+          h('p', { className: 'style-recall-meta' }, background ? '每轮由本局后台模型联想范文，正文生成时参考。' : '每轮按关键词匹配一段小说原文，同分时随机抽取。')),
+        background ? h('label', { className: 'style-recall-section style-recall-guidance' },
           h('span', null, '文风偏好', h('small', null, '可选')),
           h('textarea', { rows: 3, value: draft.guidance, maxLength: 500, disabled: saving,
             placeholder: '例如：对白简短，描写多留白', onChange: event => setDraft({ ...draft, guidance: event.target.value }) }))
           : h(BookList, { components, sources: settings.sources, selected: draft.source, missing, disabled: saving,
             onSelect: source => setDraft({ ...draft, source, enabled: Boolean(source) && !missing && draft.enabled }) }),
-        foreground && reference?.quote && h('details', { className: 'style-recall-reference' }, h('summary', null, '本局最近一次前台联想'),
-          reference.book && h('p', { className: 'style-recall-meta' }, '《' + reference.book + '》' + reference.author),
+        background && reference?.quote && h('details', { className: 'style-recall-reference' }, h('summary', null, '本局最近一次后台联想'),
           h('blockquote', null, reference.quote)),
         error && h('p', { className: 'style-recall-notice', role: 'alert' }, error),
         h('footer', { className: 'style-recall-footer' },
           h('span', { className: 'style-recall-feedback', role: 'status' },
             saved && !dirty ? h(Icon, { name: 'check', size: 15 }) : null,
             saving ? '正在保存…' : dirty ? '有未保存的修改' : saved ? '已保存'
-              : !foreground && !available && settings.sources.length ? '选好参考小说后即可开启' : null),
+              : !background && !available && settings.sources.length ? '选好参考小说后即可开启' : null),
           h('button', { type: 'submit', className: 'style-recall-save', disabled: !canSave }, '保存全局设置')))
     }
 
@@ -142,7 +142,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: name, order: 116, label: () => '文风联想'
         }, ({ view }) => view === 'summary'
-          ? '从小说中选段，或由正文模型自行联想范文。'
+          ? '从小说中选段，或用后台模型联想范文。'
           : h(Panel, { ui: ctx.tavernUi }))))
       } catch (error) {
         console.warn('[dsh-tavern-style-recall] 插件管理页注册失败', error.message)
