@@ -83,6 +83,15 @@ test('人物设计交由插件管理，旧的全局显示设置不会恢复入�
   await page.getByText('本局还没有人物档案。', { exact: true }).waitFor()
 })
 
+test('显示与交互没有恢复隐藏确认的入口', async t => {
+  const { page } = await openTavernSettings(t, {
+    beforeRender: () => localStorage.setItem('dsh-tavern:hidden-confirms', JSON.stringify(['chat'])),
+  })
+  const appearance = page.getByRole('region', { name: '显示与交互', exact: true })
+  await appearance.getByRole('switch', { name: '调试视图', exact: true }).waitFor()
+  assert.equal(await appearance.getByText('恢复所有已隐藏的确认', { exact: true }).count(), 0)
+})
+
 test('调试视图同时切换游玩工作记录和调试界面，保存后重新打开仍生效', async t => {
   let settingsDocument = { hideContextAndReasoning: false, showPlayProcess: false }
   const respond = (method, args) => {

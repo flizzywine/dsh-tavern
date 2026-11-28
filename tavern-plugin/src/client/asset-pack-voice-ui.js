@@ -155,8 +155,7 @@ function useVoiceReadiness(binding){
 // 「去设置」: the 配音 page (right sidebar) opens with that service's row open (dsh-tts reads the same session key once);
 // `id` opens that saved service, `add` opens 添加语音服务 with the kind chosen.
 const VOICE_FOCUS_KEY='dsh-tts:focus-service';
-// 「付费试听」 asks before the first paid preview unless 「以后不再显示」 hid the kind 'voice-paid-preview' (confirm-dialog.js
-// hiddenConfirms; 设置 › 「已隐藏的确认」 brings it back).
+// 「付费试听」 asks before a paid preview unless 「以后不再显示」 hid the kind 'voice-paid-preview'.
 // 「语音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up). The pack window's nav
 // closes the window first (PackModal tabNav); once the tab is open, the same event tells an already-mounted page to take
 // the request and move the keyboard focus there.

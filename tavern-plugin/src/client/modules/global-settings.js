@@ -2,14 +2,6 @@
 function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
-    // the one place that brings back every confirmation hidden with 「以后不再显示」 (confirm-dialog.js hiddenConfirms).
-    function HiddenConfirmsSetting() {
-        const h = React.createElement;
-        const hidden = React.useSyncExternalStore(hiddenConfirms.subscribe, hiddenConfirms.snapshot, hiddenConfirms.snapshot) !== "[]";
-        const [notice, setNotice] = React.useState("");
-        return h(TavernSettingRow, { title: "恢复所有已隐藏的确认", help: "在删除等确认框里勾过「以后不再显示」的那几类操作会直接执行；恢复后它们重新先问一次。", note: notice },
-            h("button", { type: "button", className: "dsh-tavern-btn", disabled: !hidden, onClick: () => { hiddenConfirms.restoreAll(); setNotice("已恢复"); } }, "恢复"));
-    }
     // 单文件存档（实验）：手动把现有存档转成 Format 3，或全部转回 Format 2。每个存档逐字节核对后才切换；失败的保持原样。
     function ConversationStorageConversion() {
         const h = React.createElement;
@@ -179,7 +171,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                     h(DebugSetting),
                     renderSlot("settings.tavern.appearance", {}),
-                    h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
+                    h(HeaderItemsSettings))),
             // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
             // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.
             group("防截断", "本区域可以帮助支持工具调用的渠道改善 Gemini 模型输出截断问题。",

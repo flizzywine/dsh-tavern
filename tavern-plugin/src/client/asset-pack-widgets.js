@@ -210,8 +210,7 @@ function mergeProps(...list) {
   return out;
 }
 function MenuItem({onClick,disabled,title,danger,children}) { return h('button',{type:'button',role:'menuitem',className:'ap-menu-item'+(danger?' is-danger':''),disabled,title,onClick},children); }
-// 删除 asks first, unless 「以后不再显示」 was ticked on that kind of confirmation (`kind`: 'asset-entry', 'asset-outfit' …; the one
-// store is confirm-dialog.js hiddenConfirms, shared with the host's dialogs; 设置 › 「已隐藏的确认」 restores them).
+// 删除 asks first unless 「以后不再显示」 was ticked for that kind of confirmation. Asset and host dialogs share hiddenConfirms.
 // askDelete shows `spec` (a ConfirmDialog's props) or runs at once; a failure then goes to `onError` (the dialog would have shown it).
 const askDelete=(ask,kind,spec,run,onError)=>hiddenConfirms.has(kind)?Promise.resolve().then(run).catch(e=>onError?onError(errorText(e)):Promise.reject(e)):ask({...spec,hide:kind,onConfirm:run});
 // 「以后不再显示」 — the first item of a confirmation's action row (bottom left); the caller stores it on confirm, never on tick.
