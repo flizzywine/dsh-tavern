@@ -107,7 +107,8 @@ export function settlementTurn(chat) {
     return 0
   }
 
-export function createSessionStateView({ activity: activityOf, evidence: evidenceOf, visibility: visibilityOf, sharedReceipts = false, sharedMappings = false }) {
+export function createSessionStateView({ activity: activityOf, evidence: evidenceOf, visibility: visibilityOf,
+  foregroundRunning = () => false, sharedReceipts = false, sharedMappings = false }) {
   const receiptIndex = createMvuReceiptIndex({shared:sharedReceipts, visibilityOf})
   const rollbackCache = new Map()
   const mappingCache = new Map(), mappingIds = new WeakMap(), mappingFields = createImmutableTurnFields()
@@ -189,13 +190,14 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     const native = session?.header?.version >= 3 && typeof session.snapshotEvents === 'function'
       && Array.isArray(events) && Object.isFrozen(events) && Array.isArray(nodes) && Number.isSafeInteger(generation)
     const tail = chat.messages?.at(-1)
+    const running = foregroundRunning(chat.sessionId) === true
     const key = native ? JSON.stringify([chat.sessionId,chat.messages?.length,chat.tavernHelperLifecycleRevision,
       chat.foregroundError?.turn,chat.foregroundError?.requestId,tail?.source?.rpcId,tail?.placeholder,
       tail?.role,tail?.turn,tail?.incomplete,tail?.messageUid,tail?.nativeAnchor?.turn,
       chat.importHistory?.rescue,chat.importHistory?.operationId,chat.hiddenDshErrorTurns,chat.suppressedDshTurns,
       chat.replacingDshTurns, chat.failedRegenerationTarget, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
       sharedMappings ? mappingIds.get(mappings) : chat.regeneratedDshTurns,
-      nodes.length,nodes[0],nodes.at(-1),generation]) : null
+      nodes.length,nodes[0],nodes.at(-1),generation,running]) : null
     const previous = rollbackCache.get(chat.id)
     if (native && changes?.layoutChanged === false && previous?.session.deref() === session
       && previous.events.deref() === events && previous.key === key
@@ -208,7 +210,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       reason: '当前会话的消息流尚未加载，请重新打开对话后重试；历史正文仍保留。'
     }
     // The failed tail a player can still withdraw or refresh; nothing here re-sends its input.
-    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [], running: activityOf(chat)?.busy === true }).target : null
+    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [], running }).target : null
     // Does the save hold a reply at all? Whether it sits next to a player input is a
     // round-shape guess, not a fact about the message: a tail may end [assistant, assistant].
     const hasRound = Boolean((chat.messages || []).findLast(message => message?.role === 'assistant' && message.greeting !== true))

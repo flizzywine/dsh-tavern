@@ -14,14 +14,14 @@ const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', im
 
 // Mount the shipped sidebar and dock. listSessions populates mode through the
 // real sidebar, so this exercises the registered click handler and HTTP client.
-async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices, choiceSession } = {}) {
+async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices, choiceSession, trackSubmission } = {}) {
   const browser = sharedBrowser || await chromium.launch({ headless: true })
   if (!sharedBrowser) t.after(() => browser.close())
   const page = await browser.newPage({ viewport, hasTouch })
   page.setDefaultTimeout(5000)
   const errors = [], calls = [], unexpected = []
   page.on('pageerror', error => errors.push(error.message))
-  let attempts = 0, task = null, storageRevision = 0
+  let attempts = 0, task = null, storageRevision = 0, failedTailTurn = null
   const sync = () => ({ activity: { busy: false, phase: 'idle' }, task, tasks: { candidate: task, background: null }, storageRevision })
   const generator = choiceSession && createCandidateGenerator({
     prompt() {}, tasks: {}, store: { chatForSession: async () => ({ mode, candidates: savedChoices }) }, sessionFor: () => choiceSession,
@@ -61,7 +61,9 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
         confirmSessionPatch: {},
         gameMode: args.op === 'list' ? { modes: [] } : { mode: null },
         syncSession: { sync: sync() },
-        getSession: { view: { mode, latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
+        getSession: { view: { mode, latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] },
+          ...(trackSubmission ? { canRegenerate: true, failedTailTurn } : {}) } },
+        appendPlayerInput: { saved: true },
         getActiveInterfaceSkin: { css: '' },
         getTavernSettings: { settings: {} }, // composer and sidebar preferences
         getCandidatePreferences: { candidateDismissMode: 'after-send' },
@@ -80,7 +82,7 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
   await page.addScriptTag({ content: await browserReactScript() })
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};` })
   await page.addScriptTag({ content: clientSource })
-  await page.evaluate(showResults => {
+  await page.evaluate(({ showResults, trackSubmission }) => {
     const slots = {}, coordinationListeners = new Set()
     window.publishCandidateCoordination = snapshot => coordinationListeners.forEach(listener => listener({ snapshot }))
     const sessionState = { current: '', byId: {} }
@@ -100,6 +102,18 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
       } },
     }
     window.client.apply(ctx)
+    if (trackSubmission) {
+      let retire, sequence = 0
+      const session = { beginSubmission(input) {
+        retire = input.onRetire
+        return { requestId: 'player-' + (++sequence) }
+      } }
+      window.client.installTavernPlayerInputPersistence({ sessions: {
+        binding: () => ({ session }), list: { getSnapshot: () => ({ byId: { game: {} } }), subscribe: () => () => {} }
+      } }, window)
+      window.beginComposerSubmission = () => session.beginSubmission({ text: '我走进房间' })
+      window.retireComposerSubmission = reason => retire?.({ reason })
+    }
     const React = modules.react
     modules['react-dom/client'].createRoot(document.querySelector('#sidebar')).render(React.createElement(slots['sidebar.workspaces'], {
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
@@ -118,14 +132,56 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
         showResults ? React.createElement(slots['dsh-tavern-question'], props) : null))
     }
     window.renderCandidateRound(false, 'reply-1')
-  }, Boolean(completedChoices || savedChoices))
+  }, { showResults: Boolean(completedChoices || savedChoices), trackSubmission })
   await page.getByRole('button', { name: settings || savedChoices ? '重新生成候选项' : '生成候选项', exact: true }).waitFor()
-  return { page, calls, errors, unexpected, async setSavedChoices(value) {
-    savedChoices = value
+  async function publish() {
     storageRevision++
     await page.evaluate(snapshot => window.publishCandidateCoordination(snapshot), sync())
-  } }
+  }
+  return { page, calls, errors, unexpected,
+    async setSavedChoices(value) { savedChoices = value; await publish() },
+    async setFailedTail(value) {
+      failedTailTurn = value
+      const read = page.waitForResponse(async response => response.url().endsWith('/getSession') &&
+        (await response.json()).view?.failedTailTurn === value)
+      await publish()
+      await read
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    },
+  }
 }
+
+test('发送和正文生成期间操作栏不闪出失败恢复按钮，提交失败后才显示', async t => {
+  const { page, errors, setFailedTail } = await mount(t, 'success', { trackSubmission: true })
+  const dock = page.locator('.dsh-tavern-dock-actions')
+  const buttons = dock.getByRole('button')
+  await dock.getByRole('button', { name: '重新生成正文', exact: true }).and(page.locator(':enabled')).waitFor()
+  assert.deepEqual(await buttons.allTextContents(), ['生成候选项', '重新生成正文', '更多 ▾'])
+
+  async function start() {
+    const appended = page.waitForResponse(response => response.url().endsWith('/appendPlayerInput'))
+    await page.evaluate(() => window.beginComposerSubmission())
+    await appended
+    // Persistence arrives before DSH recognizes the submission or marks the turn running.
+    await setFailedTail(0)
+    assert.equal(await buttons.count(), 3)
+  }
+  await start()
+  await page.evaluate(() => window.renderCandidateRound(true, 'reply-1'))
+  await dock.getByRole('button', { name: '重新生成正文', exact: true }).and(page.locator(':disabled')).waitFor()
+  await page.evaluate(() => window.retireComposerSubmission('observed'))
+  assert.equal(await buttons.count(), 3)
+  await setFailedTail(null)
+  await page.evaluate(() => window.renderCandidateRound(false, 'reply-2'))
+  await dock.getByRole('button', { name: '重新生成正文', exact: true }).and(page.locator(':enabled')).waitFor()
+  assert.equal(await buttons.count(), 3)
+
+  await start()
+  await page.evaluate(() => window.retireComposerSubmission('failed'))
+  await dock.getByRole('button', { name: '撤回这条输入' }).waitFor()
+  await dock.getByRole('button', { name: '交给调试 Agent', exact: true }).waitFor()
+  assert.deepEqual(errors, [])
+})
 
 test('填入候选并发送后移除上一轮面板，新候选只在正文落盘后显示', async t => {
   const choiceSession = { events: [['reply-1', 2], ['reply-2', 3], ['reply-3', 4], ['tavern-regen:reply-3', 4]].map(([id, turn]) =>

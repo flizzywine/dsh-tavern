@@ -43654,25 +43654,62 @@ function tavernFloorHeightRecall(key, width) {
             if (saved?.saved === true) tavernStoryInputChanged(hostWindow, sessionId);
             return saved;
         }
+        const tavernPlayerInputAdmissions = (function () {
+            const counts = new Map(), listeners = new Set();
+            function publish() { listeners.forEach(listener => listener()); }
+            return {
+                subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+                pending(sessionId) { return counts.has(sessionId); },
+                begin(sessionId) {
+                    const count = (counts.get(sessionId) || 0) + 1;
+                    counts.set(sessionId, count);
+                    if (count === 1) publish();
+                    let finished = false;
+                    return function () {
+                        if (finished) return;
+                        finished = true;
+                        const remaining = counts.get(sessionId) - 1;
+                        if (remaining) counts.set(sessionId, remaining);
+                        else { counts.delete(sessionId); publish(); }
+                    };
+                }
+            };
+        })();
+        function useTavernPlayerInputSubmitting(props) {
+            const snapshot = () => tavernPlayerInputAdmissions.pending(props.sessionId);
+            const local = React.useSyncExternalStore(tavernPlayerInputAdmissions.subscribe, snapshot, snapshot);
+            const accepted = props.useSession(state => Boolean(state?.pendingSubmissions?.length));
+            return local || accepted;
+        }
         // The host's visible composer owns its own submit pipeline. Observe its
         // existing request id and persist that player row independently of prompt/LLM.
         function installTavernPlayerInputPersistence(ctx, hostWindow) {
             hostWindow = hostWindow || window;
             if (typeof ctx?.sessions?.binding !== "function" || typeof ctx?.sessions?.list?.subscribe !== "function") return function () {};
             const originals = new Map();
+            const pending = new Set();
             function install(sessionId) {
                 const session = ctx.sessions.binding(sessionId)?.session;
                 if (!session || originals.has(session) || typeof session.beginSubmission !== "function") return;
                 const begin = session.beginSubmission;
                 function wrapped(input) {
-                    const handle = begin.call(session, input);
                     const text = typeof input?.text === "string" ? input.text.trim() : "";
-                    if (handle?.requestId && text) Promise.resolve()
+                    if (!text) return begin.call(session, input);
+                    // The local send starts before the host acknowledges it or sets running.
+                    const release = tavernPlayerInputAdmissions.begin(sessionId);
+                    function retire() { pending.delete(retire); release(); }
+                    pending.add(retire);
+                    let handle;
+                    try {
+                        handle = begin.call(session, { ...input, onRetire(result) { retire(); input.onRetire?.call(this, result); } });
+                    } catch (error) { retire(); throw error; }
+                    if (handle?.requestId) Promise.resolve()
                         .then(function () { return persistTavernPlayerInput(hostWindow, sessionId, text, handle.requestId); })
                         .catch(function (error) {
                             if (typeof tavernErrorHub !== "undefined") tavernErrorHub.report("保存玩家输入", error);
                             else console.warn("dsh-tavern: 保存玩家输入失败", error);
                         });
+                    else retire();
                     return handle;
                 }
                 originals.set(session, { begin: begin, wrapped: wrapped });
@@ -43686,6 +43723,7 @@ function tavernFloorHeightRecall(key, width) {
             sync();
             return function () {
                 stop();
+                pending.forEach(retire => retire());
                 for (const [session, record] of originals) if (session.beginSubmission === record.wrapped) session.beginSubmission = record.begin;
                 originals.clear();
             };
@@ -43805,12 +43843,13 @@ function tavernFloorHeightRecall(key, width) {
                     const binding = ctx.sessions.binding(sessionId);
                     if (!text || !binding) return Promise.reject(new Error("开局消息为空或原对话已关闭"));
                     const requestId = createSubmissionRequestId();
+                    const release = tavernPlayerInputAdmissions.begin(sessionId);
                     return persistPlayerInput(sessionId, text, requestId)
                         .then(function () { return binding.session.prompt([{ type:"text", text:text }], "queue", undefined, requestId); })
                         .then(function (result) {
                             if (!result?.ok) throw new Error(result?.error?.message || "消息发送失败");
                             return { submitted:true };
-                        });
+                        }).finally(release);
                 }
                 if (/^\s*\/(?:pass|return|findentry|findlore|findwi)(?:\s|$)/i.test(String(line))) return executeReadPipeline(String(line), sessionId);
                 if (/^\/ejs(?:-refresh)?(?:\s|$)/.test(String(line))) return rpc("executeFullTemplateCommand", {text:line}, sessionId).then(function(result){return result.pipe;});
@@ -43932,6 +43971,7 @@ function tavernFloorHeightRecall(key, width) {
                 }
                 // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
                 submitting.add(sessionId);
+                const release = submitDraftText === undefined ? null : tavernPlayerInputAdmissions.begin(sessionId);
                 return Promise.resolve().then(function () {
                     // Saving the player row is independent of Session/LLM acceptance.
                     if (submitDraftText !== undefined) return persistPlayerInput(sessionId, submitDraftText, submissionRequestId);
@@ -43949,7 +43989,7 @@ function tavernFloorHeightRecall(key, width) {
                         }
                     }
                     throw error;
-                }).finally(function () { submitting.delete(sessionId); });
+                }).finally(function () { submitting.delete(sessionId); release?.(); });
 			};
 			execute.readInput = readInputDraft;
 			return execute;
@@ -68556,6 +68596,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const regenPanelState = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
+			const submittingInput = useTavernPlayerInputSubmitting(props);
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
@@ -68581,10 +68622,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			// 正文的 native 消息 id 只在真有那一轮时才有；轮次大于 1 的自然不是开场白。
 			const viewHasBody = viewReady && (Boolean(scrollbackView.latestAssistantMessageId) || Number(scrollbackView.latestAssistantTurn) > 1);
 			const canRollback = viewReady && (regenerable === true || (regenerable === undefined && viewHasBody));
-            const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
-			const failedTailTurn = rollbackViewState.view && rollbackViewState.view.failedTailTurn !== null && rollbackViewState.view.failedTailTurn !== undefined
-				? Number(rollbackViewState.view.failedTailTurn) : null;
+			const canRecoverFailedInput = !frontRunning && !submittingInput && scrollbackView?.failedTailTurn != null;
 			// foreground and background compaction run in sequence; block generation until both finish.
 			const compacting = Boolean(rollbackViewState.view && rollbackViewState.view.contextCompaction && rollbackViewState.view.contextCompaction.operation && rollbackViewState.view.contextCompaction.operation.status === "running");
 			React.useEffect(function () {
@@ -68653,7 +68692,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			// Learned from huajiao1998/dsh-tavern-sqlite-v2: a failed or stopped round can also be
 			// dropped entirely, not only replayed.
 			async function withdrawFailed() {
-				if (failedTailTurn === null || frontRunning || withdrawBusy) return;
+				if (!canRecoverFailedInput || withdrawBusy) return;
 				setWithdrawBusy(true);
 				try { await withdrawFailedTavernTurn(props.sessionId, props.inputActions, draft); }
 				catch (err) { tavernErrorHub.report("撤回这条输入", err); }
@@ -68687,8 +68726,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
 				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "aria-label": props.only === "regen" ? "重新生成这一轮正文" : undefined, "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady && (emptyReason === "no-session" || emptyReason === "no-chat") ? (emptyReason === "no-chat" ? "这一局的存档正在建立，稍候…" : "这一局还没有开始：先选一张人物卡，或从游玩历史打开一局") : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
-				!props.only && failedTailTurn !== null ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
-				!props.only && failedTailTurn !== null ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
+				!props.only && canRecoverFailedInput ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
+				!props.only && canRecoverFailedInput ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
 			);
 		}
 

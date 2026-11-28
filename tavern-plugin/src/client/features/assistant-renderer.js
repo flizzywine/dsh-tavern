@@ -8,25 +8,62 @@
             if (saved?.saved === true) tavernStoryInputChanged(hostWindow, sessionId);
             return saved;
         }
+        const tavernPlayerInputAdmissions = (function () {
+            const counts = new Map(), listeners = new Set();
+            function publish() { listeners.forEach(listener => listener()); }
+            return {
+                subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+                pending(sessionId) { return counts.has(sessionId); },
+                begin(sessionId) {
+                    const count = (counts.get(sessionId) || 0) + 1;
+                    counts.set(sessionId, count);
+                    if (count === 1) publish();
+                    let finished = false;
+                    return function () {
+                        if (finished) return;
+                        finished = true;
+                        const remaining = counts.get(sessionId) - 1;
+                        if (remaining) counts.set(sessionId, remaining);
+                        else { counts.delete(sessionId); publish(); }
+                    };
+                }
+            };
+        })();
+        function useTavernPlayerInputSubmitting(props) {
+            const snapshot = () => tavernPlayerInputAdmissions.pending(props.sessionId);
+            const local = React.useSyncExternalStore(tavernPlayerInputAdmissions.subscribe, snapshot, snapshot);
+            const accepted = props.useSession(state => Boolean(state?.pendingSubmissions?.length));
+            return local || accepted;
+        }
         // The host's visible composer owns its own submit pipeline. Observe its
         // existing request id and persist that player row independently of prompt/LLM.
         function installTavernPlayerInputPersistence(ctx, hostWindow) {
             hostWindow = hostWindow || window;
             if (typeof ctx?.sessions?.binding !== "function" || typeof ctx?.sessions?.list?.subscribe !== "function") return function () {};
             const originals = new Map();
+            const pending = new Set();
             function install(sessionId) {
                 const session = ctx.sessions.binding(sessionId)?.session;
                 if (!session || originals.has(session) || typeof session.beginSubmission !== "function") return;
                 const begin = session.beginSubmission;
                 function wrapped(input) {
-                    const handle = begin.call(session, input);
                     const text = typeof input?.text === "string" ? input.text.trim() : "";
-                    if (handle?.requestId && text) Promise.resolve()
+                    if (!text) return begin.call(session, input);
+                    // The local send starts before the host acknowledges it or sets running.
+                    const release = tavernPlayerInputAdmissions.begin(sessionId);
+                    function retire() { pending.delete(retire); release(); }
+                    pending.add(retire);
+                    let handle;
+                    try {
+                        handle = begin.call(session, { ...input, onRetire(result) { retire(); input.onRetire?.call(this, result); } });
+                    } catch (error) { retire(); throw error; }
+                    if (handle?.requestId) Promise.resolve()
                         .then(function () { return persistTavernPlayerInput(hostWindow, sessionId, text, handle.requestId); })
                         .catch(function (error) {
                             if (typeof tavernErrorHub !== "undefined") tavernErrorHub.report("保存玩家输入", error);
                             else console.warn("dsh-tavern: 保存玩家输入失败", error);
                         });
+                    else retire();
                     return handle;
                 }
                 originals.set(session, { begin: begin, wrapped: wrapped });
@@ -40,6 +77,7 @@
             sync();
             return function () {
                 stop();
+                pending.forEach(retire => retire());
                 for (const [session, record] of originals) if (session.beginSubmission === record.wrapped) session.beginSubmission = record.begin;
                 originals.clear();
             };
@@ -159,12 +197,13 @@
                     const binding = ctx.sessions.binding(sessionId);
                     if (!text || !binding) return Promise.reject(new Error("开局消息为空或原对话已关闭"));
                     const requestId = createSubmissionRequestId();
+                    const release = tavernPlayerInputAdmissions.begin(sessionId);
                     return persistPlayerInput(sessionId, text, requestId)
                         .then(function () { return binding.session.prompt([{ type:"text", text:text }], "queue", undefined, requestId); })
                         .then(function (result) {
                             if (!result?.ok) throw new Error(result?.error?.message || "消息发送失败");
                             return { submitted:true };
-                        });
+                        }).finally(release);
                 }
                 if (/^\s*\/(?:pass|return|findentry|findlore|findwi)(?:\s|$)/i.test(String(line))) return executeReadPipeline(String(line), sessionId);
                 if (/^\/ejs(?:-refresh)?(?:\s|$)/.test(String(line))) return rpc("executeFullTemplateCommand", {text:line}, sessionId).then(function(result){return result.pipe;});
@@ -286,6 +325,7 @@
                 }
                 // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
                 submitting.add(sessionId);
+                const release = submitDraftText === undefined ? null : tavernPlayerInputAdmissions.begin(sessionId);
                 return Promise.resolve().then(function () {
                     // Saving the player row is independent of Session/LLM acceptance.
                     if (submitDraftText !== undefined) return persistPlayerInput(sessionId, submitDraftText, submissionRequestId);
@@ -303,7 +343,7 @@
                         }
                     }
                     throw error;
-                }).finally(function () { submitting.delete(sessionId); });
+                }).finally(function () { submitting.delete(sessionId); release?.(); });
 			};
 			execute.readInput = readInputDraft;
 			return execute;

@@ -382,6 +382,7 @@ export function createSessionViewProjection({
     sharedReceipts: true, sharedMappings: true,
     activity: chat => activityOf(chat),
     evidence: sessionId => sessionDebugEvidence(sessionId, true),
+    foregroundRunning: sessionId => agentRegistry.get(sessionId)?.phase?.kind === 'running',
     visibility: chat => mvuVisibilityByCardPath.get(str(chat?.cardPath)) || chat?.mvuVisibility || chat?.mvu?.visibility || null
   })
   function mvuReceiptsOf(chat, changes) { return sessionStateView.receipts(chat, changes) }

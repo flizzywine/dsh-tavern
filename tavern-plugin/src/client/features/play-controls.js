@@ -572,6 +572,7 @@
 			const regenPanelState = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
+			const submittingInput = useTavernPlayerInputSubmitting(props);
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
@@ -597,10 +598,8 @@
 			// 正文的 native 消息 id 只在真有那一轮时才有；轮次大于 1 的自然不是开场白。
 			const viewHasBody = viewReady && (Boolean(scrollbackView.latestAssistantMessageId) || Number(scrollbackView.latestAssistantTurn) > 1);
 			const canRollback = viewReady && (regenerable === true || (regenerable === undefined && viewHasBody));
-            const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
-			const failedTailTurn = rollbackViewState.view && rollbackViewState.view.failedTailTurn !== null && rollbackViewState.view.failedTailTurn !== undefined
-				? Number(rollbackViewState.view.failedTailTurn) : null;
+			const canRecoverFailedInput = !frontRunning && !submittingInput && scrollbackView?.failedTailTurn != null;
 			// foreground and background compaction run in sequence; block generation until both finish.
 			const compacting = Boolean(rollbackViewState.view && rollbackViewState.view.contextCompaction && rollbackViewState.view.contextCompaction.operation && rollbackViewState.view.contextCompaction.operation.status === "running");
 			React.useEffect(function () {
@@ -669,7 +668,7 @@
 			// Learned from huajiao1998/dsh-tavern-sqlite-v2: a failed or stopped round can also be
 			// dropped entirely, not only replayed.
 			async function withdrawFailed() {
-				if (failedTailTurn === null || frontRunning || withdrawBusy) return;
+				if (!canRecoverFailedInput || withdrawBusy) return;
 				setWithdrawBusy(true);
 				try { await withdrawFailedTavernTurn(props.sessionId, props.inputActions, draft); }
 				catch (err) { tavernErrorHub.report("撤回这条输入", err); }
@@ -703,8 +702,8 @@
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
 				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "aria-label": props.only === "regen" ? "重新生成这一轮正文" : undefined, "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady && (emptyReason === "no-session" || emptyReason === "no-chat") ? (emptyReason === "no-chat" ? "这一局的存档正在建立，稍候…" : "这一局还没有开始：先选一张人物卡，或从游玩历史打开一局") : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
-				!props.only && failedTailTurn !== null ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
-				!props.only && failedTailTurn !== null ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
+				!props.only && canRecoverFailedInput ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
+				!props.only && canRecoverFailedInput ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
 			);
 		}
 
