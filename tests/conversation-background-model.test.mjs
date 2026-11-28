@@ -50,3 +50,23 @@ test('旧版世界书选择不再由本局设置读写，保存其它选项仍�
   assert.deepEqual(chats.get('one').disabledWritingSkills, ['writing'])
   assert.deepEqual(chats.get('one').messages, ['concurrent'])
 })
+
+test('前台目录随本局联网开关更新，只列出宿主提供的网页工具', async () => {
+  let chat = { id: 'game', mode: 'script', disabledForegroundTools: ['web_search'] }
+  const registered = new Set(['web_search'])
+  const settings = createConversationBackgroundSettings({
+    readConfig: async () => chat, readChat: async () => chat, isPlayMode: mode => mode === 'script',
+    updateChat: async (_id, mutation) => chat = mutation(chat), modelCatalog: async () => [],
+    hasNativeTool: (name, sessionId) => sessionId === 'game' && registered.has(name),
+    toolNetworkFor: name => name === 'plugin_search' ? 'search' : undefined,
+    extraTools: async () => [{ name: 'plugin_search' }, { name: 'plugin_local' }, { name: 'web_fetch' }]
+  })
+  const relevantTools = config => config.foregroundTools.map(tool => tool.name).filter(name => /^(web_|plugin_)/.test(name))
+  assert.deepEqual(relevantTools(await settings.read('game')), ['plugin_local'])
+  const online = await settings.save({ sessionId: 'game', webSearchEnabled: true })
+  assert.deepEqual(relevantTools(online), ['web_search', 'plugin_search', 'plugin_local'])
+  assert.deepEqual(online.disabledForegroundTools, ['web_search'])
+  registered.add('web_fetch')
+  assert.deepEqual(relevantTools(await settings.read('game')), ['web_search', 'web_fetch', 'plugin_search', 'plugin_local'])
+  assert.deepEqual(relevantTools(await settings.save({ sessionId: 'game', webSearchEnabled: false })), ['plugin_local'])
+})

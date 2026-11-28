@@ -65668,7 +65668,7 @@ function createConversationSettingsModule({
                 ...FEATURES.filter(([key]) => key !== "posture" || TAVERN_PLAY_FEATURES.postureSummary).map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
                     checked: tasks[key] === true, onChange: checked => void task(key, checked) })),
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
-                    onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
+                    onChange: checked => void write({ webSearchEnabled: checked }) })) : null,
             problemLine(problem));
     }
 
@@ -65708,10 +65708,11 @@ function createConversationSettingsModule({
         }
         const toggle = (name, enabled) => void save(enabled ? disabled.filter(value => value !== name) : [...new Set([...disabled, name])]);
         const on = names.filter(name => !disabled.includes(name)).length;
+        const hiddenDisabled = disabled.filter(name => !names.includes(name));
         const menu = h(packUi.Popover, { label: "前台工具", trigger: ({ open, toggle: flip }) => h(packUi.IconButton, { icon: "more", label: "前台工具操作", "aria-haspopup": "menu", "aria-expanded": open, onClick: flip }),
             content: close => [
-                h(packUi.MenuItem, { key: "on", disabled: off || disabled.length === 0, onClick: () => { close(); void save([]); } }, "全部开启"),
-                h(packUi.MenuItem, { key: "off", disabled: off || on === 0, onClick: () => { close(); void save(names); } }, "全部关闭"),
+                h(packUi.MenuItem, { key: "on", disabled: off || on === names.length, onClick: () => { close(); void save(hiddenDisabled); } }, "全部开启"),
+                h(packUi.MenuItem, { key: "off", disabled: off || on === 0, onClick: () => { close(); void save([...hiddenDisabled, ...names]); } }, "全部关闭"),
                 h(packUi.MenuItem, { key: "reload", disabled: config.busy, onClick: () => { close(); void config.load(); } }, "刷新")] });
         return h(packUi.StageSection, { title: "前台工具", meta: data ? on + " / " + names.length : undefined, foldKey: FOLD("前台工具"), defaultFolded: true, action: menu,
                 help: "逐项决定正文能用哪些工具，关闭后下一轮生效；后台结算的工具不在这里。标「插件」的来自宿主工具目录，本局生成一次后会按实际请求校正。" },

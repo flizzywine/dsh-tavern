@@ -28,7 +28,7 @@ export const FOREGROUND_TOOL_CATALOG = Object.freeze([
   { name: 'read', label: '读取文件', description: '读取世界书、Skill 等资源的文件正文。', modes: ['story', 'script'] },
   { name: 'tavern_recall_history', label: '召回历史', description: '按关键词或轮次检索已压缩的历史正文。' },
   { name: 'web_search', label: '联网搜索', description: '联网查找资料；还需本局开启「联网搜索」。' },
-  { name: 'web_fetch', label: '读取网页', description: '读取网页正文；需全局开启网页读取，且本局开启联网搜索。' },
+  { name: 'web_fetch', label: '读取网页', description: '读取网页正文；需宿主提供网页读取工具，且本局开启联网搜索。' },
   { name: 'tavern_read_script', label: '读取剧本', description: '读取剧本后续内容。', modes: ['script'] }
 ])
 

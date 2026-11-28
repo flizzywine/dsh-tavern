@@ -1,11 +1,14 @@
 import { patchConversationBackground } from './conversation-background.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { SETTINGS_BOUND_STORY_TOOLS, foregroundToolCatalog, normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { nativeNetworkCapability } from './network-tools.js'
 import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
 export function createConversationBackgroundSettings({ readConfig, readChat, updateChat, modelCatalog, modelReasoning,
-  isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {} }) {
+  isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [],
+  hasNativeTool = () => false, toolNetworkFor = () => undefined,
+  presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {} }) {
   function requirePlay(chat) {
     if (!chat || !isPlayMode(chat.mode)) throw new Error('请先打开游玩会话')
     return chat
@@ -17,12 +20,15 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
       disabledForegroundTools: normalizeDisabledForegroundTools(chat.disabledForegroundTools) }
   }
   async function toolCatalog(chat, sessionId) {
-    const tools = foregroundToolCatalog(chat.mode)
-    const known = new Set(tools.map(tool => tool.name))
+    const networkEnabled = chat.webSearchEnabled === true
+    const builtins = foregroundToolCatalog(chat.mode)
+    const known = new Set(builtins.map(tool => tool.name))
+    const tools = builtins.filter(tool => !nativeNetworkCapability(tool.name) || (networkEnabled && hasNativeTool(tool.name, sessionId)))
     let extra
     try { extra = await extraTools(sessionId) } catch { extra = [] }
     for (const tool of Array.isArray(extra) ? extra : []) {
       if (!tool || typeof tool.name !== 'string' || known.has(tool.name) || SETTINGS_BOUND_STORY_TOOLS.has(tool.name)) continue
+      if (!networkEnabled && toolNetworkFor(tool.name)) continue
       known.add(tool.name)
       tools.push({ name: tool.name, label: tool.label || tool.name,
         description: tool.description || '插件注册的前台工具。', source: 'plugin' })
@@ -48,7 +54,7 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
     await validatePatch(args, chat)
     if (Object.hasOwn(args, 'backgroundModel')) await checkModel(args.backgroundModel, '后台模型')
     const saved = await updateChat(chat.id, current => patchConversationBackground(current, args), { source: 'background-model.switch-conversation' })
-    return present(saved)
+    return { ...await present(saved), ...(Object.hasOwn(args, 'webSearchEnabled') ? { foregroundTools: await toolCatalog(saved, sessionId) } : {}) }
   }
   return Object.freeze({ read, save })
 }

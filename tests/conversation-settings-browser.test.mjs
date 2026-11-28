@@ -178,7 +178,11 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
       if (method === 'getConversationWritingSkills') return { skills: [] }
       if (method === 'setPlayerName') { state = { ...state, playerName: args.userName }; return { playerName: state.playerName } }
       if (method === 'getBackgroundModelReasoning') return { reasoning: { efforts: [{ id: 'high', name: 'High' }] } }
-      if (method === 'getConversationBackgroundConfig') {
+      if (method === 'getConversationBackgroundConfig' || method === 'setConversationBackgroundConfig') {
+        if (method === 'setConversationBackgroundConfig') {
+          if (Object.hasOwn(args, 'webSearchEnabled')) state.webSearchEnabled = args.webSearchEnabled
+          if (Array.isArray(args.disabledForegroundTools)) state.disabledTools = args.disabledForegroundTools
+        }
         return {
           backgroundModel: state.model,
           worldbookStrategy: 'native-skills',
@@ -188,7 +192,7 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
           disabledForegroundTools: state.disabledTools,
           foregroundTools: [
             { name: 'tavern_recall_history', label: '召回历史', description: '查阅历史正文。' },
-            { name: 'web_fetch', label: '读取网页', description: '读取网页正文。' }
+            ...(state.webSearchEnabled ? [{ name: 'web_fetch', label: '读取网页', description: '读取网页正文。' }] : [])
           ],
           modelCatalog: [{ provider: 'reapi', models: [{ id: 'deepseek/deepseek-v4.1-flash-thinking-max', name: 'deepseek/deepseek-v4.1-flash-thinking-max' }] }]
         }
@@ -232,13 +236,27 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
   // Success path restores default template and refreshes all child panels
   failRestore = false
   await openTools(page)
-  await page.waitForFunction(() => document.querySelector('input[aria-label="读取网页"]')?.checked === false)
+  const webTool = page.getByLabel('读取网页', { exact: true })
+  const history = page.getByLabel('召回历史', { exact: true })
+  await history.waitFor()
+  assert.equal(await webTool.count(), 0)
+  await toolMenu(page, '全部关闭')
+  await until(() => state.disabledTools.includes('tavern_recall_history'))
+  await toolMenu(page, '全部开启')
+  await until(() => !state.disabledTools.includes('tavern_recall_history'))
+  const online = page.getByLabel('联网搜索', { exact: true })
+  await online.click()
+  await webTool.waitFor()
+  assert.equal(await webTool.isChecked(), false)
+  await online.click()
+  await webTool.waitFor({ state: 'detached' })
   await templateMenu(page, '恢复默认模板')
   await page.getByRole('status').filter({ hasText: '已恢复默认模板' }).waitFor()
   await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '默认旅人')
   await page.getByRole('button', { name: /^本局预设：.*不使用酒馆预设/ }).waitFor()
   await page.getByRole('button', { name: /^本局后台模型：.*跟随前台/ }).waitFor()
-  await page.waitForFunction(() => document.querySelector('input[aria-label="读取网页"]')?.checked === true)
+  await webTool.waitFor()
+  assert.equal(await webTool.isChecked(), true)
 })
 
 test('本局设置功能区包含“后台任务附加预设”开关，默认关闭且可保存并从默认模板恢复', async t => {

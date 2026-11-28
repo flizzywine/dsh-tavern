@@ -1,9 +1,13 @@
 import { createHostToolPolicy } from '../host/tools.js'
 
+export function nativeNetworkCapability(name) {
+  return name === 'web_search' ? 'search' : name === 'web_fetch' ? 'fetch' : undefined
+}
+
 // One policy for model visibility and dispatch. Read the owning chat through
 // Tavern's store, never through its on-disk representation or a cached tool list.
 export function createNetworkToolPolicy({ readHeader, backgroundContext, capabilityFor }) {
-  const capability = name => name === 'web_search' ? 'search' : name === 'web_fetch' ? 'fetch' : capabilityFor(name)
+  const capability = name => nativeNetworkCapability(name) || capabilityFor(name)
   async function resolve(session) {
     if (!session?.id) return null
     const background = backgroundContext(session.id)
