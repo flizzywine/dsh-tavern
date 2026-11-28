@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5c7b73941f0416551dea522b74796b8b9842a33d",
-  "releaseSequence": 2293,
+  "revision": "e9948553b8f15d2d9b3ecb7b909f970882ae77ee",
+  "releaseSequence": 2294,
   "version": "3.5.0",
   "files": [
     {
@@ -2206,8 +2206,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
-      "sha256": "ed13580f31af03e7765f024490a6198234d1b27e15c6cd2cd7ce76a7863b364d",
-      "size": 4129
+      "sha256": "c3248292b1f3199cefdba396a3e3ab43f13bd1d62204fd1f4e0a41e67f8d7d17",
+      "size": 4239
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-variable-changes.js",
@@ -3001,8 +3001,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-request-policy.js",
-      "sha256": "4a532005b082e14ee09434bae78156250c50321110ba0a17a77021090417ab0a",
-      "size": 4888
+      "sha256": "b84d2f18951d1493c539eb74512665cf7b73d17877473939b22daa1696b227de",
+      "size": 5766
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
@@ -3671,8 +3671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/skill-visibility.js",
-      "sha256": "60dbfd84168ab5a3eadd7086fe2501767ed8175ae9d8ef1f88d1e0a3247bd288",
-      "size": 3690
+      "sha256": "f4ab3473a57da2e306e6b3ed6ed2f095e46747d962ec88e3413541e40543eae9",
+      "size": 3846
     },
     {
       "path": "tavern-plugin/lib/domain/speech-recognition.js",
@@ -4496,8 +4496,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "ef12a634c3363c581cb07331f881eb8a568f1b942a905c4c989537c25b97c87b",
-      "size": 29357
+      "sha256": "9f58f849dfc78507da7cd7bf701d4ab7b68ce456a419da739a979f3680c8a3a3",
+      "size": 29404
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -4596,8 +4596,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "0f0d971323e0db291951e03db886ace08ecf6a6acd92dc7daafba0b3afb934ad",
-      "size": 276080
+      "sha256": "ad0c2e39a4c8dd0eb5c8a91be568089dbc750f02ea46f044212ac3ca3afdea88",
+      "size": 276588
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4851,8 +4851,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/skills.js",
-      "sha256": "b6b25b95719e7da3a1185dbebfec86b3d4cdc9e8dea2aba2d5ec1f47334ebe6f",
-      "size": 5404
+      "sha256": "75486b420c474223fcb0ad8ec64ef39790d96fce0fa40d8a8a66db96ef8f94f9",
+      "size": 6832
     },
     {
       "path": "tavern-plugin/lib/tools/worldbook-files.js",
@@ -10485,9 +10485,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "4bf4b2e881add2da992ea6265c3faafa4ee9e16b",
+    "commit": "9d42e0de04dcf4181d2eb59ddee8093e2a350b62",
     "path": "runtime.zip",
-    "sha256": "cb3f3861306174f96ead01772d37a853951ee578c3bbfd4b99c87060e890ab45",
-    "size": 18440683
+    "sha256": "40ef8ce8d109fae16c424876ea9f5a9e028572f536cede798251314346840f15",
+    "size": 18441655
   }
 }
