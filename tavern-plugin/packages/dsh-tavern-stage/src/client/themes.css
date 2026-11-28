@@ -146,7 +146,7 @@
    (a labelled 完整 | 特写 pair, only on a CG with focus areas). The picture is fitted whole (contain) and the controls keep off it
    where it leaves room: a portrait CG on a wide screen (data-fit=side) is framed between side bands that hold the four corners;
    on a phone the picture sits between a top row (title, ✎ 🗑 ✕) and a bottom row (‹ 差分 构图 ›). Every group is one line. */
-.fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .52); --cg-glass-hover: rgb(255 255 255 / .2);
+.fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .74); --cg-glass-hover: rgb(255 255 255 / .2);
   --cg-card: #1b1e2c; --cg-card-line: rgb(255 255 255 / .1); --cg-card-hover: rgb(255 255 255 / .08); --cg-danger: #ff7b86; --cg-danger-ink: #2a0b10; --cg-tile: #171a26; --cg-base: #0b0d14;
   --cg-sb: rgb(244 245 249 / 0); --cg-sb-on: rgb(244 245 249 / .45); --cg-sb-hold: rgb(244 245 249 / .72);
   position: absolute; inset: 0; z-index: 80; overflow: hidden; background: var(--cg-base); color: var(--cg-ink); font-family: var(--gal-ui-font); isolation: isolate; outline: none; }
@@ -155,7 +155,7 @@
 .fork-cg-gallery button:focus-visible { outline: 2px solid var(--cg-ink); outline-offset: 2px; }
 .fork-cg-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .fork-cg-round { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 44px; height: 44px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%;
-  background: var(--cg-glass); box-shadow: none; color: var(--cg-ink); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); cursor: pointer; transition: background .15s, color .15s, opacity .2s; }
+  background: var(--cg-glass); box-shadow: none; color: var(--cg-ink); cursor: pointer; transition: background .15s, color .15s, opacity .2s; }
 .fork-cg-round:hover, .fork-cg-round[aria-expanded="true"] { background: var(--cg-glass-hover); }
 .fork-cg-round[data-k="remove"]:is(:hover, [aria-expanded="true"]) { color: var(--cg-danger); }
 @media (hover: hover) {
@@ -238,7 +238,7 @@
 .fork-cg-nav.is-next { right: 24px; }
 .fork-cg-nav .fork-cg-icon { width: 28px; height: 28px; }
 .fork-cg-variants { position: absolute; left: 50%; bottom: 20px; display: flex; gap: 6px; max-width: calc(100% - 208px); box-sizing: border-box; padding: 6px; transform: translateX(-50%);
-  border-radius: 14px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  border-radius: 14px; background: var(--cg-glass); }
 .fork-cg-variant { --cg-thumb: clamp(28px, calc(40px * var(--cg-ar, 1.7778)), 72px); position: relative; flex: 0 1 var(--cg-thumb); width: var(--cg-thumb); min-width: 24px; height: 40px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 8px; background: var(--cg-tile); box-shadow: none;
   opacity: .55; cursor: pointer; transition: opacity .15s; }
 .fork-cg-variant > .fork-cg-gallery-picture { border-radius: inherit; }
@@ -248,7 +248,7 @@
 .fork-cg-variant[aria-pressed="true"] { opacity: 1; }
 .fork-cg-variant[aria-pressed="true"]::before { box-shadow: inset 0 0 0 2px var(--cg-ink); }
 .fork-cg-variant .fork-cg-gallery-missing .fork-cg-icon { width: 16px; height: 16px; }
-.fork-cg-crop { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.fork-cg-crop { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-glass); }
 .fork-cg-compose-mode { display: flex; align-items: center; gap: 6px; box-sizing: border-box; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0 14px 0 10px; border: 0; border-radius: 18px;
   background: none; box-shadow: none; color: var(--cg-ink-2); font-size: 14px; line-height: 1; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
 .fork-cg-compose-mode .fork-cg-icon { width: 18px; height: 18px; }
@@ -279,8 +279,10 @@
 @media (max-width: 600px) {
   .fork-cg-gallery h2 { font-size: 17px; }
   .fork-cg-round { width: 40px; height: 40px; }
-  .fork-cg-grid-top { gap: 10px; padding: 12px 12px 10px 16px; }
-  .fork-cg-filter > .fork-cg-compose-mode { padding: 0 10px; font-size: 13px; }
+  .fork-cg-grid-top { flex-wrap: wrap; gap: 8px 10px; padding: 12px 12px 10px 16px; }
+  /* two rows: the title with sort and ✕, then the filter across the full width */
+  .fork-cg-filter { order: 1; box-sizing: border-box; flex: 1 0 100%; }
+  .fork-cg-filter > .fork-cg-compose-mode { flex: 1; justify-content: center; padding: 0 10px; font-size: 13px; }
   .fork-cg-gallery-scroll { padding: 0 8px 8px; }
   .fork-cg-scrollbar { right: 0; width: 10px; }
   .fork-cg-scrollbar > b { right: 2px; }
@@ -656,7 +658,7 @@ button.stage-wait[data-busy] { cursor: default; }
 /* Toggled (电影 on, mixer muted): accent ink and a dot under the glyph. */
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"]) { color: var(--gal-ui-hud-active); }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"])::before { content: ""; position: absolute; left: calc(50% - 2px); bottom: 1px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; pointer-events: none; }
-.fork-gal-place { display: inline-flex; align-items: center; box-sizing: border-box; height: 30px; padding: 0 12px 0 10px; border-left: 3px solid var(--gal-ui-accent); background: none; box-shadow: none; color: var(--gal-ui-hud-ink); font: 600 13px/1.3 var(--fork-font-ui); letter-spacing: .08em; white-space: nowrap; transition: color .25s; }
+.fork-gal-place { display: inline-flex; align-items: center; box-sizing: border-box; height: 30px; padding: 0 12px 0 10px; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); font: 600 13px/1.3 var(--fork-font-ui); letter-spacing: .08em; white-space: nowrap; transition: color .25s; }
 /* HUD change moments (galHudStep in gal-stage.js). A new place is a
    short location card: an accent plate sweeps out of the bar under a light rule, the name wipes in a little larger and
    settles while the old name drifts off; a new track rolls up over the old one under a pulsing note. Only on in-place
@@ -2023,7 +2025,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Film: the label is a small caption above the subtitle, like the speaker's name there. */
 .fork-gal-stage.is-film .fork-gal-box.fork-gal-transition .fork-gal-transition-label { position: static; margin: 0 0 6px; color: color-mix(in srgb, var(--gal-ui-accent) 45%, currentColor); letter-spacing: .24em; }
 /* ==== end stage history reading ==== */
-.fork-gal-stage[data-theme="classic"] .fork-gal-place { border-left-color: var(--gal-ui-hud-ink-idle); }
 @media (max-width: 640px) { .fork-gal-stage[data-theme="classic"] .fork-gal-box { width: 96%; } }
 /* A stable reading frame: content scrolls inside it, never moves a character per line.
    Geometry and bars share one clock/easing; theme materials remain theme-owned. */
@@ -2104,7 +2105,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-track.fork-bgm-chip.is-paused, .fork-gal-stage .fork-gal-track.fork-bgm-chip.is-paused .fork-icon { color: var(--gal-ui-hud-ink-idle); }
 /* ---------- Manual background (bg-manual.js) ----------
    The BGM panel's rules and --bgm-* tokens; here only the HUD place card as a chip and the thumbnail grid. */
-.fork-gal-stage .fork-gal-place.fork-bg-chip { gap: 6px; margin: 0; padding: 0 12px 0 8px; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 999px 999px 0; cursor: pointer; transition: background .15s, color .25s; }
+.fork-gal-stage .fork-gal-place.fork-bg-chip { gap: 6px; margin: 0; padding: 0 12px 0 8px; border: 0; border-radius: 0 999px 999px 0; cursor: pointer; transition: background .15s, color .25s; }
 .fork-gal-place.fork-bg-chip .fork-icon { flex: none; color: var(--gal-ui-accent); }
 /* 「减少动态」 (CONFIG) also stills the panel's entrance and the thumbnails' fade. */
 .fork-gal-stage[data-reduced-motion] :is(.fork-bg-panel, .fork-bg-thumb img) { animation: none; }
@@ -2531,10 +2532,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-menu-item b { font-size: var(--gal-cfg-t1); font-weight: 600; line-height: 1.2; letter-spacing: .2em; white-space: nowrap; }
 .fork-gal-menu-note { grid-column: 4; padding: calc(var(--gal-cfg-gap) / 4) var(--gal-cfg-gap); border-radius: 999px; box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink-2); font: 600 var(--gal-cfg-t0)/1.2 var(--gal-ui-font); letter-spacing: .08em; white-space: nowrap; }
 .fork-gal-menu-item .fork-gal-menu-gem { transform: translateX(-4px) scale(0); transition: transform .15s; }
-.fork-gal-menu-item::after { content: ""; position: absolute; top: 24%; bottom: 24%; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--gal-ui-accent); transform: scaleY(0); pointer-events: none; transition: transform .15s; }
+/* (no accent bar: the active row has its tinted ground and the gem) */
 .fork-gal-stage .fork-gal-menu-item.is-active { background: var(--gal-ui-active); color: var(--gal-ui-accent); }
 .fork-gal-menu-item.is-active .fork-gal-menu-gem { transform: none; }
-.fork-gal-menu-item.is-active::after { transform: none; }
 .fork-gal-menu-item.is-active .fork-gal-menu-note { color: var(--gal-ui-accent); box-shadow: inset 0 0 0 1px var(--gal-ui-muted); }
 .fork-gal-stage .fork-gal-menu-item:active { background: var(--gal-ui-hover); }
 .fork-gal-stage .fork-gal-menu-item:focus { outline: none; }
@@ -6664,6 +6664,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch-track > i { inset: calc(var(--gal-cfg-b) * .35); width: auto; height: auto; transform: none; background: var(--gal-ui-ink-disabled); box-shadow: none; }
 .fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch[aria-checked="true"] .fork-gal-config-switch-track { background: color-mix(in srgb, var(--gal-ui-accent) 22%, var(--gal-ui-surface-2)); }
 .fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch[aria-checked="true"] .fork-gal-config-switch-track > i { transform: none; background: var(--gal-ui-accent); box-shadow: 0 0 10px 2px color-mix(in srgb, var(--gal-ui-accent) 55%, transparent); }
+.fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch::after { content: "关"; }
+.fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch[aria-checked="true"]::after { content: "开"; }
 .fork-gal-stage[data-fk-cs-control-toggle="word"] > .fork-gal-config .fork-gal-config-switch-track { display: inline-flex; align-items: center; gap: 2px; width: auto; height: auto; background: none; box-shadow: none; }
 .fork-gal-stage[data-fk-cs-control-toggle="word"] > .fork-gal-config .fork-gal-config-switch-track > i { display: none; }
 .fork-gal-stage[data-fk-cs-control-toggle="word"] > .fork-gal-config .fork-gal-config-switch-track::before { content: "开"; padding: .2em .55em; color: var(--gal-ui-ink-disabled); }
