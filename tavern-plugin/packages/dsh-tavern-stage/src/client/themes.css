@@ -5744,7 +5744,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not([data-fk-skin-art-menu-narrow-signal]):not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel:not(.fork-gal-confirm)::after { content: none; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-panel:not(.fork-gal-confirm) > :is(.fork-gal-menu-ornament, .fork-gal-menu-frame, .fork-gal-menu-head) { display: none; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-list { position: absolute; left: calc(var(--art-mn-r-x) * var(--mu)); right: 0; top: calc(var(--art-mn-r-y) * var(--mu));
-    display: flex; flex-direction: column; gap: calc(var(--art-mn-r-gap) * var(--mu)); width: auto; }
+    display: flex; flex-direction: column; gap: calc(var(--art-mn-r-gap) * var(--mu)); width: auto; overflow: visible; }
   /* rows.fit on a phone (narrow.rows.fit, else the wide one): past it the bars scroll inside it, the chevrons marking the clipped
      edges as on wide stages (menu.cjs data-more) */
   .fork-gal-stage[data-fk-skin-art-menu-narrow-fit]:not(.is-film) .fork-gal-menu-list { max-height: calc(var(--art-mn-r-fit) * var(--mu)); overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; }
@@ -6913,7 +6913,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   /* The grid: cols per row in the menu's order; more rows than fit scale the whole grid (tiles and words) down to fit. */
   .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-list { --rows: round(up, calc((var(--n) - var(--art-mt-placed)) / var(--art-mt-cols)), 1);
     --k: min(1, calc(var(--art-mt-fit) / ((var(--rows) - 1) * var(--art-mt-py) + var(--art-mt-h)))); --u: calc(var(--mu) * var(--k));
-    position: absolute; left: calc(var(--ox) + var(--art-mt-x) * var(--mu)); top: calc(var(--oy) + var(--art-mt-y) * var(--mu)); display: grid; box-sizing: border-box;
+    position: absolute; left: calc(var(--ox) + var(--art-mt-x) * var(--mu)); top: calc(var(--oy) + var(--art-mt-y) * var(--mu)); display: grid; box-sizing: border-box; overflow: visible;
     width: calc(((var(--art-mt-cols) - 1) * var(--art-mt-px) + var(--art-mt-w)) * var(--mu)); justify-content: center; align-content: start;
     grid-template-columns: repeat(var(--art-mt-cols), calc(var(--art-mt-w) * var(--u))); grid-auto-rows: calc(var(--art-mt-h) * var(--u));
     column-gap: calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); row-gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)); gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)) calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); }
