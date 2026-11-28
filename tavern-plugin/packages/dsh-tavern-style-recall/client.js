@@ -107,7 +107,7 @@ window.__ModuleLoader__.load({
           h('h3', { id: wayId }, '联想方式'),
           settings.foregroundAvailable && h(Segmented, { base: 'style-recall-mode', label: '联想方式', value: draft.mode,
             options: modes, disabled: saving, onChange: mode => setDraft({ ...draft, mode, enabled: draft.enabled && (mode === 'foreground' || available) }) }),
-          h('p', { className: 'style-recall-meta' }, foreground ? '正文模型自行联想范文，仅用于自由游玩。' : '后台 Agent 每轮从小说原文中挑选参考段落。')),
+          h('p', { className: 'style-recall-meta' }, foreground ? '正文模型自行联想范文，仅用于自由游玩。' : '每轮按关键词匹配一段小说原文，同分时随机抽取。')),
         foreground ? h('label', { className: 'style-recall-section style-recall-guidance' },
           h('span', null, '文风偏好', h('small', null, '可选')),
           h('textarea', { rows: 3, value: draft.guidance, maxLength: 500, disabled: saving,

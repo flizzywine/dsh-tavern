@@ -7,7 +7,9 @@
 全局插件可以用下面的只读接口选取剧本库中的原文。用 `ctx.tavern.capabilities.scriptLibrary === 1` 检查支持。
 
 - `listScriptSources()` 返回 `[{ path, title }]`，可用于构建剧本选择器。
-- `searchScriptSource({ path, query?, limit? })` 返回 `{ path, title, chunks: [{ id, text }] }`。`path` 取自列表，`query` 最长 2000 字，`limit` 为 1–12，默认 8。返回的片段来自关键词匹配和全书抽样，每段最多 1000 字。来源已移除时返回 `null`。
+- `searchScriptSource({ path, query?, limit?, selection? })` 返回 `{ path, title, chunks: [{ id, text }] }`。`path` 取自列表，`query` 最长 2000 字，`limit` 为 1–12，默认 8。每段最多 1000 字，来源已移除时返回 `null`。
+  - `selection: 'candidates'` 是默认值，结合关键词匹配和全书抽样返回候选。
+  - `selection: 'best-match'` 只返回 BM25 分数最高的一段非空原文，并列时随机取一段。没有关键词命中时，所有非空片段同为零分。
 
 ## 生图模型与人物、服装库（`imageModels: 1`、`imageLibrary: 1`）
 

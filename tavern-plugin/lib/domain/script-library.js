@@ -3,6 +3,21 @@ import { bm25Scores, buildBm25Index, tokenizeBigram } from './bm25.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { prepareTextImport } from './text-resource-import.js'
 
+function bestMatchingChunk(chunks, scores) {
+  let highestScore = -Infinity
+  const ties = []
+  for (const chunk of chunks) {
+    const score = scores?.[chunk.order] ?? 0
+    if (score < highestScore || !chunk.text.trim()) continue
+    if (score > highestScore) {
+      highestScore = score
+      ties.length = 0
+    }
+    ties.push(chunk)
+  }
+  return ties.length ? [ties[Math.floor(Math.random() * ties.length)]] : []
+}
+
 export function createScriptLibrary({ fileResources, readScript }) {
   const searchIndexes = new WeakMap()
 
@@ -42,29 +57,39 @@ export function createScriptLibrary({ fileResources, readScript }) {
     }))
     return sources.filter(Boolean)
   }
-  async function searchSource({ path, query, limit }) {
+  async function searchSource({ path, query, limit, selection }) {
     const source = await readSource(path)
     if (!source) return null
     const { chunks } = source
     const terms = new Set(tokenizeBigram(query).filter(term => !/^\p{Script=Han}$/u.test(term)))
-    const picks = new Set()
-    if (terms.size && chunks.length > limit) {
+    const bestMatch = selection === 'best-match'
+    let scores
+    if (terms.size && chunks.length > (bestMatch ? 1 : limit)) {
       let index = searchIndexes.get(source)
       if (!index) {
         index = buildBm25Index(chunks.map(chunk => chunk.text))
         searchIndexes.set(source, index)
       }
-      const scores = bm25Scores(terms, index)
-      const ranked = chunks.filter(chunk => scores[chunk.order] > 0)
-        .sort((a, b) => scores[b.order] - scores[a.order])
-      for (const chunk of ranked.slice(0, Math.floor(limit * 0.75) || 1)) picks.add(chunk)
+      scores = bm25Scores(terms, index)
     }
-    // Fill remaining slots with excerpts spread across the book, including when the scene shares no keywords.
-    const remaining = chunks.filter(chunk => !picks.has(chunk))
-    const count = Math.min(remaining.length, limit - picks.size)
-    for (let i = 0; i < count; i++) picks.add(remaining[Math.floor((i + 0.5) * remaining.length / count)])
+    let selected
+    if (bestMatch) {
+      selected = bestMatchingChunk(chunks, scores)
+    } else {
+      const picks = new Set()
+      if (scores) {
+        const ranked = chunks.filter(chunk => scores[chunk.order] > 0)
+          .sort((a, b) => scores[b.order] - scores[a.order])
+        for (const chunk of ranked.slice(0, Math.floor(limit * 0.75) || 1)) picks.add(chunk)
+      }
+      // Fill remaining slots with excerpts spread across the book, including when the scene shares no keywords.
+      const remaining = chunks.filter(chunk => !picks.has(chunk))
+      const count = Math.min(remaining.length, limit - picks.size)
+      for (let i = 0; i < count; i++) picks.add(remaining[Math.floor((i + 0.5) * remaining.length / count)])
+      selected = [...picks]
+    }
     return { path: source.path, title: source.title,
-      chunks: [...picks].map(chunk => ({ id: chunk.id, text: chunk.text.trim().slice(0, 1000) })) }
+      chunks: selected.map(chunk => ({ id: chunk.id, text: chunk.text.trim().slice(0, 1000) })) }
   }
   async function importSource(payload) {
     const prepared = prepareScriptImport(payload)

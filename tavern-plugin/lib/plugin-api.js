@@ -1267,12 +1267,13 @@ export function createTavernPluginApi(deps) {
       return await deps.scriptLibrary.listSourceTitles()
     },
 
-    async searchScriptSource({ path, query = '', limit = 8 } = {}) {
+    async searchScriptSource({ path, query = '', limit = 8, selection = 'candidates' } = {}) {
       if (await accessScope(ownerOf(this))) throw Object.assign(new Error('剧本库仅向全局插件开放'), { code: 'TAVERN_PLUGIN_SCOPE' })
       if (typeof path !== 'string' || !path) throw new TypeError('path 需要使用 listScriptSources 返回的路径')
       if (typeof query !== 'string' || query.length > 2000) throw new TypeError('query 需要是不超过 2000 字的文本')
       if (!Number.isInteger(limit) || limit < 1 || limit > 12) throw new RangeError('limit 必须是 1–12 的整数')
-      return await deps.scriptLibrary.searchSource({ path, query, limit })
+      if (selection !== 'candidates' && selection !== 'best-match') throw new TypeError('selection 必须是 candidates 或 best-match')
+      return await deps.scriptLibrary.searchSource({ path, query, limit, selection })
     },
 
     // A card's full JSON as Tavern plays it (its working copy), read-only.
