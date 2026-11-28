@@ -277,7 +277,6 @@ import {createStageSwitch} from './stage-switch.js'
 import {createAssetEngineSettings} from './asset-engine-settings-owner.js'
 import {cardAssetExtensionPointer, cardAssetExtensionView, readCardAssetExtension} from './domain/card-asset-bindings.js'
 import {activeStageSkin, cardBubbleChoice} from './domain/card-stage-settings.js'
-import {createCardStage} from '../packages/dsh-tavern-stage/lib/card-stage.js'
 import {createForegroundCapabilities} from './domain/foreground-capabilities.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
@@ -358,6 +357,16 @@ function historyLayoutFile() {
   return path.join(process.env.DSH_HOME || path.join(process.env.HOME || '/', '.dsh'), 'tavern-history-layout.txt')
 }
 
+// The bubble projection lives in the stage package's files; a profile without that package keeps the core running with
+// bubbles off (an absent package, not a disabled stage: a disabled stage still has the files and keeps its bubbles).
+async function createCardStageIfPresent(options) {
+  try {return (await import('../packages/dsh-tavern-stage/lib/card-stage.js')).createCardStage(options)}
+  catch(error) {
+    if(error?.code !== 'ERR_MODULE_NOT_FOUND') throw error
+    const off = () => normalizeBubbleConfig({enabled:false})
+    return {bubbles:{read:async () => off(), snapshot:async () => ({config:off(), requireAvailable:off}), sync:async () => {}}}
+  }
+}
 export async function apply(ctx) {
   const restoreHttpStreams = installHttpStreamPatch()
   ctx.effect(() => restoreHttpStreams)
@@ -769,7 +778,7 @@ export async function apply(ctx) {
   const assetEngineSettings = createAssetEngineSettings(ctx)
   // 对话气泡 (its settings, format and worldbook entry) and the card's skin: the core's own, whether or not the stage
   // runs; the stage is one place bubbles show and adds its own part on top.
-  const cardStage = createCardStage({cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), getTts:() => ctx.get('tts'),
+  const cardStage = await createCardStageIfPresent({cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), getTts:() => ctx.get('tts'),
     getEngine:() => assetEngineSettings.read().values, getAssetLibrary:() => ctx.get('assetLibrary'),
     getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
   const dialogueBubbles = cardStage.bubbles
