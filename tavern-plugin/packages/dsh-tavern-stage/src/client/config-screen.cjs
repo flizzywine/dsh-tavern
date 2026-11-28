@@ -32,18 +32,25 @@ const GAL_CONFIG_MODS_TAB = ["mods", "模组"];
 // section's desc).
 const GAL_CONFIG_LEADS = { sound: "音量与配音。", text: "阅读节奏与字体。", screen: "外观与效果。", mods: "已启用模组的舞台设置。" };
 // The surface's drawn control looks, read from the stage's marks (stageSkinConfigSurface writes them) and followed while open.
-const GAL_CONFIG_LOOK_MARKS = { segmented: "data-fk-cs-control-segmented", toggle: "data-fk-cs-control-toggle" };
+// toggleArt: the skin draws its toggles - a toggle plate (every width) or the art CONFIG's toggle images (wide stages,
+// theme.css «art CONFIG» at 641px and up) - so they stay switches; without it a toggle is the 关 | 开 segmented choice.
+const GAL_CONFIG_LOOK_MARKS = { segmented: "data-fk-cs-control-segmented", toggle: "data-fk-cs-control-toggle", toggleOrder: "data-fk-cs-toggle-order" };
+const GAL_CONFIG_ART_WIDE = "(min-width: 641px)";
 function useGalConfigLooks(root) {
     const [looks, setLooks] = React.useState(null);
     React.useLayoutEffect(() => {
         const stage = root.current && root.current.parentElement;
         if (!stage) return undefined;
+        const wide = typeof matchMedia === "function" ? matchMedia(GAL_CONFIG_ART_WIDE) : null;
+        const parts = mark => (stage.getAttribute(mark) || "").split(" ");
         const read = () => { if (disposed) return; const next = Object.fromEntries(Object.entries(GAL_CONFIG_LOOK_MARKS).map(([type, mark]) => [type, stage.getAttribute(mark) || ""]));
+            next.toggleArt = parts("data-fk-cs-art").includes("toggle") || Boolean(wide && wide.matches) && parts("data-fk-skin-art-config-parts").includes("toggle") ? "1" : "";
             setLooks(was => was && Object.keys(next).every(type => was[type] === next[type]) ? was : next); };
         read();
         const watch = new window.MutationObserver(read);
-        watch.observe(stage, { attributes: true, attributeFilter: Object.values(GAL_CONFIG_LOOK_MARKS) });
-        return () => watch.disconnect();
+        watch.observe(stage, { attributes: true, attributeFilter: [...Object.values(GAL_CONFIG_LOOK_MARKS), "data-fk-cs-art", "data-fk-skin-art-config-parts"] });
+        if (wide) wide.addEventListener("change", read);
+        return () => { watch.disconnect(); if (wide) wide.removeEventListener("change", read); };
     }, []);
     return looks;
 }

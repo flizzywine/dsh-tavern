@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { recordUpdateDiagnostic, redactUpdateDiagnostic } from './update-diagnostics.mjs'
+import { readInstallerFailure, recordUpdateDiagnostic, redactUpdateDiagnostic } from './update-diagnostics.mjs'
 import { randomUUID } from 'node:crypto'
 import { runInstallationProcess } from './installation-process.mjs'
 import installationState from './installation-state.cjs'
@@ -239,6 +239,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     const captureOutput = reportToUi || options.host === 'cli'
     const outputLogRoot = reportToUi ? path.dirname(options.statusFile)
       : process.env.DSH_TAVERN_UPDATE_LOG_ROOT || path.join(dshHome, 'profile-data', 'tavern', 'data')
+    const checkedManifest = path.join(lease.lockDir, 'runtime-manifest.json')
     let outputDescriptor = null
     let stageReporter = null
     let result
@@ -276,6 +277,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
           ...(options.host === 'cli' ? { DSH_TAVERN_CLI_HOME: dshHome } : {}),
           DSH_TAVERN_INSTALL_ATTEMPT: attemptId,
           DSH_TAVERN_INSTALL_LOCK: lease.lockDir,
+          DSH_TAVERN_INSTALL_MANIFEST: targetCommit && existsSync(checkedManifest) ? checkedManifest : '',
           ...(captureOutput ? { DSH_TAVERN_UPDATE_LOG_ROOT: outputLogRoot } : {}),
           ...(options.targetCommit ? { DSH_TAVERN_TARGET_COMMIT: options.targetCommit } : {}),
           ...(reportToUi ? { DSH_TAVERN_NO_OPEN: '1' } : {}),
@@ -307,14 +309,15 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
         durationMs: Date.now() - startedAt, output: output.slice(-6000), outputHead: output.slice(0, 6000),
         omittedCharacters: Math.max(0, output.length - 12000) })
     }
+    const details = reportToUi && (commandError || result.status !== 0)
+      ? installerFailureTail(readInstallerFailure(outputLogRoot, attemptId) || installerOutput) : ''
     if (commandError) {
       if (desktopGateError) commandError.message += '\n' + desktopGateError.message
-      if (reportToUi && installerOutput) commandError.message += '\n' + installerFailureTail(installerOutput)
+      if (details) commandError.message += '\n' + details
       throw commandError
     }
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
     if (result.status !== 0) {
-      const details = reportToUi ? installerFailureTail(installerOutput) : ''
       throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
     }
     if (temporary !== '' && existsSync(temporary)) unlinkSync(temporary)

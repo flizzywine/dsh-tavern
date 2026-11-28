@@ -2555,7 +2555,7 @@
        "maximum": 512
       },
       "voice": {
-       "description": "The row's voice replay control place, the skin's own (omitted = right after the speaker's name, centred on it). A box [x, y, w, h] from the entry's top-left (= anchor row), or anchor + at [dx, dy] + size [w, h]: row = its top-left at the entry's top-left + at; name = its left edge at the name's end + dx, centred on the name + dy; text = its left edge at the text column's right end + dx, centred on the first line + dy. size omitted = a square growing with the lines. Wide stages only; a phone keeps it after the name.",
+       "description": "The row's voice replay control place, the skin's own (omitted = right after the speaker's name, centred on it). A box [x, y, w, h] from the entry's top-left (= anchor row), or anchor + at [dx, dy] + size [w, h]: row = its top-left at the entry's top-left + at; name = its left edge at the name's end + dx, centred on the name + dy; text = its left edge at the text column's right end + dx, centred on the first line + dy. size omitted = a square growing with the lines. Wide stages only; a phone keeps it after the name unless narrow.voice places it.",
        "oneOf": [
         {
          "type": "array",
@@ -2643,6 +2643,7 @@
         },
         "letter": { "enum": ["ransom"], "description": "C2: the name as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles; one of them is required); the plain name stays the accessible text." },
         "align": { "enum": ["end"], "description": "C2: end = the name's right edge on the text column's left edge; a long name grows to the left." },
+        "ink": { "$ref": "#/$defs/color", "description": "The name's own ink on its frame (a solid name tab); omitted = the row's ink." },
         "frame": {
          "type": "object",
          "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
@@ -2798,6 +2799,57 @@
          "type": "number",
          "minimum": 0.05,
          "maximum": 0.5
+        },
+        "voice": {
+         "description": "The replay control on phones, as voice in the phone's design px (narrow.unit): anchor text = its left edge at the row's right end + dx (the text column runs to it on a phone), centred on the first line + dy. Omitted = after the name.",
+         "oneOf": [
+          {
+           "type": "array",
+           "minItems": 4,
+           "maxItems": 4,
+           "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 8192
+           }
+          },
+          {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "anchor"
+           ],
+           "properties": {
+            "anchor": {
+             "enum": [
+              "row",
+              "name",
+              "text"
+             ]
+            },
+            "at": {
+             "type": "array",
+             "minItems": 2,
+             "maxItems": 2,
+             "items": {
+              "type": "number",
+              "minimum": -4096,
+              "maximum": 4096
+             }
+            },
+            "size": {
+             "type": "array",
+             "minItems": 2,
+             "maxItems": 2,
+             "items": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 1024
+             }
+            }
+           }
+          }
+         ]
         }
        }
       },
@@ -3245,6 +3297,171 @@
          "type": "number",
          "minimum": 0,
          "maximum": 1024
+        },
+        "choices": {
+         "type": "number",
+         "minimum": 0.3,
+         "maximum": 1,
+         "description": "The choices' size as a share of the actions' (default 0.62; 1 = the actions' own size, wrapping to more rows)."
+        },
+        "primary": {
+         "type": "object",
+         "description": "The dialog's own action (its submit, 确定) drawn by its own images (natural size, as plain) and inks: the original's OK beside キャンセル.",
+         "additionalProperties": false,
+         "required": [
+          "plain",
+          "focus"
+         ],
+         "properties": {
+          "plain": {
+           "$ref": "#/$defs/image"
+          },
+          "focus": {
+           "$ref": "#/$defs/image"
+          },
+          "ink": {
+           "$ref": "#/$defs/color"
+          },
+          "focusInk": {
+           "$ref": "#/$defs/color"
+          }
+         }
+        },
+        "cancel": {"type":"object","description":"The dialog's 取消 drawn by its own images (natural size, as plain) and inks: the original's blue キャンセル beside the pink OK.","additionalProperties":false,"required":["plain","focus"],"properties":{"plain":{"$ref":"#/$defs/image"},"focus":{"$ref":"#/$defs/image"},"ink":{"$ref":"#/$defs/color"},"focusInk":{"$ref":"#/$defs/color"}}}
+       }
+      },
+      "label": {
+       "type": "object",
+       "description": "Each field's label on its own plate (the original's dark grey label pill): the image nine-sliced (slice, image px) behind the words, which are in ink.",
+       "additionalProperties": false,
+       "required": ["image", "slice", "ink"],
+       "properties": { "image": { "$ref": "#/$defs/image" }, "slice": { "$ref": "#/$defs/slice" }, "ink": { "$ref": "#/$defs/color" } }
+      },
+      "card": {
+       "type": "object",
+       "description": "The band as the original's centred dialog instead of a full-width band: the band image nine-sliced (slice, image px) round the content column (width) and side design px on each side, the head at its start or centre (align, default centre); not with the torn edges (top / bottom). unit = the same card on phones (640px and less), one design px = unit CSS px; omitted = phones keep the shared dialog.",
+       "additionalProperties": false,
+       "required": [
+        "slice",
+        "side"
+       ],
+       "properties": {
+        "slice": {
+         "$ref": "#/$defs/slice"
+        },
+        "side": {
+         "type": "number",
+         "minimum": 0,
+         "maximum": 1024
+        },
+        "align": {
+         "enum": [
+          "start",
+          "center"
+         ]
+        },
+        "unit": {
+         "type": "number",
+         "minimum": 0.05,
+         "maximum": 1
+        }
+       }
+      }
+     }
+    },
+    "gallery": {
+     "type": "object",
+     "description": "The 回想 grid page drawn as the original's own page at every width (the CG viewer stays the dark media viewer): paint = its opaque ground and inks (fg / bg at least 4.5:1, fgMuted / bg at least 3:1), ground = an image covering the page, head = a plate behind the title row (nine-sliced, CSS px), cell = a frame over each tile's edge (nine-sliced, width = its rim in CSS px; focus on hover / keyboard), close = the ✕ drawn by its own images (44px). CSS pixels: the grid reflows to the window.",
+     "additionalProperties": false,
+     "required": [
+      "paint"
+     ],
+     "properties": {
+      "paint": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "bg",
+        "fg",
+        "fgMuted"
+       ],
+       "properties": {
+        "bg": {
+         "$ref": "#/$defs/color"
+        },
+        "fg": {
+         "$ref": "#/$defs/color"
+        },
+        "fgMuted": {
+         "$ref": "#/$defs/color"
+        }
+       }
+      },
+      "ground": {
+       "$ref": "#/$defs/image"
+      },
+      "panel": {
+       "type": "object",
+       "description": "A plate behind the grid (the original's white card storage panel), nine-sliced, its edges slice CSS px; the tiles sit inside it.",
+       "additionalProperties": false,
+       "required": ["image", "slice"],
+       "properties": { "image": { "$ref": "#/$defs/image" }, "slice": { "$ref": "#/$defs/slice" } }
+      },
+      "head": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "image",
+        "slice"
+       ],
+       "properties": {
+        "image": {
+         "$ref": "#/$defs/image"
+        },
+        "slice": {
+         "$ref": "#/$defs/slice"
+        }
+       }
+      },
+      "cell": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "plain",
+        "focus",
+        "slice",
+        "width"
+       ],
+       "properties": {
+        "plain": {
+         "$ref": "#/$defs/image"
+        },
+        "focus": {
+         "$ref": "#/$defs/image"
+        },
+        "slice": {
+         "$ref": "#/$defs/slice"
+        },
+        "width": {
+         "type": "number",
+         "minimum": 1,
+         "maximum": 48
+        }
+       }
+      },
+      "close": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "plain",
+        "focus"
+       ],
+       "properties": {
+        "plain": {
+         "$ref": "#/$defs/image"
+        },
+        "focus": {
+         "$ref": "#/$defs/image"
         }
        }
       }
@@ -4250,7 +4467,7 @@
        "type": "object",
        "additionalProperties": false,
        "required": ["unit"],
-       "description": "§18 N28: the bar menu on stages of 640px and less, in portrait, one design px = unit CSS px; only what differs from the wide menu (the rest inherited, merged like art.backlog.narrow). Needs rows; the info and key strips are not drawn on phones; the motion is the wide menu's.",
+       "description": "§18 N28: the bar menu on stages of 640px and less, in portrait, one design px = unit CSS px; only what differs from the wide menu (the rest inherited, merged like art.backlog.narrow). Under rows; under tiles (a landscape grid with no bars to inherit) narrow.rows is whole: images, slice, text, font, y and gap, the bars in tiles.label's ink, focusInk, weight and alignment. The info and key strips are not drawn on phones; the motion is the wide menu's.",
        "properties": {
         "unit": { "type": "number", "minimum": 0.05, "maximum": 0.5 },
         "sheet": { "$ref": "#/$defs/image", "description": "The phone's own backdrop, covering the screen (default the wide sheet)." },
@@ -4273,7 +4490,24 @@
           "y": { "type": "number", "minimum": -4096, "maximum": 4096 },
           "gap": { "type": "number", "minimum": 0, "maximum": 512 },
           "slant": { "type": "number", "minimum": -256, "maximum": 256 },
-          "poses": { "$ref": "#/$defs/menuPoses" }
+          "poses": { "$ref": "#/$defs/menuPoses" },
+          "icons": {
+           "type": "object",
+           "description": "Each action's own icon on its bar (the original's menu buttons carry one), keyed by the menu's action ids; needs icon.",
+           "additionalProperties": false,
+           "minProperties": 1,
+           "properties": { "resume": { "$ref": "#/$defs/image" }, "backlog": { "$ref": "#/$defs/image" }, "auto": { "$ref": "#/$defs/image" }, "skip": { "$ref": "#/$defs/image" },
+            "gallery": { "$ref": "#/$defs/image" }, "latest": { "$ref": "#/$defs/image" }, "regenerate": { "$ref": "#/$defs/image" }, "config": { "$ref": "#/$defs/image" },
+            "keys": { "$ref": "#/$defs/image" }, "leave": { "$ref": "#/$defs/image" } }
+          },
+          "icon": {
+           "type": "object",
+           "description": "The icons drawn size design px square, the left edge x design px from the bar's start, centred on the bar; needs icons. place top: centred above the words instead, x design px between them.",
+           "additionalProperties": false,
+           "required": ["x", "size"],
+           "properties": { "x": { "type": "number", "minimum": 0, "maximum": 1024 }, "size": { "type": "number", "minimum": 8, "maximum": 512 }, "place": { "enum": ["start", "top"] } }
+          },
+          "cols": { "enum": [2, 3], "description": "The bars as a grid of tiles, cols to a row sharing the width (the wide tiles' grid on a phone), gap apart both ways; the menu's separators are not drawn." }
          }
         },
         "title": {
@@ -7747,6 +7981,12 @@
        "maxLength": 24,
        "pattern": "^(?:设置|(?!.*设置)[^\\r\\n\"\\\\\\s\\p{Script=Latin}·・/|｜／—–-]+)$"
       },
+      "gem": {
+       "const": false,
+       "description": "false = no heading gem before the title: its own mark is drawn in its plate (a pencil, a crest)."
+      },
+      "ink": { "$ref": "#/$defs/color", "description": "The title's own colour (the original's dark wordmark), >= 4.5 on the panel." },
+      "weight": { "enum": [400, 500, 700], "description": "The title's weight (default 400; 700 = a bold wordmark)." },
       "plate": {
        "type": "object",
        "description": "One image stretched over the part by its nine-slice (image px); scale = CSS px per image px at the sliced edges (default 1).",
@@ -7805,6 +8045,13 @@
         "end",
         "top"
        ]
+      },
+      "align": {
+       "enum": [
+        "start",
+        "center"
+       ],
+       "description": "center: each tab's words centred on its plate (the original's tabs); start (the default) from its start."
       },
       "numerals": {
        "enum": [
@@ -8038,6 +8285,9 @@
         "fgMuted": { "$ref": "#/$defs/color" }
        }
       },
+      "labelPlate": {"type":"object","description":"Each label on its own plate across its column (the original's dark grey label pill). One image stretched over the part by its nine-slice (image px); scale = CSS px per image px at the sliced edges (default 1).","additionalProperties":false,"required":["image"],"properties":{"image":{"$ref":"#/$defs/image"},"slice":{"$ref":"#/$defs/slice"},"scale":{"type":"number","minimum":0.25,"maximum":8},"outset":{"description":"How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).","oneOf":[{"type":"number","minimum":0,"maximum":400},{"type":"array","minItems":4,"maxItems":4,"items":{"type":"number","minimum":0,"maximum":400}}]},"repeat":{"enum":["stretch","round","repeat","space"],"description":"How the sliced edges and centre fill their length: stretch (the default) or tiled."}}},
+      "labelPaint": { "type": "object", "description": "The labels' words on their plates: fg on the plate's ground bg (>= 4.5).", "additionalProperties": false, "required": ["bg", "fg"],
+       "properties": { "bg": { "$ref": "#/$defs/color" }, "fg": { "$ref": "#/$defs/color" } } },
       "density": {
        "enum": [
         "compact",
@@ -8150,10 +8400,17 @@
           "groove",
           "chips",
           "stamps",
-          "cycler"
+          "cycler",
+          "radio"
          ],
-         "description": "Closed look; the first word is the engine look of today (the default)."
+         "description": "Closed look; the first word is the engine look of today (the default). radio = each option a round mark (mark) beside its word."
         },
+        "mark": { "type": "object", "description": "radio: the round mark before each option - plain, on = the chosen one, focus = under the pointer / keyboard focus; needed by and only with look radio.",
+         "additionalProperties": false, "required": ["plain", "on"],
+         "properties": { "plain": { "$ref": "#/$defs/image" }, "on": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" } } },
+        "steps": { "type": "object", "description": "cycler only: the button either side of the value (square arrow buttons, say) - plain is the next button as drawn, the previous one is it mirrored; focus = under the pointer. Under look cycler, plate is the value's field between them.",
+         "additionalProperties": false, "required": ["plain"],
+         "properties": { "plain": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" } } },
         "plate": {
          "type": "object",
          "description": "The part drawn by state images: plain at rest, on = chosen / open, focus = under the pointer or keyboard focus; sliced and scaled like a plate.",
@@ -8208,10 +8465,15 @@
           "switch",
           "lamp",
           "word",
-          "cycler"
+          "cycler",
+          "radio"
          ],
-         "description": "Closed look; the first word is the engine look of today (the default)."
+         "description": "Closed look. Unset, a toggle is the 关 | 开 choice in the segmented look (a toggle plate of its own draws a switch instead). radio = the two words as round marks of the toggle's own (mark), each on toggle.plate when drawn, whatever the segmented look is (for example multi-way rows a cycler, 开 / 关 radio pills)."
         },
+        "mark": { "type": "object", "description": "radio: the round mark before 开 and 关 - plain, on = the chosen one, focus; needed by and only with look radio.",
+         "additionalProperties": false, "required": ["plain", "on"],
+         "properties": { "plain": { "$ref": "#/$defs/image" }, "on": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" } } },
+        "order": { "enum": ["off-on", "on-off"], "description": "Which word comes first in the two-word toggle: off-on (关 开, the default) or on-off (开 关, Girls Band Party's ON / OFF)." },
         "plate": {
          "type": "object",
          "description": "The part drawn by state images: plain at rest, on = chosen / open, focus = under the pointer or keyboard focus; sliced and scaled like a plate.",
@@ -8382,6 +8644,17 @@
           },
           "repeat": { "enum": ["stretch", "round", "repeat", "space"] }
          }
+        },
+        "endWords": { "enum": ["shown", "hidden"], "description": "hidden: the rail without its end words (慢 / 快; the originals' volume rails) - the reading still names the value." },
+        "readout": {
+         "type": "object",
+         "description": "The reading after the rail: plate = its own field (a dark value box, say), paint = its words (fg on bg >= 4.5; bg is the field's ground, or the panel's when there is no plate).",
+         "additionalProperties": false,
+         "properties": {
+          "plate": { "type": "object", "additionalProperties": false, "required": ["image"],
+           "properties": { "image": { "$ref": "#/$defs/image" }, "slice": { "$ref": "#/$defs/slice" }, "scale": { "type": "number", "minimum": 0.25, "maximum": 8 }, "outset": { "oneOf": [ { "type": "number", "minimum": 0, "maximum": 400 }, { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } } ] }, "repeat": { "enum": ["stretch", "round", "repeat", "space"] } } },
+          "paint": { "type": "object", "additionalProperties": false, "required": ["bg", "fg"], "properties": { "bg": { "$ref": "#/$defs/color" }, "fg": { "$ref": "#/$defs/color" } } }
+         }
         }
        }
       },
@@ -8389,6 +8662,20 @@
        "type": "object",
        "additionalProperties": false,
        "properties": {
+        "list": {
+         "type": "object",
+         "description": "The open list of the stage's pickers (舞台字体 / 字幕字体, 本卡皮肤): plate = the list's ground, option = each row (on = the chosen one, focus = under the pointer or keyboard focus), mark = the chosen mark in place of the ✓ (plain on every row, on the chosen one).",
+         "additionalProperties": false,
+         "minProperties": 1,
+         "properties": {
+          "plate": { "type": "object", "additionalProperties": false, "required": ["image"],
+           "properties": { "image": { "$ref": "#/$defs/image" }, "slice": { "$ref": "#/$defs/slice" }, "scale": { "type": "number", "minimum": 0.25, "maximum": 8 }, "outset": { "oneOf": [ { "type": "number", "minimum": 0, "maximum": 400 }, { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } } ] }, "repeat": { "enum": ["stretch", "round", "repeat", "space"] } } },
+          "option": { "type": "object", "additionalProperties": false, "required": ["plain"],
+           "properties": { "plain": { "$ref": "#/$defs/image" }, "on": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" }, "slice": { "$ref": "#/$defs/slice" }, "scale": { "type": "number", "minimum": 0.25, "maximum": 8 }, "outset": { "oneOf": [ { "type": "number", "minimum": 0, "maximum": 400 }, { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } } ] }, "repeat": { "enum": ["stretch", "round", "repeat", "space"] } } },
+          "mark": { "type": "object", "additionalProperties": false, "required": ["plain", "on"],
+           "properties": { "plain": { "$ref": "#/$defs/image" }, "on": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" } } }
+         }
+        },
         "look": {
          "enum": [
           "field",
@@ -8780,7 +9067,7 @@
      "additionalProperties": false,
      "properties": {
       "base": { "type": "number", "minimum": 14, "maximum": 20 },
-      "ratio": { "type": "number", "minimum": 1.125, "maximum": 1.5 }
+      "ratio": { "type": "number", "minimum": 1, "maximum": 1.5 }
      }
     }
    }
@@ -9409,6 +9696,33 @@
        "type": "number",
        "minimum": 0,
        "maximum": 512
+      }
+     }
+    },
+    "weight": {
+     "enum": [
+      400,
+      500,
+      700
+     ],
+     "description": "The words' weight (default 500)."
+    },
+    "stroke": {
+     "description": "A hard outline round the words, under the ink (the original's heavy title words), as art.menu.tiles.label.stroke.",
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "color",
+      "width"
+     ],
+     "properties": {
+      "color": {
+       "$ref": "#/$defs/color"
+      },
+      "width": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 16
       }
      }
     }

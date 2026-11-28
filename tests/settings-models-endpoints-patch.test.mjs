@@ -82,6 +82,43 @@ test('the card patch inserts endpoint-history and vertex-region once, is idempot
   }
 })
 
+// Minified 0.2.2-rc.5 shape: template literals, no whitespace/semicolons, and keyDraft may be undefined or { ref }.
+const MINIFIED_CARD = 'function ProviderEditor(props){const{namespace,settingsPath}=props;const keyRef=`X_API_KEY`,keyDraft=props.keyDraft,disabled=false,fallback=props.fallback||{},draft=props.draft||{},probeApi=props.probeApi,stringAt=(s,k)=>s[k];'
+  + 'const ModelsSection_module_css_default={field:`field-cls`,fieldLabel:`label-cls`,input:`input-cls`};'
+  + 'const setField=props.setField||(()=>{});'
+  + 'return[props.credentialOnly===true?null:(0,react_jsx_runtime.jsxs)(`details`,{children:[(0,react_jsx_runtime.jsx)(`input`,{value:stringAt(draft,`baseURL`)??``,onChange:event=>{setField(`baseURL`,event.target.value===``?void 0:event.target.value)}}),`hint`]})]}'
+
+test('the card patch matches minified 0.2.2-rc.5 builds and normalizes non-string keyDraft', () => {
+  const applied = patchSettingsModelsSource(MINIFIED_CARD)
+  assert.equal(applied.status, 'applied')
+  assert.equal(patchSettingsModelsSource(applied.text).status, 'patched')
+
+  const rendered = []
+  const run = new Function('react_jsx_runtime', 'props', applied.text + '; return ProviderEditor(props)')
+  const jsx = {
+    jsx: (type, p) => (rendered.push([type, p]), type === 'input' ? 'input' : type === VertexRegionField ? 'vertex-region' : 'picker'),
+    jsxs: (type, p) => (rendered.push([type, p]), ['details', ...p.children]),
+  }
+  const ModelEndpoints = () => {}
+  const VertexRegionField = () => {}
+  globalThis[Symbol.for('dsh.endpointHistory')] = { ModelEndpoints }
+  globalThis[Symbol.for('dsh.vertexRegion')] = { VertexRegionField }
+  try {
+    const baseProps = { provider: 'google-vertex', displayName: 'Google Vertex AI', namespace: { ns: 'llm-pi-ai' }, settingsPath: ['providers', 'google-vertex'], defaultBaseURL: 'https://aiplatform.googleapis.com', onClose: () => {} }
+    assert.deepEqual(run(jsx, { ...baseProps, keyDraft: { ref: 'X_API_KEY' } }), ['vertex-region', ['details', 'input', 'picker', 'hint']])
+    const [, vGivenObj] = rendered.find(([type]) => type === VertexRegionField)
+    assert.equal(vGivenObj.keyDraft, '')
+
+    rendered.length = 0
+    assert.deepEqual(run(jsx, { ...baseProps, keyDraft: 'sk-typed-key' }), ['vertex-region', ['details', 'input', 'picker', 'hint']])
+    const [, vGivenStr] = rendered.find(([type]) => type === VertexRegionField)
+    assert.equal(vGivenStr.keyDraft, 'sk-typed-key')
+  } finally {
+    delete globalThis[Symbol.for('dsh.endpointHistory')]
+    delete globalThis[Symbol.for('dsh.vertexRegion')]
+  }
+})
+
 function store(initial = {}) {
   const refs = new Map(Object.entries(initial))
   return { refs, api: { resolve: async r => refs.has(r) ? { value: refs.get(r) } : undefined, set: async (r, v) => { refs.set(r, v) }, unset: async r => { refs.delete(r) }, describe: async r => ({ configured: refs.has(r) }) } }

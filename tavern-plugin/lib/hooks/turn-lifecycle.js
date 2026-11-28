@@ -247,7 +247,7 @@ export function registerTurnLifecycleHooks({
       }))
     }
     const needWorldbook = Boolean(chat && ['story', 'script'].includes(chat.mode || 'story'))
-    const nativeWorldbook = needWorldbook && chat.worldbookStrategy === 'native-skills'
+    const nativeWorldbook = needWorldbook && chat.requestMode !== 'sillytavern'
     const needPlugins = Boolean(pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(mode))
     const [workspaceProjection, projectedWorldbook, extraPluginSections] = await Promise.all([
       timed('workspace', async () => {

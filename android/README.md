@@ -1,6 +1,8 @@
 # Android 安装与入口组件
 
-Android 用户安装仅提供独立 APK。此目录保留旧 DSHA 部署实现，供维护和历史兼容参考，不再作为用户安装入口。
+当前 Android 推荐方案为原生版独立 APK（见 `android/native/`）。原基于 DSHA 容器的独立 APK 构建方案（`android/apk/`）已封存并停止维护。
+
+此目录保留旧 DSHA 部署与应用内更新脚本及入口插件，仅用于已安装旧版本的应用内更新与历史兼容参考，不再作为用户安装入口，也不再主动维护。
 
 APK 下载、安装、更新和旧数据导入步骤见 [Android 安装说明](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)。
 

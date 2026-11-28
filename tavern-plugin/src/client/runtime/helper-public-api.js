@@ -1,6 +1,6 @@
 // Shared synchronous public API semantics for script and message iframes.
 // Keep factories self-contained: the document builders serialize their source.
-function installTavernHelperContext({window, facade, context, readChat}) {
+function installTavernHelperContext({window, facade, context, readChat, readExtensionSettings = () => context().extensionSettings}) {
     function chatId() { return String(context().chatId || ''); }
     let source, chat;
     function readMessageChat() {
@@ -39,6 +39,12 @@ function installTavernHelperContext({window, facade, context, readChat}) {
     facade.getContext = () => facade;
     facade.eventSource = eventSource;
     window.getContext = () => window.SillyTavern.getContext();
+    window.EjsTemplate = Object.freeze({
+        getFeatures: () => ({
+            enabled: true, generate_enabled: true, render_enabled: true,
+            ...structuredClone(readExtensionSettings()?.EjsTemplate || {})
+        })
+    });
 }
 
 function isCurrentTavernHelperContext(current, incoming) {

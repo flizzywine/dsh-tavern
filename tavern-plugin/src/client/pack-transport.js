@@ -148,6 +148,10 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
     const root = PACK_ROOT, listeners = new Set(), unavailable = new Set(), jobs = new Set();
     let active = true, ready = false, sequence = 0, timer, events, stopWs;
     const failure = code => Object.assign(new Error(code), {code});
+    // a refused request: the host's plain reason (download failures: the HTTP status) rides along as detail; `reason` is
+    // the sentence a check wrote for the player (playerErrorText shows it instead of the code's).
+    const refusal = result => Object.assign(failure(result?.error || 'ASSET_UNAVAILABLE'), {revision:result?.revision,
+        ...(typeof result?.message === 'string' ? {detail:result.message} : {}), ...(typeof result?.reason === 'string' ? {reason:result.reason} : {})});
     async function send(path, options = {}, binary = false, timeoutMs = 30000) {
         if (!active) throw failure('ASSET_UNAVAILABLE');
         const controller = new AbortController(); jobs.add(controller);
@@ -155,8 +159,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
         try {
             const response = await request(root + path, {credentials:'same-origin', ...options, signal:controller.signal});
             const result = binary && response.ok ? new Uint8Array(await response.arrayBuffer()) : await response.json();
-            // the host's plain reason (download failures: the HTTP status) rides along as detail.
-            if (!response.ok) throw Object.assign(failure(result.error || 'ASSET_UNAVAILABLE'), {revision:result.revision, ...(typeof result.message === 'string' ? {detail:result.message} : {})});
+            if (!response.ok) throw refusal(result);
             if (!active) throw failure('ASSET_UNAVAILABLE');
             return result;
         } finally { clearTimeout(timeout); jobs.delete(controller); }
@@ -201,7 +204,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
                 done();
                 let result = null;
                 try { result = JSON.parse(xhr.responseText); } catch (_) {}
-                if (xhr.status < 200 || xhr.status >= 300 || !result) { reject(Object.assign(failure(result?.error || 'ASSET_UNAVAILABLE'), {revision:result?.revision, ...(typeof result?.message === 'string' ? {detail:result.message} : {})})); return; }
+                if (xhr.status < 200 || xhr.status >= 300 || !result) { reject(refusal(result)); return; }
                 if (!active) { reject(failure('ASSET_UNAVAILABLE')); return; }
                 resolve(result);
             };

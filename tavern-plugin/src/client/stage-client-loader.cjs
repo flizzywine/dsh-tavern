@@ -2,9 +2,8 @@
 // stage downloads and runs none of the stage code. It is imported once, and started with
 // ctx.plugin(), when the server stage is ready and an open session needs the stage. The host
 // decides that per card (card-stage-settings.js effectiveCardStage) and publishes it in the
-// session view as view.stage.{dialogue,stage}; the client never recomputes it. Afterwards the
-// stage plugin's own watchStageAvailability mounts and unmounts its views from the same
-// availability.
+// session view as view.stage.{dialogue,stage}. The loader combines that demand with server
+// readiness. The stage plugin mounts its views from the resulting snapshot.
 function stageWantedOf(state) {
     const stage = state && state.view && state.view.stage;
     return !!stage && (stage.dialogue === true || stage.stage === true);
@@ -27,92 +26,120 @@ function openSessionIds(snapshot) {
 // ({version}, the latest one replayed on connect), `wake` on errors and (re)connection;
 // load: ()=>import(stage-client.mjs); install: plugin=>ctx.plugin(plugin).
 function createStageClientLoader({sessions, views, runtime, load, install, report}) {
-    const listeners = new Set(), holds = new Set(), watched = new Map();
-    let wanted = false, stopped = true, revision = 0, loading = null, fiber = null, lifecycle;
-    const compute = () => {
-        if (holds.size) return true;
-        for (const id of watched.keys()) if (stageWantedOf(views.getSnapshot(id))) return true;
-        return false;
-    };
-    const notify = () => { for (const listener of [...listeners]) listener(); };
-    const update = () => {
-        const next = compute();
-        if (next === wanted) return;
-        wanted = next;
-        notify();
-    };
-    const syncSessions = () => {
-        const ids = new Set(openSessionIds(sessions.list.getSnapshot()));
-        for (const [id, stop] of [...watched]) if (!ids.has(id)) { watched.delete(id); stop(); }
-        for (const id of ids) if (!watched.has(id)) watched.set(id, views.subscribe(id, update, [['stage']]));
-        update();
-    };
-    // The server stage started or stopped: views computed before carry the old stage flags, so the open sessions read
-    // theirs again. The first signal seen (replayed on connect) is the state the views were read in.
-    const changed = signal => {
-        const version = signal && signal.version;
-        if (lifecycle !== undefined && version !== lifecycle) for (const id of watched.keys()) views.invalidate(id);
-        lifecycle = version;
-        notify();
-    };
+    const listeners = new Set(), holds = new Set();
+    let current = null, ready = false, modulePromise = null;
     const availability = Object.freeze({
-        // Without a session that needs the stage there is nothing to ask the server.
-        async read() {
-            if (!compute()) return {status:'idle'};
-            const status = await runtime.read({ workbench: holds.size > 0 });
-            return {status: status && status.status === 'ready' ? 'ready' : 'idle'};
-        },
+        getSnapshot: () => ready,
         subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; }
     });
-    async function ensureLoaded() {
-        if (fiber || loading) return;
-        loading = (async () => {
-            const module = await load();
-            const plugin = module && module.default;
-            if (!plugin || typeof plugin.apply !== 'function') throw new Error('舞台客户端包没有导出插件');
-            if (stopped) return;
-            const started = install(plugin);
-            await started;
-            fiber = started;
-        })();
-        try { await loading; }
+    function setReady(next) {
+        if (ready === next) return;
+        ready = next;
+        for (const listener of [...listeners]) listener();
+    }
+
+    function loadPlugin() {
+        return modulePromise ??= Promise.resolve().then(load).then(module => {
+            const plugin = module?.default;
+            if (typeof plugin?.apply !== 'function') throw new Error('舞台客户端包没有导出插件');
+            return plugin;
+        }).catch(error => { modulePromise = null; throw error; });
+    }
+
+    function disposeFiber(lifetime) {
+        const fiber = lifetime.fiber;
+        lifetime.fiber = null;
+        if (typeof fiber?.dispose !== 'function') return;
+        try { Promise.resolve(fiber.dispose()).catch(report); }
         catch (error) { report(error); }
-        finally { loading = null; }
     }
-    async function refresh() {
-        const expected = ++revision;
+
+    async function ensureLoaded(lifetime) {
+        if (lifetime.fiber || lifetime.loading) return;
+        lifetime.loading = true;
         try {
-            const value = await availability.read();
-            if (stopped || expected !== revision || value.status !== 'ready') return;
-            await ensureLoaded();
-        } catch (error) { if (!stopped) report(error); }
+            const plugin = await loadPlugin();
+            if (current !== lifetime || !ready || lifetime.confirmed !== lifetime.revision) return;
+            // Record the fiber before awaiting it so host disposal also stops pending installs.
+            lifetime.fiber = install(plugin);
+            await lifetime.fiber;
+        } catch (error) {
+            if (current === lifetime) { disposeFiber(lifetime); report(error); }
+        } finally { lifetime.loading = false; }
     }
+
+    async function refresh(lifetime, wake = false) {
+        if (!lifetime || current !== lifetime) return;
+        const demand = holds.size ? 'workbench' : [...lifetime.sessions].some(id => stageWantedOf(views.getSnapshot(id))) ? 'session' : null;
+        if (demand === lifetime.demand && !wake) return;
+        lifetime.demand = demand;
+        const expected = ++lifetime.revision;
+        if (!demand) { setReady(false); return; }
+        let value;
+        try { value = await runtime.read({ workbench: demand === 'workbench' }); }
+        catch (error) {
+            if (current === lifetime && expected === lifetime.revision) { setReady(false); report(error); }
+            return;
+        }
+        if (current !== lifetime || expected !== lifetime.revision) return;
+        lifetime.confirmed = expected;
+        setReady(value?.status === 'ready');
+        if (ready && current === lifetime && expected === lifetime.revision) void ensureLoaded(lifetime);
+    }
+
     return Object.freeze({
         availability,
         // Opening a stage workbench explicitly also needs the client.
         hold() {
             const token = {};
             holds.add(token);
-            update();
-            let released = false;
-            return () => { if (released) return; released = true; holds.delete(token); update(); };
+            void refresh(current);
+            return () => { if (holds.delete(token)) void refresh(current); };
         },
-        loaded: () => fiber !== null,
+        loaded: () => Boolean(current?.fiber && !current.loading),
         start() {
-            if (!stopped) throw new Error('Stage client loader already started');
-            stopped = false;
-            const stops = [runtime.subscribe(changed, notify), sessions.list.subscribe(syncSessions), availability.subscribe(refresh)];
-            syncSessions();
-            void refresh();
-            return () => {
-                if (stopped) return;
-                stopped = true; revision++;
-                for (const stop of stops.reverse()) stop();
-                for (const [, stop] of [...watched]) stop();
-                watched.clear();
-                const started = fiber; fiber = null;
-                if (started && typeof started.dispose === 'function') started.dispose();
+            if (current) throw new Error('Stage client loader already started');
+            const lifetime = { sessions: new Set(), demand: null, revision: 0, confirmed: 0, loading: false, fiber: null };
+            const watched = new Map(), stops = [];
+            let serverVersion;
+            const update = () => void refresh(lifetime);
+            const wake = () => void refresh(lifetime, true);
+            const syncSessions = () => {
+                if (current !== lifetime) return;
+                lifetime.sessions = new Set(openSessionIds(sessions.list.getSnapshot()));
+                for (const [id, stop] of watched) if (!lifetime.sessions.has(id)) { watched.delete(id); stop(); }
+                for (const id of lifetime.sessions) if (!watched.has(id)) watched.set(id, views.subscribe(id, update, [['stage']]));
+                update();
             };
+            const changed = signal => {
+                if (current !== lifetime) return;
+                const version = signal?.version;
+                // The first signal is replayed on connect. Later versions invalidate pre-existing flags.
+                const invalidate = serverVersion !== undefined && version !== serverVersion;
+                serverVersion = version;
+                if (invalidate) for (const id of lifetime.sessions) views.invalidate(id);
+                wake();
+            };
+            const stop = () => {
+                if (current !== lifetime) return;
+                current = null;
+                const errors = [];
+                for (const cleanup of [() => setReady(false), ...stops.reverse(), ...watched.values(), () => disposeFiber(lifetime)]) {
+                    try { cleanup(); } catch (error) { errors.push(error); }
+                }
+                watched.clear();
+                if (errors.length) throw new AggregateError(errors, 'Stage client loader cleanup failed');
+            };
+            current = lifetime;
+            try {
+                stops.push(runtime.subscribe(changed, wake));
+                stops.push(sessions.list.subscribe(syncSessions));
+                syncSessions();
+            } catch (error) {
+                try { stop(); } catch (cleanup) { throw new AggregateError([error, cleanup], 'Stage client loader startup failed'); }
+                throw error;
+            }
+            return stop;
         }
     });
 }

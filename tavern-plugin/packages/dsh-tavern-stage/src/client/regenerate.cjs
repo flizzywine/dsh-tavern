@@ -127,7 +127,8 @@ function GalRegenerate(props) {
         // radios); ←→ choose, each option keeps its one-line title.
         h(Segmented, { base: "fork-gal-config-seg", className: "fork-gal-regenerate-targets", label: "重新生成目标", value: target, disabled: busy, onChange: setTarget,
             options: targets.map(([id, label, note]) => [id, label, false, note, { "data-target": id }]) }),
-        h("label", { className: "fork-gal-regenerate-guidance" }, "本次指导（可选）",
+        // the words in a span: a skin's drawn dialog (art.confirm.label) sets them on its label plate.
+        h("label", { className: "fork-gal-regenerate-guidance" }, h("span", { className: "fork-gal-confirm-label" }, "本次指导（可选）"),
             h(TextArea, { rows: 2, value: guidance, disabled: busy, onChange: setGuidance })),
         // the wait is its own 停止 (StageWaitStop, as the text box's wait):
         // hover or focus shows 「■ 停止」, a click / Enter / Space / Esc stops; on touch the first tap arms it.

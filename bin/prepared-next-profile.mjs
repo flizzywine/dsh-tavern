@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseDocument } from 'yaml'
 import { copyTreeSync, removeTreeSync } from './portable-fs.mjs'
+import { relocatePnpmInstall } from './relocate-pnpm-install.mjs'
 import { stagedPaths } from './staged-app-install.mjs'
 import { trustedHome } from '../tavern-plugin/packages/dsh-tavern/lib/trusted-home.mjs'
 
@@ -67,7 +68,7 @@ export function nextUpdatePreparation({ app, sourceRoot, home, profileDir, gate 
     assertUnchanged()
     for (const name of VALIDATION_FILES) removeTreeSync(path.join(directory, name))
     removeTreeSync(path.join(stageHome, 'cordis.patch.yml'))
-    rebaseDirectoryLinks([sourceRoot, directory], mapPath)
+    relocatePnpmInstall([[sourceRoot, app], [directory, profileDir]])
     const manifestPath = path.join(directory, 'package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     const local = value => {
@@ -96,48 +97,7 @@ export function nextUpdatePreparation({ app, sourceRoot, home, profileDir, gate 
       }
       writeFileSync(lockfile, String(parsed))
     }
-    for (const root of [sourceRoot, directory]) {
-      for (const name of ['.modules.yaml', '.pnpm-workspace-state-v1.json']) {
-        const file = path.join(root, 'node_modules', name)
-        if (!existsSync(file)) continue
-        const before = readFileSync(file, 'utf8')
-        let after = before
-        for (const stage of [directory, sourceRoot]) {
-          const final = mapPath(stage)
-          after = after.replaceAll(stage, final)
-            .replaceAll(stage.split(path.sep).join('/'), final.split(path.sep).join('/'))
-            .replaceAll(JSON.stringify(stage).slice(1, -1), JSON.stringify(final).slice(1, -1))
-        }
-        if (after !== before) writeFileSync(file, after)
-      }
-    }
     return { directory, files: [...new Set([...CONFIG_FILES, 'node_modules', ...patches])].filter(name => existsSync(path.join(directory, name))) }
   }
   return { app, gate, desktopPid: request.pids[1], directory, stageHome, initialize, prepareManifest, finalize, assertUnchanged }
-}
-
-// Recreate only links whose meaning changes when the two prepared trees move.
-// Windows pnpm uses absolute junctions even for dependencies within one tree.
-function rebaseDirectoryLinks(roots, mapPath) {
-  const links = []
-  function visit(file) {
-    const stat = lstatSync(file)
-    if (stat.isDirectory()) {
-      for (const entry of readdirSync(file)) visit(path.join(file, entry))
-      return
-    }
-    if (!stat.isSymbolicLink()) return
-    const target = readlinkSync(file)
-    const absolute = path.resolve(path.dirname(file), target)
-    const final = mapPath(absolute)
-    const parent = path.dirname(mapPath(file))
-    if (path.resolve(parent, target) === final) return
-    links.push({ file, target, final, parent, isDirectory: statSync(absolute).isDirectory() })
-  }
-  for (const root of roots) visit(root)
-  for (const { file, target, final, parent, isDirectory } of links) {
-    removeTreeSync(file)
-    if (process.platform === 'win32' && isDirectory) symlinkSync(final, file, 'junction')
-    else symlinkSync(path.isAbsolute(target) ? final : path.relative(parent, final), file, isDirectory ? 'dir' : 'file')
-  }
 }

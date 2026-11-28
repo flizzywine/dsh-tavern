@@ -120,10 +120,17 @@ function image(value) { return typeof value === 'string' && ((value.length <= MA
 function fullUrl(value) { return typeof value === 'string' && (FULL_URL.test(value) || ASSET_IMAGE.test(value)) ? value : '' }
 function cardKey(cardPath) { return createHash('sha256').update(String(cardPath || '')).digest('hex').slice(0, 24) }
 
-export function importedBubbleFormat(entry, cardPath) {
-  const owner = entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles
-  return owner?.version === 1 && owner.cardKey && owner.cardKey !== cardKey(cardPath) && !owner.figure
-    && entry.enabled !== false && entry.constant === true
+/** The 对话气泡 entries of a game's worldbook that the game delivers as worldbook text. `bubbles` is this card's
+ * 对话气泡: 'on' in effect, 'off' switched off on the card, null neither. This card's own entry only mirrors its
+ * settings (the foreground capabilities generate the format and roster from them), so it is never delivered. A format
+ * another card left in a bound book (a worldbook imported on its own) speaks for bubbles like a card that turns them
+ * on: it is an ordinary constant while this card neither has its own format nor switched bubbles off. */
+export function deliveredBubbleEntries(entries, cardPath, bubbles) {
+  const own = cardKey(cardPath)
+  return entries.filter(entry => {
+    const owner = entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles
+    return !owner || (bubbles === null && owner.version === 1 && !!owner.cardKey && owner.cardKey !== own && !owner.figure)
+  })
 }
 
 export function normalizeBubbleConfig(value) {

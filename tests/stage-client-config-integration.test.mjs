@@ -33,7 +33,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const device=createStageDevice({React,matchMedia,window:{navigator:{maxTouchPoints:0,userAgent:'test'}}})
   const qualityStore=store('auto'),quality=device.quality(qualityStore),sounds={play(){}},Icon=()=>null,ResetButton=props=>h('button',{onClick:props.onClick},props.label)
   const Slider=props=>h('input',{type:'range','aria-label':props.label,value:props.value,min:props.min,max:props.max,onChange:event=>props.onChange?.(Number(event.target.value))})
-  const Segmented=props=>h('div',null,props.options.map(([value,label])=>h('button',{key:value,onClick:()=>props.onChange(value)},label)))
+  const Segmented=props=>h('div',{role:'group','aria-label':props.label},props.options.map(([value,label])=>h('button',{key:value,onClick:()=>props.onChange(value)},label)))
   const fields=createStageConfigFields({React,Slider,Segmented,ResetButton,HelpTip:()=>null,sounds})
   const mixer=createStageMixer({React,fields,audio,Slider,Icon,sounds})
   const text=createStageConfigText({React,fields,reading,limits:{textSpeed:[0,80,2],autoWait:[0,3000,100]},defaults:{textSpeed:28},scale:[70,130,5],scaleOf:(r,id)=>r.textScale[id]||100,themes:[['classic','经典']],Typewriter:()=>null})
@@ -41,18 +41,20 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance,Looks:fields.Looks})
   const root=createRoot(document.getElementById('root'))
   const click=async label=>{const node=[...document.querySelectorAll('button')].find(n=>n.textContent===label||n.getAttribute('aria-label')===label);assert.ok(node,label);await act(async()=>node.click())}
+  const choose=async(label,word)=>{const node=[...document.querySelectorAll('[aria-label="'+label+'"] button')].find(n=>n.textContent===word);assert.ok(node,label+word);await act(async()=>node.click())}
   try {
     await act(async()=>root.render(h(React.StrictMode,null,h(screen.Screen,{sessionId:'s',data:{config:{stage:{}}},onClose(){}}))))
     assert.ok(document.querySelector('[aria-label="各层音量"]'))
-    await click('自动混音');assert.equal(audio.get().duck,false)
+    // 自动混音 is a 关 | 开 choice (a toggle without a drawn look reads as the segmented choice)
+    await choose('自动混音','关');assert.equal(audio.get().duck,false)
     await click('文字');assert.ok(document.querySelector('[aria-label="文字速度"]'))
     assert.equal(document.querySelector('[aria-label="各层音量"]'),null)
-    await click('画面');await click('减少动态');assert.equal(reading.get().reducedMotion,true)
+    await click('画面');await choose('减少动态','开');assert.equal(reading.get().reducedMotion,true)
     assert.equal(quality.get(),'high')
     await click('中');assert.equal(qualityStore.get(),'medium');assert.equal(quality.get(),'medium')
     await click('自动');assert.equal(qualityStore.get(),'auto');assert.equal(quality.get(),'high')
     appearance.dispose();mixer.dispose();text.dispose();screen.dispose();fields.dispose()
-    await click('减少动态');assert.equal(reading.get().reducedMotion,true)
+    await choose('减少动态','开');assert.equal(reading.get().reducedMotion,true)
   } finally {
     await act(async()=>root.unmount())
     appearance.dispose();mixer.dispose();text.dispose();screen.dispose();fields.dispose()

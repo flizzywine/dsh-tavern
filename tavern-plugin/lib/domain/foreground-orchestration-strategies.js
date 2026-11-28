@@ -382,7 +382,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const randomSeed = rawSnapshot ? presetSeed(sessionId, Math.max(0, Number(payload.turn) || 0), Math.max(1, Number(payload.step) || 1)) : undefined
     const snapshot = resolveRuntimePresetMacros(rawSnapshot, { charName: input.chat?.cardName, macroState: input.chat?.macroState, randomSeed }).snapshot
     const prepareTurn = () => options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
-      userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
+      userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot, signal: payload.signal })
     if (pureWriter) {
       enteredSeriesPrompts.delete(sessionId)
       const prepared = await prepareTurn()
@@ -476,7 +476,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         gameId: sessionId, frame, chat: staged.chat, signal: request.signal, context, foregroundSelection
       }).then(material => {
         request.signal?.throwIfAborted()
-        const injection = pureWritingInjection(frame, material)
+        const injection = pureWritingInjection(frame, [frame.source?.worldBook?.automaticContext, material].filter(Boolean).join('\n\n'))
         // The player input is already on the native surface. Append the
         // receipt before the reply so later requests and forks keep its place.
         if (injection) appendSessionEvent(staged.session, 'user/message', injection, { surfaceOp: 'append' })

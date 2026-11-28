@@ -106,6 +106,9 @@ test('pagehide rejects pending waits and releases their subscriptions without la
 test('HelperPopup renders passive markup and the actual facade returns numeric popup results', async t => {
   const { window } = new JSDOM('', { runScripts: 'dangerously' })
   t.after(() => window.close())
+  window.structuredClone = structuredClone
+  const publicApiSource = await readFile(new URL('../tavern-plugin/src/client/runtime/helper-public-api.js', import.meta.url), 'utf8')
+  const installContext = window.eval(publicApiSource + '\ninstallTavernHelperContext')
   const declarations = parse(sharedSource, { ecmaVersion: 'latest' }).body
   function load(name) {
     const decl = declarations.find(node => node.type === 'FunctionDeclaration' && node.id.name === name)
@@ -114,10 +117,16 @@ test('HelperPopup renders passive markup and the actual facade returns numeric p
   const { document } = window
   const Popup = load('createTavernHelperPopup')({ document, parent: { postMessage() {} }, token: 'tok' })
   load('installTavernHelperFacade')({
-    window, Popup, context: () => ({}), copy: structuredClone, createChatData: () => ({}),
-    createLocalVariables: () => ({}), installCompatibility() {}, installContext() {},
+    window, Popup, context: () => ({ extensionSettings: { EjsTemplate: { render_enabled: false } } }), copy: structuredClone, createChatData: () => ({}),
+    createLocalVariables: () => ({}), installCompatibility() {}, installContext,
   })
   const api = window.SillyTavern
+  const features = window.EjsTemplate.getFeatures()
+  assert.equal(features.enabled, true)
+  assert.equal(features.generate_enabled, true)
+  assert.equal(features.render_enabled, false)
+  features.enabled = false
+  assert.equal(window.EjsTemplate.getFeatures().enabled, true)
   const markup = '<div class="node" onclick="window.executed=true">Select a node'
     + '<img src="broken" onerror="window.executed=true"><svg onload="window.executed=true"></svg></div>'
   const pendingAffirm = api.callGenericPopup(markup, api.POPUP_TYPE.TEXT, '', { okButton: 'Domestic', cancelButton: 'International' })

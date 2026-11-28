@@ -36,9 +36,22 @@ function copyFigureVideos(source, figure, manifest, files, videos, retired) {
   }
 }
 
+// A pack stores all its figures in one image schema (1: one image per state; 2: state image pools), so a figure only goes
+// into a pack of its own schema. The refusal carries `reason`, the player's sentence: which figure, which packs, what to do.
+const IMAGE_SCHEMA = {1:['旧版图片格式', '每个表情一张图'], 2:['新版图片格式', '每个表情可放多张图']}
+function checkImageSchema(source, figure, manifest, move) {
+  const from = source.manifest.schemaVersion ?? 1, to = manifest.schemaVersion ?? 1
+  if (from === to) return
+  const said = version => IMAGE_SCHEMA[version][0] + '（' + IMAGE_SCHEMA[version][1] + '）'
+  const reason = '「' + figure.name + '」用的是' + said(from) + '，「' + manifest.name + '」用的是' + said(to) +
+    '，两种格式的人物不能放进同一个素材包。' + (move ? '可以改用「复制到…」' : '可以') + '复制到新建素材包，或复制到同样是' + IMAGE_SCHEMA[from][0] + '的素材包。'
+  throw Object.assign(new TypeError('Figure image schema ' + from + ' does not match target pack schema ' + to), {code:'UNSUPPORTED_SCHEMA_VERSION', path:'$.schemaVersion', reason})
+}
+
 // keepId: a move — the figure keeps its id (figure ids are unique in the whole library) and is no copy of anything.
 export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true, videos = new Map(), retired = new Set(), keepId = false} = {}) {
   check(source?.figures?.[figureId], '$.source', 'Figure missing', 'ASSET_UNAVAILABLE')
+  checkImageSchema(source, source.figures[figureId], manifest, keepId)
   const figure = structuredClone(source.figures[figureId])
   if (!copyVoice) {
     delete figure.voice

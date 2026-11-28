@@ -31,6 +31,7 @@ function render(liveState) {
     },
     useLiveTavernView: () => liveState,
     isMissingTavernCardError: () => false,
+    playerErrorText: (error, { fallback } = {}) => error || fallback,
     latestTavernAssistantMessageId: () => null,
     notifyTavernDataChanged: () => {},
     rpc: async () => ({}),
@@ -63,8 +64,9 @@ for (const reason of ['no-session', 'no-chat', 'empty-view']) {
 }
 
 test('真正的读取失败仍上报错误中心', () => {
-  const { persistentErrors } = render({ view: null, phase: 'unavailable', error: '读取存档超时' })
+  const { persistentErrors, texts } = render({ view: null, phase: 'unavailable', error: '读取存档超时' })
   assert.equal(persistentErrors['酒馆状态'], '读取存档超时')
+  assert.ok(texts.includes('读取存档超时'))
 })
 
 test('重试期间显示重新连接提示，不报错', () => {

@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { compileSillyTavernRequest, createCleanCompatibilityPreset } from './sillytavern-compatibility.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
-import { prepareWorldBookRecall } from './worldbook-recall.js'
+import { hasEjsTemplateSyntax, isWorldBookTemplateEntry, prepareTemplateWorldbook, prepareWorldBookRecall, projectWorldBookRequest, worldbookTemplatesEnabled } from './worldbook-recall.js'
 import { promptOrder } from './worldbook-activation.js'
+import { hasWorldbookPreprocessingSyntax } from './worldbook-entry-classification.js'
 import { applyTavernHelperVariableMacros } from './tavern-helper-variable-macros.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './tavern-helper-context.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
@@ -11,6 +13,8 @@ import { nativeRegexScriptsOf } from './preset-reading.js'
 const fields = { char_description: 'description', char_personality: 'personality', scenario: 'scenario', dialogue_examples: 'mes_example' }
 const textOverrides = new Set([...Object.keys(fields), 'world_info_before', 'world_info_after', 'persona_description'])
 const positions = { before_char: 0, before: 0, after_char: 1, before_an: 2, after_an: 3, at_depth: 4, in_chat: 4, before_example: 5, after_example: 6, outlet: 7 }
+const literalMarkers = new Set(['worldInfoBefore', 'worldInfoAfter', 'personaDescription'])
+const markerOverrides = new Map([['charDescription', 'char_description'], ['charPersonality', 'char_personality'], ['scenario', 'scenario']])
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) }
 function text(value, label) { if (typeof value !== 'string') throw new Error(label + ' 必须是文本'); return value }
 function prompt(value) {
@@ -96,8 +100,28 @@ export function helperGenerationHistory(chat) {
   }))
 }
 
+async function recallHelperWorldbook(input, templateChat, loadTemplates, signal) {
+  if (!input.worldBook?.view?.entries?.some(entry => entry && (isWorldBookTemplateEntry(entry) || hasWorldbookPreprocessingSyntax(entry)))) {
+    return { entries: prepareWorldBookRecall(input).entries || [] }
+  }
+  const templates = await loadTemplates?.()
+  signal?.throwIfAborted()
+  if (!templates || !worldbookTemplatesEnabled(templates.settings)) {
+    const { entries = [] } = prepareWorldBookRecall(input)
+    const reason = templates ? '生成模板已停用' : '缺少模板运行时'
+    return { entries, errors: new Map(entries.filter(isWorldBookTemplateEntry).map(entry => [entry.ref, reason])) }
+  }
+  const { runtime, globalVariables, settings } = templates
+  const worldBook = await prepareTemplateWorldbook(input.worldBook, runtime, templateChat, globalVariables, settings)
+  const { selectedEntries, projection } = await projectWorldBookRequest({ worldBook, recall: { ...input, worldBook }, chat: templateChat,
+    runtime, globalVariables, randomSeed: randomUUID(), signal })
+  const rendered = new Map(projection.renderedEntries.map(entry => [entry.ref, entry.text]))
+  return { entries: selectedEntries.map(entry => isWorldBookTemplateEntry(entry) ? { ...entry, content: rendered.get(entry.ref) || '' } : entry),
+    errors: new Map(projection.diagnostics.map(diagnostic => [diagnostic.ref, diagnostic.code])) }
+}
+
 /** Read-only DSH emulation: card + bound worldbook activation + preset + history. */
-export function compileHelperGenerate(config, { chat = {}, card = {}, history = [], worldBook, presetSnapshot = null, characterVariables = {}, extensions = {}, presetRegexScripts = presetSnapshot?.regexScripts } = {}) {
+export async function compileHelperGenerate(config, { chat = {}, card = {}, history = [], worldBook, presetSnapshot = null, characterVariables = {}, extensions = {}, presetRegexScripts = presetSnapshot?.regexScripts, loadWorldbookTemplates, signal } = {}) {
   validateHelperGenerateConfig(config)
   const overrides = config.overrides || {}, historyOverride = overrides.chat_history || {}
   const projectedCard = { ...card }
@@ -107,24 +131,33 @@ export function compileHelperGenerate(config, { chat = {}, card = {}, history = 
   const selectedHistory = historyOverride.prompts !== undefined || limit === 'all' ? source : limit === 0 ? [] : source.slice(-limit)
   const injects = [...(chat.tavernScriptPrompts || []), ...(config.injects || [])]
   const scanChat = { ...chat, messages: selectedHistory.map(item => ({ role: item.role, text: item.content ?? item.text, greeting: item.greeting, turn: item.turn })) }
-  const world = prepareWorldBookRecall({ worldBook, chat: scanChat, card: projectedCard, userText: config.user_input || '',
+  const world = await recallHelperWorldbook({ worldBook, chat: scanChat, card: projectedCard, userText: config.user_input || '',
     turn: Number([...chat.messages || []].reverse().find(item => item.role === 'assistant')?.turn) || 0,
-    scanText: injects.filter(entry => entry.should_scan !== false).map(entry => entry.content).join('\n') })
+    scanText: injects.filter(entry => entry.should_scan !== false).map(entry => entry.content).join('\n') }, chat, loadWorldbookTemplates, signal)
+  signal?.throwIfAborted()
   const before = [], after = [], depths = [], examplesBefore = [], examplesAfter = [], beforeNote = [], afterNote = []
-  for (const entry of promptOrder(world.entries || [])) {
+  for (const entry of promptOrder(world.entries)) {
     const position = positions[entry.position] ?? Number(entry.position)
+    if (position === 7 || (position === 0 && overrides.world_info_before !== undefined)
+      || (position === 4 && historyOverride.with_depth_entries === false)
+      || (![0, 2, 3, 4, 5, 6].includes(position) && overrides.world_info_after !== undefined)) continue
+    if (world.errors?.has(entry.ref)) {
+      throw new Error(`generate 世界书模板渲染失败：${entry.title || entry.comment || entry.ref}（${entry.ref}，${world.errors.get(entry.ref)}）`)
+    }
+    if (!entry.content) continue
     if (position === 0) before.push(entry.content)
     else if (position === 4) {
-      if (historyOverride.with_depth_entries !== false) depths.push({ role: ['system', 'user', 'assistant'][Number(entry.role)] || entry.role || 'system', content: entry.content, depth: Number(entry.depth) || 0, position: 'in_chat' })
+      depths.push({ role: ['system', 'user', 'assistant'][Number(entry.role)] || entry.role || 'system', content: entry.content, depth: Number(entry.depth) || 0, position: 'in_chat' })
     } else if (position === 2) beforeNote.push(entry.content)
     else if (position === 3) afterNote.push(entry.content)
     else if (position === 5) examplesBefore.push(entry.content)
     else if (position === 6) examplesAfter.push(entry.content)
-    else if (position !== 7) after.push(entry.content)
+    else after.push(entry.content)
   }
   // DSH has no separate persona manager. Its explicit override is supported.
   const persona = overrides.persona_description ?? ''
   const preset = selectedPreset(presetSnapshot)
+  const literalEntries = new Set()
   if (examplesBefore.length || examplesAfter.length) projectedCard.mes_example = [...examplesBefore, projectedCard.mes_example || '', ...examplesAfter].join('\n')
   // Keep arbitrary example text useful too; ST's dialogue parser otherwise
   // silently drops examples that do not use its <START>/name: conventions.
@@ -132,20 +165,30 @@ export function compileHelperGenerate(config, { chat = {}, card = {}, history = 
     entry.identifier = 'helper:dialogue-examples'
     entry.marker = false
     entry.content = projectedCard.mes_example || ''
+    literalEntries.add(entry)
   }
   const authorNote = historyOverride.author_note
   const depthPrompts = [...depths, ...injects.filter(entry => entry.position === 'in_chat'),
     ...[...beforeNote, authorNote || '', ...afterNote].filter(Boolean).map(content => ({ role: 'system', content, depth: 0 }))]
   const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts)
-  for (const [index, entry] of depthPrompts.entries()) preset.entries.push({
-    entryKey: 'helper:depth:' + index, identifier: 'helper:depth:' + index, role: entry.role, content: entry.content,
-    enabled: true, ordered: true, injectionPosition: 1, injectionDepth: entry.depth || 0, injectionOrder: index
-  })
+  for (const [index, entry] of depthPrompts.entries()) {
+    const depthEntry = { entryKey: 'helper:depth:' + index, identifier: 'helper:depth:' + index, role: entry.role, content: entry.content,
+      enabled: true, ordered: true, injectionPosition: 1, injectionDepth: entry.depth || 0, injectionOrder: index }
+    preset.entries.push(depthEntry)
+    literalEntries.add(depthEntry)
+  }
   const compiled = compileSillyTavernRequest({ card: projectedCard, preset, presetDocument: presetSnapshot?.compatibilityPresetDocument || {},
     history: selectedHistory, input: config.user_input || '', userName: chat.macroState?.userName,
     macroState: structuredClone(chat.macroState || {}), persona,
     worldInfoBefore: overrides.world_info_before ?? before.join('\n\n'), worldInfoAfter: overrides.world_info_after ?? after.join('\n\n'),
     resolveMacros: resolveRuntimeMacroText,
+    validatePromptText: (value, entry, isMarker) => {
+      const override = markerOverrides.get(entry.identifier)
+      if (literalEntries.has(entry) || (isMarker && (literalMarkers.has(entry.identifier) || (override && Object.hasOwn(overrides, override))))) return
+      if (hasEjsTemplateSyntax(value)) {
+        throw new Error(`generate 的人物卡或预设提示词含有未渲染的 EJS（${entry.name || entry.identifier}）`)
+      }
+    },
     projectPromptText: (value, context) => applyTavernRegexText(value, regexScripts, {
       placement: context.placement, isMarkdown: false, isEdit: false, depth: context.depth
     }) })
@@ -153,6 +196,5 @@ export function compileHelperGenerate(config, { chat = {}, card = {}, history = 
     message: lastTavernHelperVariables(chat.messages, chat.variables), chat: chat.variables, character: characterVariables,
     preset: presetSnapshot?.variables, global: chat.macroState?.global
   }).messages
-  for (const message of projected) if (/<%[\s\S]*?%>/.test(message.content)) throw new Error('generate 独立生成不执行 EJS 模板；请提供已渲染的覆盖提示词或使用 generateRaw')
   return projected.map(message => ({ role: message.role, content: message.content }))
 }
