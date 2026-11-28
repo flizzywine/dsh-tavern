@@ -81,6 +81,47 @@ const FD_REVEAL_TIMING_OPTIONS = [
   { value: 'stream-end', label: '随正文落定揭晓（防发前剧透）' }
 ]
 
+const FD_MULTI_CHECK_MODE_OPTIONS = [
+  { value: 'decompose', label: '发前条件拆解（推荐 · 防偷看）' },
+  { value: 'agent-tool', label: 'Agent 实时真骰工具（支持突发判定）' },
+  { value: 'hybrid-tape', label: '主骰 + 备用宿命序列（零额外延迟）' }
+]
+
+const FD_MULTI_CHECK_MAX_OPTIONS = [
+  { value: '2', label: '最多 2 次 / 回合（紧凑）' },
+  { value: '3', label: '最多 3 次 / 回合（默认）' }
+]
+
+const FD_MULTI_CHECK_MODE_DETAILS = {
+  decompose: {
+    badge: '方案 1 · 推荐',
+    title: '发前条件拆解（Multi-Check）',
+    summary: '常规单动作回合零额外延迟；仅在识别到玩家一条输入里同时包含多个独立风险动作时，发前拆解为 2~3 项子检定一次性真骰裁定。',
+    scene: '适合「一句输入里连做多件事」的场景（例：一边稳住老板娘、一边偷拿账本、顺便听门外动静）。',
+    flow: '决策模型先判断本轮是否含多动作 → 命中后拆出每项的动作、能力域、难度与前置依赖（dependsOn） → 服务端逐一投出密码学真骰并按顺序注入约束。',
+    pros: '主模型完全无法偷看或挑骰；支持连招前置失败短路；完美兼容「失败时暂停发送」、叙事阻尼器短板联动与防刷骰锁定；不挑主模型。',
+    note: '仅覆盖玩家发前写出的多动作，不处理正文写到一半才临时冒出来的突发陷阱；多动作回合会增加 1 次轻量后台拆解耗时。'
+  },
+  'agent-tool': {
+    badge: '方案 2 · Agent 能力',
+    title: 'Agent 实时真骰工具（fate_dice_roll）',
+    summary: '主行动仍由系统发前裁定，同时向主模型开放实时真骰工具 fate_dice_roll；叙事展开中遇到额外风险或突发陷阱时，由主模型当场调用服务端现掷真骰。',
+    scene: '适合既有多动作输入、又常出现「写到一半突发陷阱 / 伏兵 / 连环过招」的动态跑团与 Agent 玩法。',
+    flow: '发前落定主检定 → 主模型生成正文时按需调用 fate_dice_roll → 服务端结合角色画像与难度护栏当场掷真骰并返回五档裁定 → 实时写入本轮胶囊。',
+    pros: '同时解决发前多动作与叙事中突发次生判定；主模型调用前看不到未来点数，无法挑骰；最贴近真实跑团 DM 临场掷骰体验。',
+    note: '需要当前主模型与对话渠道支持工具调用（Tool Use）；正文生成中途调用的新增骰点无法在发前暂停拦截，受单回合总次数上限约束。'
+  },
+  'hybrid-tape': {
+    badge: '方案 3 · 零延迟兼容',
+    title: '主骰 + 备用宿命序列真骰带',
+    summary: '主行动走完整的发前真骰判定，同时附带 1~2 组从 ② 起编号的密码学备用真骰列，由主模型在出现额外风险时按顺序消耗并在文末静默回传。',
+    scene: '适合不想增加任何额外接口延迟、或主模型不支持工具调用但仍想支持单回合多判定的场景。',
+    flow: '发前落定主检定并预掷备用骰列（②、③）注入上下文 → 仅出现额外独立风险时按顺序取用并在文末附隐藏注释 → 结算时全部解析落盘进楼层胶囊。',
+    pros: '零额外 API 延迟与成本；兼容所有支持文本输出的模型；主检定照常享受 3D 演出、发前逆命与阻尼器联动。',
+    note: '备用骰面在发前已随上下文提供，极少数高阶模型可能产生轻微「提前看到点数再决定要不要多检定」的倾向；备用骰在正文结算后入账胶囊。'
+  }
+}
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -96,7 +137,10 @@ const FD_DEFAULT_SETTINGS = {
   animation: 'atelier',
   preSendPause: false,
   preSendScope: 'both',
-  preSendWait: 18
+  preSendWait: 18,
+  multiCheckEnabled: false,
+  multiCheckMode: 'decompose',
+  multiCheckMax: 3
 }
 
 function fdUid(prefix) {

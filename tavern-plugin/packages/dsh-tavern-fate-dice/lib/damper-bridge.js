@@ -8,6 +8,7 @@ import {
   heuristicAssessWithSkills,
   resolveContestCheckType
 } from './difficulty-judge.js'
+import { MULTI_CHECK_QUESTION_INSTRUCTIONS } from './multi-check.js'
 import {
   CAPABILITY_CRITERIA,
   DOMAIN_FALLBACKS,
@@ -103,7 +104,8 @@ export function buildDamperJudgeQuestions({
   rule = '2d6',
   protocol = 'gemini',
   allowHidden = true,
-  autoProfile = false
+  autoProfile = false,
+  multiCheckDecompose = false
 } = {}) {
   const skillList = (Array.isArray(skills) ? skills : []).filter(item => item && item.name)
   const profileMode = Boolean(autoProfile) || hasUsableProfile(profile)
@@ -120,6 +122,13 @@ export function buildDamperJudgeQuestions({
     type: 'noul',
     instructions: CONTEST_QUESTION_INSTRUCTIONS
   }
+  const multiCheckQuestion = multiCheckDecompose
+    ? {
+        id: 'fd_multi_check',
+        type: 'noul',
+        instructions: MULTI_CHECK_QUESTION_INSTRUCTIONS
+      }
+    : null
 
   if (protocol === 'gemini') {
     questions.push({
@@ -142,6 +151,7 @@ export function buildDamperJudgeQuestions({
         criteria: buildDomainCriteria(profile, allowHidden)
       })
       questions.push(contestQuestion)
+      if (multiCheckQuestion) questions.push(multiCheckQuestion)
       return questions
     }
     if (skillList.length >= 2) {
@@ -157,6 +167,7 @@ export function buildDamperJudgeQuestions({
       })
     }
     questions.push(contestQuestion)
+    if (multiCheckQuestion) questions.push(multiCheckQuestion)
     return questions
   }
 
@@ -177,6 +188,7 @@ export function buildDamperJudgeQuestions({
       instructions: '受控角色当前是否处于短板、伤病、虚弱、被束缚或明显不利状态，从而难以正常发挥？'
     })
     questions.push(contestQuestion)
+    if (multiCheckQuestion) questions.push(multiCheckQuestion)
     return questions
   }
 
@@ -193,6 +205,7 @@ export function buildDamperJudgeQuestions({
       : '这项行动是否需要暗中进行、避免被他人察觉？'
   })
   questions.push(contestQuestion)
+  if (multiCheckQuestion) questions.push(multiCheckQuestion)
   return questions
 }
 
@@ -555,11 +568,17 @@ export function resolveCheckFromDamperContext({
     answerProbability(answers, 'is_contest')
   )
   const checkType = resolveContestCheckType({ input: text, category, hidden, contestProb })
+  const multiCheckProb = firstFinite(
+    answerProbability(answers, 'fd_multi_check'),
+    answerProbability(answers, 'multi_check')
+  )
 
   return {
     shouldRoll,
     needProbability,
     threshold,
+    multiCheckProbability: Number.isFinite(multiCheckProb) ? Math.round(multiCheckProb * 100) / 100 : null,
+    multiCheckNeeded: Number.isFinite(multiCheckProb) ? multiCheckProb >= 0.58 : false,
     check,
     checkType,
     resistanceFactors,

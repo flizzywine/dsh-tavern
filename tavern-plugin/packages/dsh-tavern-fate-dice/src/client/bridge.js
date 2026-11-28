@@ -168,6 +168,10 @@ function fdNormalizeSettings(raw) {
   if (FD_PRE_SEND_SCOPE_OPTIONS.some(o => o.value === src.preSendScope)) settings.preSendScope = src.preSendScope
   const waitSec = fdNumber(src.preSendWait, settings.preSendWait)
   if (FD_PRE_SEND_WAIT_OPTIONS.some(o => Number(o.value) === Math.round(waitSec))) settings.preSendWait = Math.round(waitSec)
+  if (typeof src.multiCheckEnabled === 'boolean') settings.multiCheckEnabled = src.multiCheckEnabled
+  if (FD_MULTI_CHECK_MODE_OPTIONS.some(o => o.value === src.multiCheckMode)) settings.multiCheckMode = src.multiCheckMode
+  const maxChecks = fdNumber(src.multiCheckMax, settings.multiCheckMax)
+  if (FD_MULTI_CHECK_MAX_OPTIONS.some(o => Number(o.value) === Math.round(maxChecks))) settings.multiCheckMax = Math.round(maxChecks)
   return settings
 }
 
@@ -376,6 +380,7 @@ function fdMergeWorkbench(base, raw) {
     linkage: Boolean(payload.damperLinkage ?? damper.linkage ?? view.settings.damperLinkage)
   }
   if (payload.judgeStatus) view.judgeStatus = payload.judgeStatus
+  if (typeof payload.agentToolAvailable === 'boolean') view.agentToolAvailable = payload.agentToolAvailable
   if (payload.fate) view.fate = fdNormalizeFate(payload.fate)
   if (Object.prototype.hasOwnProperty.call(payload, 'pendingEncounter')) {
     view.pendingEncounter = payload.pendingEncounter || null

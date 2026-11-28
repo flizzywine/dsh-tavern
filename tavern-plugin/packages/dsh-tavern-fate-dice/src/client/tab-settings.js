@@ -150,6 +150,101 @@ function SettingsTab(props) {
       h(FdSwitch, { on: Boolean(settings.tapeFallbackEnabled), label: '无决策模型时启用宿命序列真骰带', onChange: next => apply({ tapeFallbackEnabled: next }) }))),
 
     h(FdSection, {
+      title: '🎲 单回合多判定',
+      note: settings.multiCheckEnabled ? '已开启 · 支持一回合多次检定' : '默认关闭 · 每回合仅裁定 1 项主检定',
+      help: [
+        '默认关闭时，每回合只对最核心的 1 个行动投一次真骰，节奏最紧凑。',
+        '开启后，当玩家一条输入里同时干了多件事（如“边稳住守卫边偷钥匙顺便听动静”），或剧情展开中突发次生危机时，系统可在一回合内完成最多 2~3 次独立真骰裁定。',
+        '提供 3 种可随时切换的方式：发前条件拆解（最稳且防偷看）、Agent 实时真骰工具（支持写到一半突发判定）、主骰 + 备用宿命序列（零额外延迟且兼容所有模型）。',
+        '多判定下每回合仍限重投 1 次，可自选重投其中任意失败项；叙事阻尼器联动按短板优先聚合档位，防止成功项洗白失败项。'
+      ].join('\n')
+    },
+    h(FdRow, {
+      plain: true,
+      title: '开启单回合多判定',
+      sub: settings.multiCheckEnabled
+        ? `当前方式：${(FD_MULTI_CHECK_MODE_DETAILS[settings.multiCheckMode] || FD_MULTI_CHECK_MODE_DETAILS.decompose).title}`
+        : '开启后可一回合裁定多个行动，并自由切换 3 种实现方式',
+      help: [
+        '开启后即可在下方选择多判定方式与单回合上限（2 次或 3 次）。',
+        '关闭后立刻恢复为单回合单次主检定，不产生任何额外调用或工具开销。'
+      ].join('\n')
+    },
+    h(FdSwitch, {
+      on: Boolean(settings.multiCheckEnabled),
+      label: '开启单回合多判定',
+      onChange: next => apply({ multiCheckEnabled: next })
+    })),
+
+    settings.multiCheckEnabled
+      ? h(Fragment, null,
+        h(FdField, {
+          label: '多判定方式',
+          help: [
+            '1. 发前条件拆解（推荐）：先由小模型门控判断是否含多动作（单动作 0 额外延迟），仅多动作时拆解为 2~3 项并在发前一次掷完。防偷看、支持连招前置失败短路、完美兼容发前逆命与阻尼器。',
+            '2. Agent 实时真骰工具：主行动发前落定，同时向主模型开放 fate_dice_roll 工具，写到一半遇到突发陷阱或二次交锋时实时向服务端现掷真骰。最贴近跑团 DM，需要主模型支持工具调用。',
+            '3. 主骰 + 备用宿命序列：主行动发前落定，并随上下文附带 ②~③ 备用真骰列，遇到额外风险按顺序取用并在文末静默回传。零额外延迟、兼容所有模型，但主模型提前可见备用骰面。'
+          ].join('\n')
+        },
+        h(FdSelect, {
+          value: settings.multiCheckMode || 'decompose',
+          options: FD_MULTI_CHECK_MODE_OPTIONS,
+          onChange: value => apply({ multiCheckMode: value })
+        })),
+
+        (() => {
+          const activeKey = FD_MULTI_CHECK_MODE_DETAILS[settings.multiCheckMode] ? settings.multiCheckMode : 'decompose'
+          const detail = FD_MULTI_CHECK_MODE_DETAILS[activeKey]
+          return h('div', { className: 'fd-mode-card', role: 'note' },
+            h('div', { className: 'fd-mode-card-head' },
+              h('span', { className: 'fd-mode-badge' }, detail.badge),
+              h('strong', { className: 'fd-mode-title' }, detail.title)),
+            h('p', { className: 'fd-mode-line' }, detail.summary),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '适用场景：'), detail.scene),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '运作方式：'), detail.flow),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '主要优势：'), detail.pros),
+            h('p', { className: 'fd-mode-line is-note' }, h('strong', null, '注意点：'), detail.note),
+            activeKey === 'agent-tool' && view && view.agentToolAvailable === false
+              ? h('p', { className: 'fd-mode-warn' }, '⚠️ 当前宿主环境未检测到前台工具通道，切换后仍会保留主检定；若需发前多动作拆解建议改用「发前条件拆解」。')
+              : null)
+        })(),
+
+        h(FdField, {
+          label: '单回合判定上限',
+          help: [
+            '限制同一回合内最多允许的真骰判定总数（含主检定），避免一回合塞入过多骰子导致叙事碎片化或拖慢生成。',
+            '最多 2 次：节奏更紧凑，适合轻度多动作或一次主动作 + 一次突发判定。',
+            '最多 3 次（默认）：兼顾复杂连招与多线行动的经典上限。'
+          ].join('\n')
+        },
+        h(FdSelect, {
+          value: String(settings.multiCheckMax || 3),
+          options: FD_MULTI_CHECK_MAX_OPTIONS,
+          onChange: value => apply({ multiCheckMax: Number(value) || 3 })
+        })),
+
+        h(FdCollapse, {
+          title: '📖 三种方案完整详解与横向对比',
+          sub: '点击展开查看全部方案差异，随时按需切换'
+        },
+        ['decompose', 'agent-tool', 'hybrid-tape'].map(key => {
+          const item = FD_MULTI_CHECK_MODE_DETAILS[key]
+          const isCurrent = (settings.multiCheckMode || 'decompose') === key
+          return h('div', {
+            key,
+            className: 'fd-mode-card is-compact' + (isCurrent ? ' is-current' : '')
+          },
+          h('div', { className: 'fd-mode-card-head' },
+            h('span', { className: 'fd-mode-badge' }, isCurrent ? `${item.badge} · 当前` : item.badge),
+            h('strong', { className: 'fd-mode-title' }, item.title)),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '适用：'), item.scene),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '机制：'), item.flow),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '优势：'), item.pros),
+          h('p', { className: 'fd-mode-line is-note' }, h('strong', null, '注意：'), item.note))
+        })))
+      : null),
+
+    h(FdSection, {
       title: '✦ 失败时暂停发送',
       note: '默认关闭 · 开启后失败先问你要不要逆命',
       help: [

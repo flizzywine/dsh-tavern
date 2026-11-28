@@ -22,6 +22,7 @@ const fdPreSendGate = {
   gameId: '',
   busy: false,
   resolvingMode: '',
+  selectedRollIndex: 0,
   pendingPower: 0,
   closeTimer: 0,
   probeTimers: [],
@@ -260,7 +261,8 @@ async function fdResolvePreSendGate(action, power) {
   const res = await fdCall(ui, FD_RPC.gateResolve, {
     gameId: payload.gameId || fdPreSendGate.gameId,
     gateId: payload.gateId,
-    action
+    action,
+    ...(Number.isInteger(fdPreSendGate.selectedRollIndex) ? { rollIndex: fdPreSendGate.selectedRollIndex } : {})
   })
   const data = res && res.ok ? res.data : null
   if (!data || data.ok !== true) {
@@ -320,6 +322,7 @@ function fdRenderPreSendGate(payload) {
   }
   fdDetachGateLayoutWatchers()
   fdPreSendGate.payload = payload
+  fdPreSendGate.selectedRollIndex = Number.isInteger(Number(payload.rollIndex)) ? Number(payload.rollIndex) : 0
   fdPreSendGate.busy = false
   fdPreSendGate.resolvingMode = ''
   root.hidden = false
@@ -334,7 +337,7 @@ function fdRenderPreSendGate(payload) {
 
   const top = fdGateEl('div', 'fd-presend-top')
   top.appendChild(fdGateEl('span', 'fd-presend-seal ' + tone, isFumble ? '💀 大失败' : '⚠️ 失败'))
-  top.appendChild(fdGateEl('span', 'fd-presend-title', '骰已落定 · 正文还没发送'))
+  top.appendChild(fdGateEl('span', 'fd-presend-title', payload.rollCount > 1 ? `本轮共 ${payload.rollCount} 项判定 · 正文还没发送` : '骰已落定 · 正文还没发送'))
   const count = fdGateEl('span', 'fd-presend-count', '')
   top.appendChild(count)
   card.appendChild(top)
@@ -344,6 +347,29 @@ function fdRenderPreSendGate(payload) {
   const diceText = fdGateDiceText(payload)
   if (diceText) summary.appendChild(fdGateEl('span', 'fd-presend-dice', diceText))
   card.appendChild(summary)
+
+  if (Array.isArray(payload.rolls) && payload.rolls.length > 1 && Array.isArray(payload.failedIndices) && payload.failedIndices.length > 1) {
+    const picker = fdGateEl('div', 'fd-multi-tabs')
+    payload.failedIndices.forEach(idx => {
+      const item = payload.rolls[idx]
+      if (!item) return
+      const btn = fdGateEl(
+        'button',
+        'fd-multi-tab' + (idx === fdPreSendGate.selectedRollIndex ? ' is-active' : ''),
+        `#${idx + 1} ${item.check || '检定'} · ${item.tierLabel || '失败'}`
+      )
+      btn.type = 'button'
+      btn.setAttribute('data-tier', item.tier || 'failure')
+      btn.addEventListener('click', () => {
+        fdPreSendGate.selectedRollIndex = idx
+        picker.querySelectorAll('.fd-multi-tab').forEach(node => {
+          node.classList.toggle('is-active', node === btn)
+        })
+      })
+      picker.appendChild(btn)
+    })
+    card.appendChild(picker)
+  }
 
   const fate = payload.fate && typeof payload.fate === 'object' ? payload.fate : {}
   const points = Math.max(0, fdNumber(fate.points, 0))

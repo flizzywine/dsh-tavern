@@ -123,7 +123,7 @@ export function createPreSendGateBroker({ now = Date.now, setTimer = setTimeout,
     const promise = new Promise(resolve => { resolveFn = resolve })
     const entry = { gateId, meta, startedAt, deadlineAt: startedAt + total, timer: null, closed: false }
 
-    const finish = (action, code, timedOut) => {
+    const finish = (action, code, timedOut, extra = null) => {
       if (entry.closed) return false
       entry.closed = true
       if (entry.timer) {
@@ -131,7 +131,14 @@ export function createPreSendGateBroker({ now = Date.now, setTimer = setTimeout,
         entry.timer = null
       }
       gates.delete(gateId)
-      resolveFn({ gateId, action, code, timedOut: Boolean(timedOut), waitedMs: Math.max(0, now() - startedAt) })
+      resolveFn({
+        ...(extra && typeof extra === 'object' ? extra : {}),
+        gateId,
+        action,
+        code,
+        timedOut: Boolean(timedOut),
+        waitedMs: Math.max(0, now() - startedAt)
+      })
       return true
     }
 
@@ -141,11 +148,11 @@ export function createPreSendGateBroker({ now = Date.now, setTimer = setTimeout,
     return { gateId, promise, deadlineAt: entry.deadlineAt }
   }
 
-  function resolve(id, action, code = 'RESOLVED') {
+  function resolve(id, action, code = 'RESOLVED', extra = null) {
     const gateId = String(id || '')
     const record = gates.get(gateId)
     if (!record) return { ok: false, code: 'NO_PENDING_GATE' }
-    const done = record.finish(String(action || 'accept'), code, false)
+    const done = record.finish(String(action || 'accept'), code, false, extra)
     return done ? { ok: true, gateId } : { ok: false, code: 'GATE_CLOSED' }
   }
 

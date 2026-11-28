@@ -1848,3 +1848,219 @@ test('重投锁定首投检定快照不二次判难且不被外部 input 篡改'
   assert.equal(stored.settledRolls['1'].input, '我翻墙潜入档案馆')
   assert.equal(stored.settledRolls['1'].rerollCount, 1)
 })
+
+test('单回合多判定 1+2+3：发前条件拆解 / Agent 实时真骰工具 / 主骰+备用宿命序列与设置页渲染', async () => {
+  const fateDicePlugin = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js')
+  const { aggregateRollTier, generateFateTape, parseAllTapeUsagesFromText } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js')
+  const { buildMultiTurnInjection, buildHybridTapeInjection } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/prompt-builder.js')
+
+  assert.equal(aggregateRollTier([{ tier: 'critical' }, { tier: 'failure' }]), 'failure')
+  assert.equal(aggregateRollTier([{ tier: 'success' }, { tier: 'fumble' }]), 'fumble')
+  assert.equal(aggregateRollTier([{ tier: 'critical' }, { tier: 'success' }]), 'critical')
+
+  // 验证备用宿命序列从 ② 起编号且 parseAllTapeUsagesFromText 返回全部顺位项
+  const spareTape = generateFateTape({ rule: '2d6', count: 2, startIndex: 2 }, () => 5)
+  assert.deepEqual(spareTape.slots.map(s => s.symbol), ['②', '③'])
+  const hybridPrompt = buildHybridTapeInjection(spareTape)
+  assert.match(hybridPrompt, /备用宿命序列/)
+  assert.match(hybridPrompt, /②/)
+  const parsedAll = parseAllTapeUsagesFromText(
+    '正文展开。\n<!-- fate-dice-tape: ② check=闪避 diff=hard mod=1 -->\n<!-- fate-dice-tape: ③ check=察觉 diff=moderate mod=0 -->',
+    spareTape
+  )
+  assert.equal(parsedAll.length, 2)
+  assert.equal(parsedAll[0].check, '闪避')
+  assert.equal(parsedAll[1].check, '察觉')
+
+  const multiInjection = buildMultiTurnInjection([
+    { rule: '2d6', check: '撬锁', difficultyLabel: '困难', dice: [1, 2], total: 3, target: 8, tier: 'failure', tierLabel: '失败', attempt: '撬开铁门' },
+    { rule: '2d6', check: '潜行', difficultyLabel: '中等', dice: [5, 5], total: 10, target: 7, tier: 'success', tierLabel: '成功', attempt: '溜进书房', dependsOn: 1 }
+  ])
+  assert.match(multiInjection, /共 2 项/)
+  assert.match(multiInjection, /前置依赖短路/)
+
+  // 构造完整宿主桩：支持 turnSection、onTurnSettled、damperTurnQuestions、tools.register、llm.stream
+  const kv = new Map()
+  const turnStore = new Map()
+  const handlers = new Map()
+  const registeredTools = new Map()
+  const toolModeEntries = new Map()
+  let turnSectionHandler = null
+  let settleHandler = null
+  let damperQuestionsHandler = null
+  const damperShifts = []
+  let latestTurnText = ''
+
+  const mockTavern = {
+    capabilities: { decisionJudge: 1, narrativeDamper: 1, toolInstructions: 1 },
+    handle: (name, fn) => handlers.set(name, fn),
+    turnSection: ({ text }) => { turnSectionHandler = text },
+    damperTurnQuestions: ({ questions }) => { damperQuestionsHandler = questions },
+    onTurnSettled: fn => { settleHandler = fn },
+    settlementSection() {},
+    settlementTool() {},
+    toolModes(entry) { toolModeEntries.set(entry.name, entry); return () => toolModeEntries.delete(entry.name) },
+    async publishState() {},
+    async readPluginData() { return kv.get('__plugin__') || null },
+    async savePluginData({ data }) { kv.set('__plugin__', structuredClone(data)) },
+    async readGameData({ gameId }) { return kv.get(gameId) || null },
+    async saveGameData({ gameId, data }) { kv.set(gameId, structuredClone(data)) },
+    async readTurnData({ gameId, turn }) { return turnStore.get(`${gameId}:${turn}`) || null },
+    async saveTurnData({ gameId, turn, data }) { turnStore.set(`${gameId}:${turn}`, { turn, data: structuredClone(data) }) },
+    async getTurn({ gameId, turn }) { return { turn, text: latestTurnText, variables: null } },
+    async getTurnState() { return { turn: 1, settled: false, generating: true } },
+    async decisionJudgeStatus() { return { available: true, provider: 'gemini', capabilities: { choice: true, score: true } } },
+    async judgeDecision({ questions }) {
+      const hasMultiQ = questions.some(q => q.id === 'fd_multi_check')
+      return {
+        provider: 'gemini',
+        judgeTier: 'full',
+        answers: {
+          needs_check: { probability: 0.9 },
+          difficulty_tier: { choice: 'moderate' },
+          character_capability: { score: 2 },
+          check_category: { choice: 'stealth' },
+          situation_edge: { score: 1 },
+          is_contest: { probability: 0.1 },
+          ...(hasMultiQ ? { fd_multi_check: { probability: 0.92 } } : {})
+        }
+      }
+    },
+    async backgroundModel() { return { provider: 'mock', model: 'mock-fast' } },
+    async applyDamperDiceShift(payload) { damperShifts.push(payload); return { applied: true } }
+  }
+
+  const mockLlm = {
+    async stream() {
+      return {
+        text: JSON.stringify({
+          checks: [
+            { attempt: '用假话稳住老板娘', domain: 'general_social', difficulty: 'moderate', hidden: false, checkType: 'normal', dependsOn: null },
+            { attempt: '趁她转身偷拿账本', domain: 'general_stealth', difficulty: 'hard', hidden: false, checkType: 'normal', dependsOn: 1 }
+          ]
+        })
+      }
+    }
+  }
+
+  const mockTools = {
+    register(def, opts) {
+      registeredTools.set(def.name, { def, opts })
+      return () => registeredTools.delete(def.name)
+    }
+  }
+
+  fateDicePlugin.apply({
+    tavern: mockTavern,
+    inject(deps, cb) {
+      if (deps.includes('llm')) cb({ llm: mockLlm })
+      if (deps.includes('tools')) cb({ tools: mockTools })
+    }
+  })
+
+  const saveGlobal = handlers.get('fate-dice:save-global-settings')
+  const saveBinding = handlers.get('fate-dice:save-binding')
+  const readTurn = handlers.get('fate-dice:read-turn')
+  const rerollTurn = handlers.get('fate-dice:reroll-turn')
+  const workbench = handlers.get('fate-dice:workbench')
+
+  const gameId = 'game-multi-123'
+  await saveBinding({ gameId, enabled: true, autoCheck: true, rule: '2d6' })
+
+  // === 方案 1：发前条件拆解（decompose） ===
+  await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'decompose', multiCheckMax: 3 })
+  const qs = await damperQuestionsHandler({ gameId, protocol: 'gemini' })
+  assert.ok(qs.some(q => q.id === 'fd_multi_check'), '方案 1 应在阻尼器合并题中附带 fd_multi_check')
+
+  const decInjection = await turnSectionHandler({ gameId, turn: 1, input: '我一边用假话稳住老板娘，一边趁她转身偷拿账本' })
+  assert.match(decInjection, /共 2 项/)
+  const decView = await readTurn({ gameId, turn: 1, streaming: true })
+  assert.equal(decView.rolls.length, 2)
+  assert.equal(decView.rolls[0].sourceKind, 'decomposed')
+  assert.equal(decView.rolls[1].dependsOn, 1)
+
+  // 强制把第 2 项设为失败并测试按 rollIndex=1 精准重投
+  await settleHandler({ gameId, turn: 1 })
+  const lockedGame = kv.get(gameId)
+  lockedGame.settledRolls['1'].rolls[0].tier = 'success'
+  lockedGame.settledRolls['1'].rolls[0].tierLabel = '成功'
+  lockedGame.settledRolls['1'].rolls[1].tier = 'failure'
+  lockedGame.settledRolls['1'].rolls[1].tierLabel = '失败'
+  kv.set(gameId, lockedGame)
+  const rerollRes = await rerollTurn({ gameId, turn: 1, mode: 'fate', rollIndex: 1 })
+  assert.equal(rerollRes.ok, true)
+  assert.equal(rerollRes.rollIndex, 1)
+  assert.equal(rerollRes.rolls.length, 2)
+  assert.equal(rerollRes.rolls[1].rerollMeta?.mode, 'fate')
+
+  // === 方案 2：Agent 实时真骰工具（agent-tool） ===
+  assert.ok(registeredTools.has('fate_dice_roll'), '应注册前台真骰工具 fate_dice_roll')
+  const toolEntry = registeredTools.get('fate_dice_roll')
+  assert.equal(await toolEntry.opts.when({ agent: { session: { id: gameId } } }), false, '非 agent-tool 模式不应开放工具')
+
+  await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'agent-tool', multiCheckMax: 2 })
+  assert.equal(await toolEntry.opts.when({ agent: { session: { id: gameId } } }), true, 'agent-tool 模式应开放工具')
+  const wb = await workbench({ gameId })
+  assert.equal(wb.agentToolAvailable, true)
+  assert.equal(wb.settings.multiCheckEnabled, true)
+  assert.equal(wb.settings.multiCheckMode, 'agent-tool')
+  assert.equal(wb.settings.multiCheckMax, 2)
+
+  await turnSectionHandler({ gameId, turn: 2, input: '我一脚踹开房门冲进去' })
+  const toolOut1 = JSON.parse(await toolEntry.def.execute(
+    { attempt: '躲避门后的绊线暗箭', domain: 'general_stealth', difficulty: 'hard' },
+    { agent: { session: { id: gameId } } }
+  ))
+  assert.equal(toolOut1.ok, true)
+  assert.equal(toolOut1.totalUsed, 2)
+  const toolOut2 = JSON.parse(await toolEntry.def.execute(
+    { attempt: '顺手再观察屋顶', domain: 'general_insight', difficulty: 'moderate' },
+    { agent: { session: { id: gameId } } }
+  ))
+  assert.equal(toolOut2.ok, false)
+  assert.equal(toolOut2.code, 'MAX_CHECKS_REACHED')
+  const toolView = await readTurn({ gameId, turn: 2, streaming: true })
+  assert.equal(toolView.rolls.length, 2)
+  assert.equal(toolView.rolls[1].sourceKind, 'agent-tool')
+
+  // === 方案 3：主骰 + 备用宿命序列真骰带（hybrid-tape） ===
+  await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'hybrid-tape', multiCheckMax: 3 })
+  const hybridInj = await turnSectionHandler({ gameId, turn: 3, input: '我冲进仓库抢夺账本' })
+  assert.match(hybridInj, /备用宿命序列/)
+  assert.match(hybridInj, /②/)
+  latestTurnText = '你翻过货箱避开守卫。\n<!-- fate-dice-tape: ② check=翻越 diff=moderate mod=1 -->'
+  await settleHandler({ gameId, turn: 3 })
+  const hybridView = await readTurn({ gameId, turn: 3 })
+  assert.equal(hybridView.rolls.length, 2)
+  assert.equal(hybridView.rolls[1].sourceKind, 'tape')
+  assert.equal(hybridView.rolls[1].check, '翻越')
+
+  // === 前端胶囊汇总 & 设置页三方案详解校验 ===
+  const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  let mod
+  const react = {
+    Fragment: Symbol('Fragment'),
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useRef: initial => ({ current: initial }),
+    useMemo: fn => fn(),
+    useEffect() {}
+  }
+  vm.runInNewContext(clientCode, { console: quiet, setTimeout, clearTimeout, window: { __ModuleLoader__: {
+    load({ factory }) { mod = factory(() => react) }
+  } } })
+  const pillMeta = mod.__test.fdResolveFloorToneAndLabel({
+    rolls: [
+      { check: '说服', tier: 'success', tierLabel: '成功', hidden: false },
+      { check: '潜行', tier: 'failure', tierLabel: '失败', hidden: false }
+    ],
+    fate: { points: 2, max: 3 }
+  }, false, false)
+  assert.equal(pillMeta.tone, 'failure')
+  assert.match(pillMeta.pillText, /2项检定/)
+  assert.match(pillMeta.pillText, /1成\/1败/)
+  assert.match(clientCode, /开启单回合多判定/)
+  assert.match(clientCode, /发前条件拆解/)
+  assert.match(clientCode, /Agent 实时真骰工具/)
+  assert.match(clientCode, /主骰 \+ 备用宿命序列/)
+})
