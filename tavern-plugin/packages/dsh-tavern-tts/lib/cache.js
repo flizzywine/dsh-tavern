@@ -8,7 +8,7 @@ import { measureVoiceLoudness, measureVoiceLoudnessSafely, voiceLoudnessGain } f
 export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, measureLoudness = measureVoiceLoudness, onBoot = () => {} } = {}) {
   const root = dataDir && join(dataDir, 'cache', 'audio-v2')
   const entries = new Map()
-  let loaded = false, warming, loadError, chain = Promise.resolve()
+  let loaded = false, indexing = null, warming, loadError, chain = Promise.resolve()
   const serial = fn => { const p = chain.then(fn); chain = p.catch(() => {}); return p }
   async function readEntry(key) {
     try {
@@ -25,21 +25,33 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
     }
     return entries.get(key)
   }
-  async function load() {
-    if (loaded) return
-    if (!root) { loaded = true; loadError = undefined; return }
-    const started = performance.now()
-    onBoot({ phase: 'voice-cache.begin', hostUptimeMs: Math.round(process.uptime() * 1000) })
-    const files = await readdir(root).catch(e => { if (e.code === 'ENOENT') return []; throw e })
-    entries.clear()
-    for (const file of files.filter(f => /^[a-f0-9]{64}\.json$/.test(f))) {
-      const key = file.slice(0, 64), entry = await readEntry(key)
-      if (entry) entries.set(key, entry)
-      else entries.delete(key)
-    }
-    await trim()
-    loaded = true; loadError = undefined
-    onBoot({ phase: 'voice-cache.end', hostUptimeMs: Math.round(process.uptime() * 1000), durationMs: Math.round(performance.now() - started), files: files.length, entries: entries.size })
+  // The whole index, read once from disk for eviction. It never holds the chain: a host's first synthesized line used to
+  // wait behind it (thousands of manifests, 20-80 s on a busy host; bug:drama3-voice-slow), and every playback
+  // lookup with it. Entries found or written meanwhile stay; they are on disk too.
+  function index() {
+    if (loaded) return Promise.resolve()
+    indexing ||= (async () => {
+      if (!root) { loaded = true; loadError = undefined; return }
+      const started = performance.now()
+      onBoot({ phase: 'voice-cache.begin', hostUptimeMs: Math.round(process.uptime() * 1000) })
+      const files = await readdir(root).catch(e => { if (e.code === 'ENOENT') return []; throw e })
+      for (const file of files.filter(f => /^[a-f0-9]{64}\.json$/.test(f))) {
+        const key = file.slice(0, 64)
+        if (entries.has(key)) continue
+        const entry = await readEntry(key)
+        if (entry && !entries.has(key)) entries.set(key, entry)
+      }
+      loaded = true; loadError = undefined
+      onBoot({ phase: 'voice-cache.end', hostUptimeMs: Math.round(process.uptime() * 1000), durationMs: Math.round(performance.now() - started), files: files.length, entries: entries.size })
+    })().finally(() => { indexing = null })
+    return indexing
+  }
+  // Index, then apply the limits (on the chain). Callers that need the whole index wait for it outside the chain.
+  const indexed = fn => index().then(() => serial(async () => { await trim(); return fn() }))
+  // A write does not wait for the index: the limits apply once it is read.
+  function warm() {
+    if (loaded || warming) return
+    warming = index().then(() => serial(trim)).catch(() => { loadError = 'CACHE_UNAVAILABLE' })
   }
   async function atomic(file, bytes) {
     const tmp = file + '.' + randomUUID() + '.tmp'
@@ -89,12 +101,13 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
       } catch { await remove(key); return null }
     }),
     put: (key, bytes, scopes, qa) => serial(async () => {
-      await load(); const b = wav(bytes)
+      const b = wav(bytes)
       if (!SHA.test(key) || b.length > maxBytes) fail('CACHE_FULL')
       const e = { hash: hash(b), bytes: b.length, scopes: [...new Set(scopes)], access: Date.now(), ...(qa ? { qa } : {}) }
       if (root) { await mkdir(root, { recursive: true }); await atomic(join(root, key + '.wav'), b); await atomic(join(root, key + '.json'), JSON.stringify(e)) }
       else e.audio = b
-      entries.set(key, e); await trim()
+      entries.set(key, e)
+      if (loaded) await trim(); else warm()
       // Preserve paid audio even when optional measurement fails.
       e.loudness = await measureVoiceLoudnessSafely(b, measureLoudness)
       if (root && entries.has(key)) await atomic(join(root, key + '.json'), JSON.stringify(e))
@@ -108,21 +121,21 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
     }),
     // Startup settings must not hydrate disk. Explicit management and writes still
     // hydrate before global age/LRU eviction; a warm cache applies limits now.
-    configure: (limits, { lazy = false } = {}) => serial(async () => { maxBytes = limits.maxBytes; maxAgeDays = limits.maxAgeDays; if (!loaded && lazy) return; await load(); await trim() }),
-    stats: () => serial(async () => { await load(); await trim(); return { count: entries.size, bytes: [...entries.values()].reduce((s,e) => s + e.bytes, 0), maxBytes, maxAgeDays } }),
+    configure: (limits, { lazy = false } = {}) => serial(async () => { maxBytes = limits.maxBytes; maxAgeDays = limits.maxAgeDays }).then(() => !loaded && lazy ? undefined : indexed(() => {})),
+    stats: () => indexed(() => ({ count: entries.size, bytes: [...entries.values()].reduce((s,e) => s + e.bytes, 0), maxBytes, maxAgeDays })),
     // Management must not wait behind disk hydration, eviction or a synthesis write.
     snapshot() {
-      if (!loaded && !warming) warming = serial(load).catch(() => { loadError = 'CACHE_UNAVAILABLE' })
+      warm()
       return {count:entries.size,bytes:[...entries.values()].reduce((s,e) => s + e.bytes,0),maxBytes,maxAgeDays,loading:!loaded && !loadError,...(loadError ? {error:loadError} : {})}
     },
     deleteEntry: key => serial(async () => {
       if (typeof key !== 'string' || !SHA.test(key)) fail('INVALID_INPUT')
-      // Do not hydrate: load() also evicts unrelated expired/LRU entries.
+      // Do not hydrate: indexing also evicts unrelated expired/LRU entries.
       const exists = !!await find(key)
       await remove(key)
       return { removed: exists ? 1 : 0, keys: exists ? [key] : [] }
     }),
-    clear: scope => serial(async () => { await load(); const keys = [...entries].filter(([,e]) => !scope || e.scopes.includes(scope)).map(([k]) => k); for (const k of keys) await remove(k); return { removed: keys.length, keys } }),
-    flush: () => chain,
+    clear: scope => indexed(async () => { const keys = [...entries].filter(([,e]) => !scope || e.scopes.includes(scope)).map(([k]) => k); for (const k of keys) await remove(k); return { removed: keys.length, keys } }),
+    flush: () => Promise.resolve(warming).then(() => chain),
   }
 }
