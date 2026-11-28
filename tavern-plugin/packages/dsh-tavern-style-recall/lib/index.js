@@ -24,6 +24,8 @@ export function apply(ctx) {
   if (ctx.tavern.capabilities?.scriptLibrary !== 1) return
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort())
+  let enabledLifetime = new AbortController()
+  let writes = Promise.resolve()
   const readSettings = async () => styleSettings((await ctx.tavern.readPluginData())?.settings)
   const backgroundAvailable = typeof ctx.tavern.runTask === 'function'
 
@@ -56,27 +58,32 @@ export function apply(ctx) {
 
   ctx.tavern.handle(name + '/settings', async ({ gameId }) => {
     const [sources, settings, game] = await Promise.all([
-      ctx.tavern.listScriptSources(), readSettings(),
+      ctx.tavern.listScriptSources(), writes.then(readSettings),
       backgroundAvailable && gameId ? ctx.tavern.readGameData({ gameId }) : null
     ])
     return { sources, settings, backgroundAvailable, reference: game?.backgroundReference ?? null }
   })
 
   // Both settings entry points update the same document.
-  let writes = Promise.resolve()
-  ctx.tavern.handle(name + '/save', ({ source, enabled, mode: requestedMode = 'novel', guidance = '' }) => {
+  ctx.tavern.handle(name + '/save', patch => {
     const save = writes.then(async () => {
+      const data = await ctx.tavern.readPluginData()
+      const current = styleSettings(data?.settings)
+      const { source = current.source, enabled = current.enabled, mode: requestedMode = current.mode, guidance = current.guidance } = patch
       const mode = styleMode(requestedMode)
       if (typeof source !== 'string' || typeof enabled !== 'boolean') throw new TypeError('请选择剧本并设置文风联想开关')
       if (!['novel', 'background'].includes(mode) || (mode === 'background' && enabled && !backgroundAvailable)) throw new Error('当前宿主不支持所选的联想方式')
       if (typeof guidance !== 'string' || guidance.length > 500) throw new Error('文风偏好最多 500 字')
-      const data = await ctx.tavern.readPluginData()
-      if (source && ((enabled && mode === 'novel') || source !== data?.settings?.source)) {
+      if (source && ((enabled && mode === 'novel') || source !== current.source)) {
         const sources = await ctx.tavern.listScriptSources()
         if (!sources.some(item => item.path === source)) throw new Error('剧本库里已找不到这本小说')
       }
       const settings = { source, enabled: enabled && (mode === 'background' || Boolean(source)), mode, guidance: guidance.trim() }
       await ctx.tavern.savePluginData({ data: { ...data, settings } })
+      if (current.enabled && !settings.enabled) {
+        enabledLifetime.abort()
+        enabledLifetime = new AbortController()
+      }
       return settings
     })
     writes = save.catch(() => {})
@@ -84,7 +91,8 @@ export function apply(ctx) {
   })
 
   ctx.tavern.turnSection({ name: 'style-reference', writingReference: true, async text({ gameId, turn, storyTurn = turn, input, signal }) {
-    const turnSignal = signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal
+    await writes
+    const turnSignal = AbortSignal.any([lifetime.signal, enabledLifetime.signal, ...(signal ? [signal] : [])])
     if (turnSignal.aborted) return ''
     const settings = await readSettings()
     if (!settings.enabled || turnSignal.aborted) return ''

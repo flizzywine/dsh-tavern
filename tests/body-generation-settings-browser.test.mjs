@@ -42,13 +42,21 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
     return readFile(path.join(installed.target, 'client.js'), 'utf8')
   }))
   let defaults = { mode: 'plugin-direct', hostRegex: false }
-  await page.exposeFunction('callPluginHost', (name, patch) => {
+  let style = { enabled: true, mode: 'background', guidance: '保留原设置', source: '' }
+  const styleWrites = []
+  const finishDisable = Promise.withResolvers()
+  await page.exposeFunction('callPluginHost', async (name, patch) => {
     if (name === 'dsh-tavern-stcontext/body-generation-defaults') return defaults = { ...defaults, ...patch }
     if (name === 'dsh-tavern-stcontext/config') return { presets: [], settings: {}, hostReady: true }
     if (name === 'dsh-tavern-stcontext/models') return { groups: [] }
     if (name === 'dsh-tavern-style-recall/settings') return {
-      settings: { enabled: false, mode: 'background', guidance: '', source: '' },
-      sources: [], backgroundAvailable: true
+      settings: style, sources: [], backgroundAvailable: true
+    }
+    if (name === 'dsh-tavern-style-recall/save') {
+      styleWrites.push(patch)
+      if (styleWrites.length === 1) throw new Error('保存开关失败')
+      if (patch.enabled === false) await finishDisable.promise
+      return style = { ...style, ...patch }
     }
     throw new Error('Unexpected plugin request: ' + name)
   })
@@ -78,7 +86,9 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
       plugin.apply({ slots, effect(run) { return run() }, tavernUi: {
         assetUrl: () => 'data:text/css,',
         callHost: window.callPluginHost,
-        components: { Segmented: () => null, Spinner: () => null, Switch: () => null },
+        components: { Icon: () => null, Segmented: () => null, Spinner: () => null,
+          Switch: ({ id, label, checked, disabled, onChange }) => h('input', { id, type: 'checkbox', role: 'switch',
+            'aria-label': label, checked, disabled, onChange: event => onChange(event.target.checked) }) },
         registerComposerAction() {},
         registerPanel(panel) { sidebar.push(panel.id) },
       } })
@@ -96,8 +106,35 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
   await regex.click()
   await page.getByRole('checkbox', { name: '追加宿主正则', checked: true }).waitFor()
   assert.deepEqual(defaults, { mode: 'plugin-tool-call', hostRegex: true })
-  await page.getByRole('button', { name: '文风联想', exact: true }).click()
+  const stylePage = page.getByRole('button', { name: '文风联想', exact: true })
+  await stylePage.click()
   await page.getByRole('heading', { name: '文风联想', exact: true }).waitFor()
   await page.getByText('每轮由本局后台模型联想范文，正文生成时参考。', { exact: true }).waitFor()
-  await page.getByRole('textbox', { name: /文风偏好/ }).waitFor()
+  const guidance = page.getByRole('textbox', { name: /文风偏好/ })
+  await guidance.fill('尚未保存的偏好')
+  const toggle = page.getByRole('switch', { name: '开启文风联想' })
+  assert.equal(await toggle.isChecked(), true)
+  await toggle.click()
+  await page.getByRole('alert').filter({ hasText: '保存开关失败' }).waitFor()
+  assert.equal(await toggle.isChecked(), true)
+
+  await toggle.click()
+  await page.getByText('正在保存…', { exact: true }).waitFor()
+  assert.equal(await toggle.isChecked(), true, '保存成功前仍显示已生效的设置')
+  finishDisable.resolve()
+  await page.getByRole('switch', { name: '开启文风联想', checked: false }).waitFor()
+  assert.deepEqual(styleWrites, [{ enabled: false }, { enabled: false }])
+  assert.deepEqual(style, { enabled: false, mode: 'background', guidance: '保留原设置', source: '' })
+  assert.equal(await guidance.inputValue(), '尚未保存的偏好')
+
+  await page.getByRole('button', { name: '保存全局设置' }).click()
+  await page.getByText('已保存', { exact: true }).waitFor()
+  assert.deepEqual(styleWrites.at(-1), { mode: 'background', guidance: '尚未保存的偏好', source: '' })
+  await page.getByRole('button', { name: 'STcontext', exact: true }).click()
+  await mode.waitFor()
+  await stylePage.click()
+  await page.getByRole('switch', { name: '开启文风联想', checked: false }).waitFor()
+  await toggle.click()
+  await page.getByRole('switch', { name: '开启文风联想', checked: true }).waitFor()
+  assert.deepEqual(style, { enabled: true, mode: 'background', guidance: '尚未保存的偏好', source: '' })
 })

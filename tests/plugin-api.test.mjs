@@ -165,6 +165,8 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   assert.equal(projected[2], nativeFrame)
   assert.equal(projectWithoutStyleReference({ messages: projected }).messages.at(-1), nativeFrame)
   assert.equal(runTask.mock.callCount(), 0, '小说选段不调用后台模型')
+  assert.deepEqual(await rpc('save', { enabled: false }), novel(source, false))
+  assert.deepEqual(await turn('other'), [], '关闭后其他人物卡也不再收到参考小说')
 
   const background = { source, enabled: true, mode: 'background', guidance: '写得克制一些' }
   stored.settings = { ...background, mode: 'foreground' }
@@ -200,7 +202,19 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   finish.resolve({ text: '过期范文' })
   assert.deepEqual(await abortedTurn, [])
   assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
-  await rpc('save', { source, enabled: true })
+  const disabling = Promise.withResolvers()
+  const lateQuote = Promise.withResolvers()
+  generate = async task => { disabling.resolve(task.signal); return await lateQuote.promise }
+  const pendingBackground = turn()
+  const disablingSignal = await disabling.promise
+  assert.deepEqual(await rpc('save', { enabled: false }), { ...background, enabled: false })
+  assert.equal(disablingSignal.aborted, true)
+  lateQuote.resolve({ text: '关闭后迟到的范文' })
+  assert.deepEqual(await pendingBackground, [])
+  assert.deepEqual(await turn('other'), [])
+  assert.deepEqual(await rpc('save', { guidance: '新的文风偏好' }), { ...background, guidance: '新的文风偏好', enabled: false })
+  assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
+  await rpc('save', novel(source, true))
 
   const ready = Promise.withResolvers()
   const release = Promise.withResolvers()
@@ -220,7 +234,7 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   assert.deepEqual((await rpc('settings', { gameId: 'another' })).settings, novel(source, false))
   await rpc('save', { source: '', enabled: false })
   assert.deepEqual(stored.bindings, { [cards.one]: { source, enabled: true } })
-  assert.equal(runTask.mock.callCount(), 3)
+  assert.equal(runTask.mock.callCount(), 4)
   await fiber.dispose()
   assert.deepEqual(await turn(), [])
 })
