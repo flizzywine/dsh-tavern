@@ -152,8 +152,6 @@ export function createPlayHandlers(deps) {
       return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
     },
     async getChoices(args) {
-      // 页面手里只有宿主给的消息 id，前台候选项存的是这一局最近一轮的那一份，
-      // 所以页面要多带 latest；同样的消息 id 核对留给后台任务的读取方。
       return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId, latest: args && args.latest === true }) }
     },
     async startChoices(args) {

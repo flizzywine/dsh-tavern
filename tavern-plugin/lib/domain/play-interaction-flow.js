@@ -2,7 +2,7 @@
 function panelMessageKey(value) { return String(value == null ? "" : value); }
 function candidatePanelForRound(panel, sessionId, messageId, running = false) {
     if (running || !panel || panel.sessionId !== sessionId) return null;
-    if (panel.messageId && messageId && panelMessageKey(panel.messageId) !== panelMessageKey(messageId)) return null;
+    if (panelMessageKey(panel.messageId) !== panelMessageKey(messageId)) return null;
     return panel;
 }
 function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError,
@@ -77,12 +77,13 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     }
     // 前台生成把候选项写在正文自己身上（chat.candidates），没有任务把结果送到页面，
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
-    // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
-    // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
+    // 存档和页面使用不同的投影消息 ID 时，由服务端核对它们是否属于同一轮。
     async function loadSavedCandidates(sessionId, messageId, observation, signal) {
         const key = panelMessageKey(messageId);
         const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
-        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        const current = candidates.getSnapshot();
+        if (shown(current)) return current;
+        if (observation.loaded) return null;
         let result = null;
         try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId, { signal }); }
         catch (error) {
@@ -94,6 +95,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
         // The player may have started a task or dismissed a failure while this read ran.
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        observation.loaded = true;
         return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
     }
     // The reply id can change during streaming, before the save replaces

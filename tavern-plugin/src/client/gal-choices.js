@@ -8,7 +8,7 @@ function GalChoices(props) {
     const running = props.useSession(snapshot => snapshot.running === true);
     const messageId = props.useChat(latestTavernAssistantMessageId);
     const coordination = useTavernCoordination(sessionId, String(running) + ":" + String(messageId || ""));
-    const taskForMessage = useCandidateRound(sessionId, messageId, running, coordination.view?.task);
+    const taskForMessage = useCandidateRound(sessionId, messageId, running, coordination.view);
     const panel = candidatePanelForRound(panelState, sessionId, messageId, running);
     const commands={
         clear:()=>setCandidatePanel(null),

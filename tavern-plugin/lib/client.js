@@ -66105,7 +66105,7 @@ function createTavernHeaderFeature({ StatusAction, ExportAction, openPage, openW
 function panelMessageKey(value) { return String(value == null ? "" : value); }
 function candidatePanelForRound(panel, sessionId, messageId, running = false) {
     if (running || !panel || panel.sessionId !== sessionId) return null;
-    if (panel.messageId && messageId && panelMessageKey(panel.messageId) !== panelMessageKey(messageId)) return null;
+    if (panelMessageKey(panel.messageId) !== panelMessageKey(messageId)) return null;
     return panel;
 }
 function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError,
@@ -66180,12 +66180,13 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     }
     // 前台生成把候选项写在正文自己身上（chat.candidates），没有任务把结果送到页面，
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
-    // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
-    // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
+    // 存档和页面使用不同的投影消息 ID 时，由服务端核对它们是否属于同一轮。
     async function loadSavedCandidates(sessionId, messageId, observation, signal) {
         const key = panelMessageKey(messageId);
         const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
-        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        const current = candidates.getSnapshot();
+        if (shown(current)) return current;
+        if (observation.loaded) return null;
         let result = null;
         try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId, { signal }); }
         catch (error) {
@@ -66197,6 +66198,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
         // The player may have started a task or dismissed a failure while this read ran.
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        observation.loaded = true;
         return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
     }
     // The reply id can change during streaming, before the save replaces
@@ -68051,7 +68053,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		    const running = props.useSession(snapshot => snapshot.running === true);
 		    const messageId = props.useChat(latestTavernAssistantMessageId);
 		    const coordination = useTavernCoordination(sessionId, String(running) + ":" + String(messageId || ""));
-		    const taskForMessage = useCandidateRound(sessionId, messageId, running, coordination.view?.task);
+		    const taskForMessage = useCandidateRound(sessionId, messageId, running, coordination.view);
 		    const panel = candidatePanelForRound(panelState, sessionId, messageId, running);
 		    const commands={
 		        clear:()=>setCandidatePanel(null),
@@ -68167,14 +68169,17 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
         function useRegenPanel() { return useInteractionPanel(interactions.regeneration); }
-        function useCandidateRound(sessionId, messageId, running, task) {
+        function useCandidateRound(sessionId, messageId, running, coordinationView) {
+            const task = coordinationView?.task;
             const currentTask = task?.kind === "candidate" && task.input
                 && String(task.input.messageId || "") === String(messageId || "") ? task : null;
+            // Host message/status events can arrive before Tavern commits the reply and its choices.
+            const storageRevision = coordinationView?.storageRevision || 0;
             React.useEffect(function () {
                 const controller = new AbortController();
                 void interactions.syncCandidateRound({ sessionId, messageId, running, task: currentTask }, controller.signal);
                 return () => controller.abort();
-            }, [sessionId, messageId, running, currentTask]);
+            }, [sessionId, messageId, running, currentTask, storageRevision]);
             return currentTask;
         }
 		// a dismissed candidate failure stays dismissed
@@ -68593,7 +68598,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 					if (panel && panel.sessionId === props.sessionId && panel.phase === "error" && /压缩/.test(String(panel.error || ""))) setCandidatePanel(null);
 				};
 			}, [compacting, props.sessionId]);
-			const taskForMessage = useCandidateRound(props.sessionId, props.messageId, frontRunning, activityState.view?.task);
+			const taskForMessage = useCandidateRound(props.sessionId, props.messageId, frontRunning, activityState.view);
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
 			// 视图会整块丢掉：读取被替换、几轮中止之后记录被清空、错误里带着空视图回来。

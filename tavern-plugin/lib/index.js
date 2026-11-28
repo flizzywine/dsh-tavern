@@ -2981,6 +2981,7 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => candidateWorldbookPreparation.dispose())
   const candidateGenerator = createCandidateGenerator({
+    sessionFor: sessionId => sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,
     requestAnchor: contextHost.requestAnchor,
     expandedCandidates: readExpandedCandidates,
     backgroundTasks: async chat => normalizeBackgroundTasks((await backgroundConfigForSession(chat.sessionId))?.backgroundTasks),

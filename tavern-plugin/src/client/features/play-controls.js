@@ -502,14 +502,17 @@
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
         function useRegenPanel() { return useInteractionPanel(interactions.regeneration); }
-        function useCandidateRound(sessionId, messageId, running, task) {
+        function useCandidateRound(sessionId, messageId, running, coordinationView) {
+            const task = coordinationView?.task;
             const currentTask = task?.kind === "candidate" && task.input
                 && String(task.input.messageId || "") === String(messageId || "") ? task : null;
+            // Host message/status events can arrive before Tavern commits the reply and its choices.
+            const storageRevision = coordinationView?.storageRevision || 0;
             React.useEffect(function () {
                 const controller = new AbortController();
                 void interactions.syncCandidateRound({ sessionId, messageId, running, task: currentTask }, controller.signal);
                 return () => controller.abort();
-            }, [sessionId, messageId, running, currentTask]);
+            }, [sessionId, messageId, running, currentTask, storageRevision]);
             return currentTask;
         }
 		// a dismissed candidate failure stays dismissed
@@ -611,7 +614,7 @@
 					if (panel && panel.sessionId === props.sessionId && panel.phase === "error" && /压缩/.test(String(panel.error || ""))) setCandidatePanel(null);
 				};
 			}, [compacting, props.sessionId]);
-			const taskForMessage = useCandidateRound(props.sessionId, props.messageId, frontRunning, activityState.view?.task);
+			const taskForMessage = useCandidateRound(props.sessionId, props.messageId, frontRunning, activityState.view);
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
 			// 视图会整块丢掉：读取被替换、几轮中止之后记录被清空、错误里带着空视图回来。

@@ -87,18 +87,24 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
     if (chat === undefined) {
       return { runtimeGeneration, liveSession, projectionRevision: 0, activity: null, mailboxVersion: 0, task: null, tasks: { candidate: null, background: null } }
     }
-    const synced = await taskMailbox.sync(chat.id, selector, current => backgroundTasks.activity(current))
+    const synced = await taskMailbox.sync(chat.id, selector, current => ({
+      activity: backgroundTasks.activity(current), candidates: current?.regenInProgress ? null : current?.candidates
+    }))
+    const { activity, candidates } = synced.projection
     let task = synced.task
-    if (task === null && str(selector.kind) === 'candidate' && chat.candidates && typeof chat.candidates === 'object') {
+    // The mailbox keeps completed requests for replay. The live composer should
+    // only show a successful task while its batch still belongs to the save.
+    const latestCandidate = str(selector.kind) === 'candidate' && !str(selector.requestId) && !str(selector.taskId)
+    if (latestCandidate && task?.status === 'succeeded' && task.requestId !== str(candidates?.requestId)) task = null
+    if (task === null && latestCandidate && candidates && typeof candidates === 'object') {
       task = {
-        taskId: 'legacy-' + str(chat.candidates.operationId || chat.candidates.requestId),
-        requestId: str(chat.candidates.requestId), kind: 'candidate', status: 'succeeded', stage: 'completed', busy: false, terminal: true,
-        input: { sessionId: str(sessionId), messageId: str(chat.candidates.messageId), guidance: '' },
-        operationId: str(chat.candidates.operationId), result: { candidates: chat.candidates }, error: '', version: 0,
-        createdAt: Number(chat.candidates.generatedAt) || 0, updatedAt: Number(chat.candidates.generatedAt) || 0
+        taskId: 'legacy-' + str(candidates.operationId || candidates.requestId),
+        requestId: str(candidates.requestId), kind: 'candidate', status: 'succeeded', stage: 'completed', busy: false, terminal: true,
+        input: { sessionId: str(sessionId), messageId: str(candidates.messageId), guidance: '' },
+        operationId: str(candidates.operationId), result: { candidates }, error: '', version: 0,
+        createdAt: Number(candidates.generatedAt) || 0, updatedAt: Number(candidates.generatedAt) || 0
       }
     }
-    const activity = synced.projection
     const backgroundTask = activity.operationId === '' ? null : {
       taskId: activity.operationId,
       requestId: '',

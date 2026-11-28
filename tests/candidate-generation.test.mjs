@@ -150,6 +150,17 @@ test('script candidate commits retain the continuity revision fence', async () =
   assert.equal(run.chat().timeline.revision,started.basedOn.revision + 1)
 })
 
+test('正文替换期间，即使宿主仍使用原消息 ID，也不补回旧候选', async () => {
+  const run = harness({ initialCandidates: { messageId: 'old', choices: [{ type: 'action', text: '上一轮候选' }] } })
+  const request = { sessionId: 'session-1', messageId: 'old', latest: true }
+  assert.equal((await run.candidates.find(request)).messageId, 'old')
+  run.mutateChat(chat => { chat.regenInProgress = true })
+  assert.equal(await run.candidates.find(request), null)
+  assert.equal(await run.candidates.find({ ...request, messageId: '' }), null)
+  run.mutateChat(chat => { chat.regenInProgress = false; chat.candidates = null })
+  assert.equal(await run.candidates.find(request), null)
+})
+
 test('regenerating choices replaces only candidates, preserving body, MVU and stage bytes', async () => {
   const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })], initialCandidates: { messageId: 'message-1', choices: [{ type: 'action', text: 'old choice' }] } })
   run.mutateChat(chat => {

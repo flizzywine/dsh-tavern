@@ -75,6 +75,26 @@ test('生成结果已保存但任务完成回执丢失，恢复直接采用结�
   assert.deepEqual((await service.sync('s', { requestId: 'r' })).task.result.candidates.choices, ['已保存'])
 })
 
+test('新正文清除候选后，会话同步不再显示已消费的候选任务', async t => {
+  const h = await harness(t)
+  const task = await h.seed.submit('c', { kind: 'candidate', requestId: 'r', input: request })
+  const candidates = { requestId: 'r', messageId: 'm', operationId: 'op', choices: ['上一轮候选'] }
+  await h.seed.transition('c', task.taskId, { status: 'succeeded', result: { candidates } })
+  const setCandidates = async value => h.chats.write({ ...await h.chats.read('c'), candidates: value })
+  const service = h.create({})
+  await setCandidates(candidates)
+  assert.equal((await service.sync('s', { kind: 'candidate' })).task.taskId, task.taskId)
+
+  await setCandidates(null)
+  assert.equal((await service.sync('s', { kind: 'candidate' })).task, null)
+  assert.equal((await service.sync('s', { requestId: 'r', kind: 'candidate' })).task.taskId, task.taskId)
+
+  await setCandidates({ requestId: 'fg-new', messageId: 'm2', operationId: 'op2', choices: ['新正文候选'] })
+  const next = (await service.sync('s', { kind: 'candidate' })).task
+  assert.equal(next.input.messageId, 'm2')
+  assert.deepEqual(next.result.candidates.choices, ['新正文候选'])
+})
+
 // the stage's 停止 on the choices wait chip.
 test('玩家停止候选：立即取消；准备中的任务不再启动模型，运行中的迟到结果不改写取消', async t => {
   const h = await harness(t), waiting = deferred(), finish = deferred()

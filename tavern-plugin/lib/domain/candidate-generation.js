@@ -2,6 +2,8 @@ import { scriptForState } from './script-layout.js'
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './character-design-document.js'
+import { sessionEvents } from './session-events.js'
+import { storyEventTurn } from './session-upgrade-references.js'
 
 // Prompt prose source: task-specific additions, unchanged in phase 1.
 const TASK_PROMPT_PROSE = Object.freeze({
@@ -792,14 +794,30 @@ export function createCandidateGenerator(options) {
     return await prepared.execute()
   }
 
+  function sameReply(chat, sessionId, askedId, savedId) {
+    const events = sessionEvents(options.sessionFor?.(sessionId))
+    const reply = id => events.findLast(event => event?.type === 'assistant/message' && event.data?.message?.id === id)
+    const asked = reply(askedId)
+    if (!asked) return false
+    const saved = reply(savedId)
+    // Foreground choices can be committed before the replacement reaches the host surface.
+    const operation = chat.timeline?.operations?.[chat.candidates.operationId]
+    const savedTurn = saved ? storyEventTurn(saved) : operation?.kind === 'body' ? Number(operation.turn) : 0
+    return savedTurn > 0 && storyEventTurn(asked) === savedTurn
+  }
+
   async function find(input) {
     const chat = await (store.stateForSession || store.chatForSession)(input.sessionId)
     if (chat === undefined || chat.candidates === null || typeof chat.candidates !== 'object') return null
-    // 前台候选项只留最近一轮（提交时无候选即清空）。页面手里的消息 id 可能是宿主
-    // 生成的另一套（工具回复、重新生成各有一个），所以页面按「最近一轮」读（latest），
-    // 其余调用方仍按消息 id 精确核对。
     const asked = str(input.messageId)
-    if (input.latest !== true && str(chat.candidates.messageId) !== asked) return null
+    const savedId = str(chat.candidates.messageId)
+    if (input.latest === true && chat.regenInProgress === true) return null
+    // A host may project a different message ID for the same reply. Only use the
+    // latest fallback for that reply (or when the host supplies no ID at all).
+    if (savedId !== asked) {
+      if (input.latest !== true) return null
+      if (asked !== '' && !sameReply(chat, input.sessionId, asked, savedId)) return null
+    }
     const isScript = (chat.mode || 'story') === 'script'
     const limit = isScript ? 1 : MAX_SAVED_STORY_CHOICES
     const choices = Array.isArray(chat.candidates.choices) ? chat.candidates.choices.map(function (item) {

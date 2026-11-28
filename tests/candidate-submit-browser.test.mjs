@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
+import { createCandidateGenerator } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
@@ -13,15 +14,18 @@ const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', im
 
 // Mount the shipped sidebar and dock. listSessions populates mode through the
 // real sidebar, so this exercises the registered click handler and HTTP client.
-async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices } = {}) {
+async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices, choiceSession } = {}) {
   const browser = sharedBrowser || await chromium.launch({ headless: true })
   if (!sharedBrowser) t.after(() => browser.close())
   const page = await browser.newPage({ viewport, hasTouch })
   page.setDefaultTimeout(5000)
   const errors = [], calls = [], unexpected = []
   page.on('pageerror', error => errors.push(error.message))
-  let attempts = 0, task = null
-  const sync = () => ({ activity: { busy: false, phase: 'idle' }, task, tasks: { candidate: task, background: null } })
+  let attempts = 0, task = null, storageRevision = 0
+  const sync = () => ({ activity: { busy: false, phase: 'idle' }, task, tasks: { candidate: task, background: null }, storageRevision })
+  const generator = choiceSession && createCandidateGenerator({
+    prompt() {}, tasks: {}, store: { chatForSession: async () => ({ mode, candidates: savedChoices }) }, sessionFor: () => choiceSession,
+  })
   await page.route('http://tavern.test/**', async route => {
     const method = new URL(route.request().url()).pathname.split('/').at(-1)
     if (!route.request().url().includes('/api/dsh-tavern/')) {
@@ -62,7 +66,8 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
         getTavernSettings: { settings: {} }, // composer and sidebar preferences
         getCandidatePreferences: { candidateDismissMode: 'after-send' },
         getCandidateGuidanceShortcuts: { shortcuts: { story: [] } },
-        getChoices: { candidates: savedChoices ?? (settings ? { choices: ['继续走近'] } : null) },
+        getChoices: method === 'getChoices' && generator ? { candidates: await generator.find(args) }
+          : { candidates: savedChoices ?? (settings ? { choices: ['继续走近'] } : null) },
         loadSessionPreviews: { previews: {} },
         cardPluginScopes: { scopes: {} }, // plugin composer actions wait for which plugins belong to which cards
       }
@@ -76,7 +81,8 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};` })
   await page.addScriptTag({ content: clientSource })
   await page.evaluate(showResults => {
-    const slots = {}, noop = () => () => {}
+    const slots = {}, coordinationListeners = new Set()
+    window.publishCandidateCoordination = snapshot => coordinationListeners.forEach(listener => listener({ snapshot }))
     const sessionState = { current: '', byId: {} }
     const ctx = {
       inject() { return { dispose() {} } },
@@ -88,7 +94,10 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
       sessions: { subagentAddress: () => null, refresh: async () => {}, list: { getSnapshot: () => sessionState }, binding: () => null },
       workspaces: {}, betterSidebar: {},
-      tavernSessionSignals: { subscribe: noop },
+      tavernSessionSignals: { subscribe(_sessionId, kind, listener) {
+        if (kind === 'tavern-state') coordinationListeners.add(listener)
+        return () => coordinationListeners.delete(listener)
+      } },
     }
     window.client.apply(ctx)
     const React = modules.react
@@ -111,11 +120,19 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
     window.renderCandidateRound(false, 'reply-1')
   }, Boolean(completedChoices || savedChoices))
   await page.getByRole('button', { name: settings || savedChoices ? '重新生成候选项' : '生成候选项', exact: true }).waitFor()
-  return { page, calls, errors, unexpected, setSavedChoices: value => { savedChoices = value } }
+  return { page, calls, errors, unexpected, async setSavedChoices(value) {
+    savedChoices = value
+    storageRevision++
+    await page.evaluate(snapshot => window.publishCandidateCoordination(snapshot), sync())
+  } }
 }
 
 test('填入候选并发送后移除上一轮面板，新候选只在正文落盘后显示', async t => {
-  const { page, calls, errors, setSavedChoices } = await mount(t, 'success', { savedChoices: { choices: ['走到门前'] } })
+  const choiceSession = { events: [['reply-1', 2], ['reply-2', 3], ['reply-3', 4], ['tavern-regen:reply-3', 4]].map(([id, turn]) =>
+    ({ type: 'assistant/message', data: { turn, message: { id } } })) }
+  const { page, errors, setSavedChoices } = await mount(t, 'success', {
+    choiceSession, savedChoices: { messageId: 'reply-1', choices: [{ text: '走到门前' }] },
+  })
   const panel = page.locator('.dsh-tavern-candidate-question')
   await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
   await panel.getByRole('button', { name: '走到门前' }).click()
@@ -123,19 +140,21 @@ test('填入候选并发送后移除上一轮面板，新候选只在正文落�
   // DSH publishes the new reply id while the previous candidates are still saved.
   await page.evaluate(() => window.renderCandidateRound(true, 'reply-2'))
   await panel.waitFor({ state: 'detached' })
-  setSavedChoices(null)
-  const postCommit = page.waitForResponse(response => response.url().endsWith('/getChoices')
+  const beforeCommit = page.waitForResponse(response => response.url().endsWith('/getChoices')
     && response.request().postDataJSON().messageId === 'reply-2')
   await page.evaluate(() => window.renderCandidateRound(false, 'reply-2'))
-  await postCommit
+  assert.equal((await (await beforeCommit).json()).candidates, null, '上一轮存档尚未清除时也不返回旧候选')
+  await setSavedChoices(null)
   await page.getByRole('button', { name: '生成候选项', exact: true }).waitFor()
   assert.equal(await panel.count(), 0)
-  assert.equal(calls.filter(call => call.method === 'getChoices' && call.args.messageId === 'reply-2').length, 1)
 
-  // Foreground-generated candidates for a later reply still appear normally.
+  // The save can land after both the host's message and idle notifications.
   await page.evaluate(() => window.renderCandidateRound(true, 'reply-3'))
-  setSavedChoices({ choices: ['查看信件'] })
+  const earlyRead = page.waitForResponse(response => response.url().endsWith('/getChoices')
+    && response.request().postDataJSON().messageId === 'reply-3')
   await page.evaluate(() => window.renderCandidateRound(false, 'reply-3'))
+  assert.equal((await (await earlyRead).json()).candidates, null)
+  await setSavedChoices({ messageId: 'tavern-regen:reply-3', choices: [{ text: '查看信件' }] })
   await panel.waitFor()
   await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
   await panel.getByRole('button', { name: '查看信件' }).waitFor()

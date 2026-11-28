@@ -50,6 +50,22 @@ test('正文运行后，即使仍是同一个消息 id，旧读取也不能重�
   assert.equal(interactions.candidates.getSnapshot(), null)
 })
 
+test('存档更新触发的同步不会重新打开已收起的候选', async () => {
+  const calls = []
+  const interactions = flow(calls, () => ({ candidates: saved }))
+  assert.equal((await interactions.syncCandidateRound(round('m'))).phase, 'ready')
+  interactions.candidates.set(null)
+  assert.equal(await interactions.syncCandidateRound(round('m')), null)
+  assert.equal(calls.length, 1)
+})
+
+test('没有助手消息 ID 时加载的候选不会留在下一条正文下', async () => {
+  const interactions = flow([], ({ messageId }) => ({ candidates: messageId ? null : saved }))
+  assert.equal((await interactions.syncCandidateRound(round(null))).phase, 'ready')
+  assert.equal(await interactions.syncCandidateRound(round('new')), null)
+  assert.equal(interactions.candidates.getSnapshot(), null)
+})
+
 test('两个界面观察同一候选任务时，任务结果只应用一次，关闭后不再弹出', () => {
   const calls = [], dismissed = new Set()
   const interactions = flow(calls, () => null, { candidateErrorDismissed: key => dismissed.has(key) })
