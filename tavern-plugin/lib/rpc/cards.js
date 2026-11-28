@@ -170,6 +170,10 @@ export function createCardHandlers(deps) {
     async listCardReleases(args) {
       return await deps.listCardReleases(args?.path)
     },
+    // 清空记录 in the export sheet: forget all releases of the card.
+    async clearCardReleases(args) {
+      return await deps.clearCardReleases(args?.path)
+    },
     // A file sent before releases were recorded, uploaded (card-upload) to become one: only its pack file lists are read.
     async addCardReleaseUpload(args) {
       const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)

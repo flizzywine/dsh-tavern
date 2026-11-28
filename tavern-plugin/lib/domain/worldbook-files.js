@@ -145,7 +145,8 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
     async searchFiles(args, lookup) {
       if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 500) throw Error('query 需要 1–500 字符的非空搜索文本')
       const { offset, limit } = page(args), view = await viewFor(args, lookup)
-      const needle = args.caseSensitive ? args.query : args.query.toLowerCase()
+      const query = args.caseSensitive ? args.query : args.query.toLowerCase()
+      const terms = args.exactPhrase ? [query] : query.trim().split(/\s+/)
       const matches = []
       let skipped = 0
       for (const row of view.rows) {
@@ -153,8 +154,13 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
         await files.verify(row.path, row.content)
         const lines = (await fs.readFile(row.path, 'utf8')).split('\n')
         for (let i = 0; i < lines.length; i++) {
-          const position = (args.caseSensitive ? lines[i] : lines[i].toLowerCase()).indexOf(needle)
-          if (position < 0) continue
+          const line = args.caseSensitive ? lines[i] : lines[i].toLowerCase()
+          let position = line.length
+          for (const term of terms) {
+            const index = line.indexOf(term)
+            if (index >= 0 && index < position) position = index
+          }
+          if (position === line.length) continue
           if (skipped < offset) {
             skipped++
             continue
