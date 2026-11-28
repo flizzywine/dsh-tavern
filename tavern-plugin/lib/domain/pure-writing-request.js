@@ -133,6 +133,7 @@ export function projectWritingPreparationRequest(request, context) {
     const snapshot = promptSection('writing_current_worldbook', preparation.snapshot)
     task[0] = { ...task[0], content: [...task[0].content, { type: 'text', text: snapshot }] }
   }
+  if (context.automaticWorldbook) messages.push(context.automaticWorldbook)
   if (context.worldbookTitleHints) messages.push(context.worldbookTitleHints)
   return { ...request, system: preparation ? preparation.system : context.system, messages: [...messages, ...task] }
 }

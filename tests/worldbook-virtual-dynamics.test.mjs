@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
+import { createPlayWorldBook } from '../tavern-plugin/lib/domain/play-world-book.js'
 import { projectVirtualWorldbookPrefix, virtualEntryVersion } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 import { constantWorldBookContext } from '../tavern-plugin/lib/domain/worldbook-recall.js'
 import { pureWritingFixedSections, pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
@@ -30,7 +31,8 @@ test('静态常驻 mvu_plot 进入稳定前缀，旧运行时快照退出，按�
   }
   const result = await f.run('next', '去码头')
   assert.equal(result.staticPrefix, fixed.content)
-  assert.match(result.titleHints, /码头/)
+  assert.match(result.automaticContext, /码头[\s\S]*码头晚上关门/)
+  assert.equal(result.titleHints, '')
   assert.equal(result.virtualState.entries[fixed.ref], undefined)
   assert.equal(result.virtualState.entries[optional.ref], undefined)
   assert.equal(result.virtualState.entries[dynamic.ref].text, '当前余额 10')
@@ -85,6 +87,24 @@ test('runtime controllers keep their injected and restored output while display 
   const prefix = projectVirtualWorldbookPrefix(f.worldBook, f.chat).prefixContext
   assert.match(prefix, /CONTROLLER RULE/)
   assert.doesNotMatch(prefix, /PRIVATE DATA/)
+})
+
+test('a constant that only names {{char}} or {{user}} is a static constant with this game\'s names, and a rename changes the prefix', async () => {
+  const named = entry('named', '{{user}} 是 {{ Char }} 的搭档。', true, { rawEntry: { content: '{{user}} 是 {{ Char }} 的搭档。' } })
+  const entries = [named, entry('state', '血量 {{getvar::hp}}'), entry('keyword', '{{user}} 的旧伤', false, { primaryKeys: ['旧伤'] })]
+  const play = createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, poolEntries: async () => [] }).playWorldBook
+  const chat = { sessionId: 'names', cardPath: 'card', worldbookStrategy: 'native-skills', messages: [], macroState: { userName: 'Alice', local: { hp: 9 } } }
+  const book = await play(chat, { name: 'hero' })
+  assert.equal(projectVirtualWorldbookPrefix(book, chat, { restore: false }).prefixContext, 'Alice 是 hero 的搭档。')
+  assert.equal(book.view.entries[0].rawEntry.content, '{{user}} 是 {{ Char }} 的搭档。', 'the editor keeps the macros')
+  assert.equal(book.view.entries[1], entries[1], 'variable display data keeps its own path')
+  assert.equal(book.view.entries[2], entries[2], 'only constants are read with the names')
+  const turn = await createForegroundWorldbook({ bound: async () => book, runtime: async () => ({ render: async text => ({ ok: true, text, scopes: {} }) }),
+    globalVariables: async () => ({}) })({ chat, card: { name: 'hero' }, requestKey: 'one' })
+  assert.equal(turn.staticPrefix, 'Alice 是 hero 的搭档。')
+  assert.equal(turn.virtualState.entries.named, undefined, 'no runtime snapshot to restore')
+  chat.macroState.userName = 'Bob'
+  assert.equal(projectVirtualWorldbookPrefix(await play(chat, { name: 'hero' }), chat, { restore: false }).prefixContext, 'Bob 是 hero 的搭档。')
 })
 
 test('worldbook resolves Helper message macros from the selected player floor and replaces old raw snapshots', async () => {

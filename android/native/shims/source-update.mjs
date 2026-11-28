@@ -222,7 +222,7 @@ async function stage(root) {
   await rm(next, { recursive: true, force: true })
   await mkdir(next, { recursive: true })
   const manifest = await downloader().downloadRuntime({ manifest: latest, metadataUrl: urls.metadataUrl, rootUrl: urls.rootUrl, destination: next, installed: src,
-    exactManifest: urls.exact, stallMs: 30000, budgetMs: 600000, status })
+    exactManifest: urls.exact, mode: 'auto', stallMs: 30000, budgetMs: 600000, status })
   const runtimePrint = await runtimeFingerprint(next)
   if (runtimePrint !== current.runtimeFingerprint) {
     await rm(next, { recursive: true, force: true })

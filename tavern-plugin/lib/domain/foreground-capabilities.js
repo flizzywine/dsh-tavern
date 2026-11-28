@@ -1,25 +1,18 @@
 import {createHash} from 'node:crypto'
-import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines,importedBubbleFormat} from './dialogue-bubbles.js'
+import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines} from './dialogue-bubbles.js'
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
-import {sessionEvents} from './session-events.js'
+import {completedCompactionEpoch,sessionEvents} from './session-events.js'
 import {estimateDirectorTokens} from './stage-director-tokens.js'
 import {managedForegroundEntries,managedPromptSections} from './mod-system-prompt-adapter.js'
 import {promptSection} from './prompt-section.js'
 import {liveContextUpdate} from './card-system-prompt.js'
 
-const managed = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
-const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
+// The game's book (play-world-book.js: this card's bubble entry, a settings mirror, is not in it) plus the generated entries.
+const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []),...structuredClone(entries)]}})
 
-// Only a completed native replacement before this turn can change its prefix.
-export function foregroundCapabilityEpoch(session) {
-  const events=sessionEvents(session),start=events.findLastIndex(event=>event.type==='turn/start')
-  const prior=start<0?events:events.slice(0,start)
-  const completed=new Set(prior.filter(event=>event.type==='compaction/end' && !event.data?.error).map(event=>event.data.compactionId))
-  const replaced=new Set(prior.filter(event=>event.type==='user/message' && event.surfaceOp?.op==='replace').map(event=>event.data?.source?.compactionId))
-  return prior.findLast(event=>event.type==='compaction/summary' && completed.has(event.data.compactionId) && replaced.has(event.data.compactionId))?.data.compactionId || ''
-}
+export const foregroundCapabilityEpoch = session => completedCompactionEpoch(session, { beforeTurn: true })
 
 // The one recall for the foreground roster: the latest reply, this turn's input and the saved judge.
 export function foregroundRecalledFigures(config,chat,{userText='',judge}={}) {
@@ -199,20 +192,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     assertCurrent()
     return text ? [...parts,{key:'capability-update',name:'前台能力追加说明',owners:'全局',text,tokens:estimateDirectorTokens(text)}] : parts
   }
-  async function projectBook(chat,book,entries) {
-    const projected=replace(book,entries)
-    if(entries.some(entry=>entry.ref==='foreground-capabilities:format'))return projected
-    // A worldbook imported on its own can carry the format but not the source card's bubble settings.
-    const imported=(book?.view?.entries || []).filter(entry=>importedBubbleFormat(entry,chat.cardPath))
-    if(!imported.length)return projected
-    const rendered=await render(chat,{view:{entries:imported}})
-    assertCurrent()
-    const texts=new Map(rendered.renderedEntries.map(entry=>[entry.ref,entry.text]))
-    projected.view.entries.push(...imported.filter(entry=>texts.has(entry.ref)).map(entry=>({
-      ...entry,content:texts.get(entry.ref),foregroundCapability:true
-    })))
-    return projected
-  }
+  const projectBook=(chat,book,entries)=>replace(book,entries)
   async function projectActive(chat,book,{persist=true,userText=''}={}) {
     if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return book
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
@@ -239,8 +219,8 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     } finally {pending.delete(key)}
   }
   async function project(chat,book,options) {
-    if(!active)return replace(book,[])
-    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return replace(book,[]);throw error}
+    if(!active)return book
+    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return book;throw error}
   }
   async function refresh(chat, expectedInjection) {
     assertCurrent()

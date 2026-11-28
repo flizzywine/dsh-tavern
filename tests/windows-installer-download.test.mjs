@@ -53,14 +53,18 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     const url = `http://127.0.0.1:${server.address().port}`
     const source = (await readFile(new URL('../install.ps1', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
     const functions = source.slice(source.indexOf('function Test-Command'), source.indexOf('$PreviousDshHome ='))
-    const cdn = source.slice(source.indexOf("      Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'"), source.indexOf('      $UsedCdn = $true'))
+    const cdnStart = source.indexOf("      Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'")
+    const cdn = source.slice(cdnStart, source.indexOf('      $UsedCdn = $true', cdnStart))
     assert.ok(cdn.length > 0, 'CDN download block must be exercised')
-    const archiveStart = source.lastIndexOf('  if (-not $UsedGit) {', source.indexOf('    $PreviousProgressPreference ='))
-    const archive = source.slice(archiveStart, source.indexOf('  if (-not $UsedGit -and -not $UsedArchive)', archiveStart))
+    const archiveStart = source.lastIndexOf('  if (-not $UsedCdn -and -not $UsedGit) {', source.indexOf('    $PreviousProgressPreference ='))
+    const archive = source.slice(archiveStart, source.indexOf('  if (-not $UsedCdn -and -not $UsedGit -and -not $UsedArchive)', archiveStart))
     assert.ok(archiveStart >= 0 && archive.includes('Invoke-SourceDownload $ArchiveUrl'), 'archive download block must be exercised')
     const manifestStart = source.indexOf("  $PublishedManifest = Join-Path $TempDir 'published-runtime.json'")
     const manifest = source.slice(manifestStart, source.indexOf('  $UsedGit = $false', manifestStart))
     assert.match(manifest, /source\.manifest/)
+    const incrementalStart = source.indexOf('  $UsedGit = $false', manifestStart)
+    const incremental = source.slice(incrementalStart, source.indexOf('  if (-not $UsedCdn -and $null -ne $GitCommand)', incrementalStart))
+    assert.match(incremental, /source\.incremental/)
     await writeFile(path.join(directory, 'bad-curl.cmd'), '@exit /b 7\r\n')
     const probe = `
 $ErrorActionPreference = 'Stop'
@@ -95,6 +99,13 @@ try {
 } catch { if ($_.Exception.Message -notmatch 'HTTP 404') { throw } }
 if (Test-Path (Join-Path $PSScriptRoot 'missing')) { throw 'Failed download left a file' }
 if (Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.download-*') { throw 'Partial download was not cleaned up' }
+${transport === 'node' ? `
+Remove-Item Env:DSH_TAVERN_ARCHIVE_URL
+New-Item -ItemType Directory -Path $AppDir | Out-Null
+[IO.File]::WriteAllText((Join-Path $AppDir 'package.json'), '{}')
+${incremental}
+if (-not $UsedCdn -or $CdnSource -ne (Join-Path $TempDir 'incremental-source')) { throw 'Incremental update was not selected' }
+` : ''}
 exit 0
 `
     const file = path.join(directory, 'probe.ps1')
@@ -114,5 +125,6 @@ exit 0
     assert.equal(result.code, 0, result.output)
     assert.deepEqual(await readFile(path.join(directory, 'cdn-source/bin/test.bin')), bytes)
     assert.deepEqual(await readFile(path.join(directory, 'archive.zip')), bytes)
+    if (transport === 'node') assert.deepEqual(await readFile(path.join(directory, 'incremental-source/bin/test.bin')), bytes)
   })
 }

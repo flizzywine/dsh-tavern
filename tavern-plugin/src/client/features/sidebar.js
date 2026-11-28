@@ -483,6 +483,7 @@
 				catch (err) { setError(String(err && err.message || err)); }
 			}
             const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
+            const hostCompatibility = useTavernHostCompatibility();
             const updater = React.useRef(null);
             React.useEffect(function () {
                 const controller = createUpdateStatusController({ call, confirm: askConfirm, errors: tavernErrorHub, browser: window });
@@ -1895,7 +1896,7 @@
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			// 发现更新时同理：目标构建直接挂在版本行末尾，「发现新构建 ×××」不再单占一行。
-			// 手机侧栏放不下「DSH Tavern · DSH 0.2.1」那一串，改用缩短版（CSS 按断点切换）。
+			// 手机侧栏使用缩短版，由 CSS 按断点切换。
 			const latestBuildLabel = (updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "";
 			const updateAvailableQuiet = updateStatus.phase === "update-available" && !updateStatus.checkWarning && Boolean(latestBuildLabel);
 			const updateTargetLabel = updateAvailableQuiet ? " → " + latestBuildLabel : "";
@@ -1903,8 +1904,9 @@
 			// 发现新构建时缩短版版本行始终附带目标构建，避免隐藏详情行后看不到目标构建。
 			const updateTargetCompactLabel = updateStatus.phase === "update-available" && Boolean(latestBuildLabel) ? " → " + latestBuildLabel : "";
 			const mobileUpdateDetailVisible = ["running", "cancelling", "blocked", "completed", "failed", "repair-required", "installed-restart-required", "restart-required"].includes(updateStatus.phase);
-			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel + updateTargetLabel;
-			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : currentVersionLabel + " · " + currentCommitLabel + updateTargetCompactLabel;
+			const dshVersionLabel = hostCompatibility?.version ? " · DSH " + hostCompatibility.version : "";
+			const updateIdentityText = updateStatusLoading ? "DSH Tavern" : "DSH Tavern " + currentVersionLabel + dshVersionLabel + " · " + currentCommitLabel + updateTargetLabel;
+			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern" : currentVersionLabel + " · " + currentCommitLabel + updateTargetCompactLabel;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
@@ -1942,13 +1944,13 @@
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
+				updateStatus.host === "desktop" ? h(TavernHostCompatibility, { info: hostCompatibility }) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
 						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel },
 							h("span", { className: "dsh-tavern-update-identity-wide" }, updateIdentityText),
 							h("span", { className: "dsh-tavern-update-identity-compact" }, updateIdentityCompactText)),
 						updateActions),
-                    h(TavernHostCompatibility),
+                    h(TavernHostCompatibility, { info: hostCompatibility }),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status", "data-mobile-update-detail": mobileUpdateDetailVisible ? "visible" : "hidden" }, updateMessage)
 				),
 				!collapsed ? portalOverlay(historyManagerPanel) : null,

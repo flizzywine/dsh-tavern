@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { createStoryCompactionRequest } from '../tavern-plugin/lib/domain/story-compaction.js'
-import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
+import { completedCompactionEpoch, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { installCompactionPolicy } from '../tavern-plugin/lib/domain/auto-compaction.js'
 import { compactForegroundIfNeeded } from '../tavern-plugin/lib/domain/foreground-compaction.js'
 
@@ -81,10 +81,14 @@ for (const kind of ['manual', 'pressure', 'context-overflow']) {
       f.state.limit = 0
       await assert.rejects(f.compact(kind)) // Calibrate exact synthetic request size without replacing history.
       f.intact(nodes)
+      assert.equal(completedCompactionEpoch(f.session), '')
       const total = f.state.summaries.at(-1).total
       f.state.limit = total + spare
       if (spare < 0) { await assert.rejects(f.compact(kind)); f.intact(nodes) }
-      else assert.ok(await f.compact(kind))
+      else {
+        assert.ok(await f.compact(kind))
+        assert.ok(completedCompactionEpoch(f.session), 'the replacement immediately resets automatic worldbook injection')
+      }
       t.diagnostic(JSON.stringify({ kind, summaryTokens: total, capacity: f.state.limit, success: spare >= 0 }))
     })
   }

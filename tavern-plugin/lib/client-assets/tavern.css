@@ -323,6 +323,15 @@ body.dsh-tavern-shell-active [data-slot="settings.launcher"] button[data-signed-
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: relative; }
 /* 在标志行上检查后续的工作区，避免从宿主的所有 :has() 变化重算其子元素。 */
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: absolute; z-index: 2; top: 18px; right: 12px; height: 64px; margin: 0; padding: 0; }
+/* 把宿主滚动区的工作区行撑到剩余高度，滚动交给酒馆自己的历史列表。 */
+body.dsh-tavern-shell-active [data-sidebar-scrollport]:has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
+  grid-template-rows: 8px max-content 2px minmax(0, 1fr);
+}
+body.dsh-tavern-shell-active [data-slot="sidebar.workspaces"]:has(> .dsh-tavern-sidebar:not(.collapsed)) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
 /* Official Desktop adds its own brand identity. Tavern already renders one.
    On macOS the toggle lives in the native title strip, so remove the empty
    logo row altogether while retaining the window controls and drag area. */
@@ -337,7 +346,7 @@ body.dsh-tavern-shell-active [class*="_topStrip"] + [class*="_logoRow"] { displa
     margin-block-start: 0;
   }
   :root[data-windows-titlebar] body.dsh-tavern-shell-active [data-sidebar-scrollport]:has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
-    grid-template-rows: 0 max-content 0 max-content;
+    grid-template-rows: 0 max-content 0 minmax(0, 1fr);
   }
   :root[data-windows-titlebar] body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
     padding-block-start: 4px !important;
@@ -3023,9 +3032,11 @@ header.dsh-tavern-immersive-header button.dsh-tavern-play-fullscreen {
 .dsh-tavern-worldbook-entry-settings .dsh-tavern-worldbook-grid select { font-size: 11px; padding: 5px 7px; }
 .dsh-tavern-worldbook-entry-settings .dsh-tavern-worldbook-checks { font-size: 11px; }
 
-/* DSH 0.1.5-rc.2: hide Open in App and native log-download menu in Tavern's header. */
+/* DSH 0.1.5-rc.2 / 0.2.2: hide Open in App and native session-header menu in Tavern's header. */
 header .CAgGvG_split,
-header .nL4_yW_moreButton { display: none !important; }
+header .OMoRSG_split,
+header .nL4_yW_moreButton,
+header [class*="_headerMenuButton"] { display: none !important; }
 
 /* —— 人物卡库 / 详情：Claude 暖陶土·编辑风（scoped 样例，不污染其它侧栏） —— */
 .dsh-tavern-card-library,
@@ -4134,9 +4145,13 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     position: fixed !important; top: calc(var(--dsh-vv-top, 0px) + max(8px, env(safe-area-inset-top, 0px))) !important;
     max-height: calc(var(--dsh-vv-height, 100dvh) - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px)));
   }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) :is([class*="_close"], [class*="_arrow"]:not([class*="_arrows"])) { min-width: 40px; min-height: 40px; }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_stepper"] { width: auto; height: auto; min-height: 40px; padding: 0 4px; gap: 8px; }
-  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrows"] { position: static; flex-direction: row; width: auto; height: auto; opacity: 1; }
+  /* 宿主设置关闭按钮与字号步进器：移动端保持紧凑对称，避免 40px 方形箭头撑爆胶囊并压扁左侧说明。 */
+  body.dsh-tavern-shell-active:not(:has([data-mobile-nav="frame"])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_close"] { min-width: 36px; min-height: 36px; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_control"]:has(> [class*="_stepper"]) { flex: none; gap: 6px; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_stepper"] { width: auto; height: 36px; min-height: 36px; padding: 3px 3px 3px 10px; gap: 8px; box-sizing: border-box; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrows"] { position: static; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; width: auto; height: auto; opacity: 1; }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrow"]:not([class*="_arrows"]) { width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: calc(var(--dsw-radius-md, 10px) - 3px); }
+  body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_expander"] { width: 28px; height: 28px; flex: none; }
   body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
 
   /* 外壳、侧面板和弹层共享 visualViewport，键盘弹出时只重排一次。
@@ -4639,6 +4654,181 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
   body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
+  /* DSH 0.2.2 给 _titleCluster 加了右侧渐隐 mask-image；dsh-web-mobile 的左侧栏开关（与文件按钮）
+     挂在 headerActions 里但绝对定位到 _titleCluster 之外，会被该蒙版按边界框整颗裁掉。 */
+  body.dsh-tavern-shell-active [data-mobile-nav="frame"] [data-phase] header [class*="_titleCluster"] {
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+  }
+  /* DSH 0.2.2 设置弹窗改为四直子 grid（_navTitle / nav._nav / _header / _options），
+     dsh-web-mobile@3.1.0 的 :has(> :first-child > :last-child > button) 门控失效：
+     移动端圆角弹层、隐藏「打开配置文件」、单行紧凑标签栏与右上角关闭钮全部落空，
+     同时误命中导出弹窗的 :not(...) 规则把面板压窄 32px、保留 0 圆角且顶栏报错挤出。
+     按 0.2.2 直子结构（同时含 > nav[class*="_nav"] 与 > [class*="_header"]）恢复移动端设置弹层排版。 */
+  body.dsh-tavern-shell-active [class*="_overlay"]:has(> [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]) {
+    position: fixed !important;
+    inset: 0 !important;
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: calc(var(--dsh-vv-top, 0px) + max(8px, env(safe-area-inset-top, 0px))) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    height: auto !important;
+    max-height: calc(var(--dsh-vv-height, 100dvh) - max(8px, env(safe-area-inset-top, 0px)) - max(8px, env(safe-area-inset-bottom, 0px))) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_navTitle"] {
+    display: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    padding: 10px 12px 6px !important;
+    box-sizing: border-box !important;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .08));
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"] {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    gap: 6px !important;
+    padding: 0 14px 4px 0 !important;
+    margin-right: 42px !important;
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    scrollbar-width: thin !important;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar {
+    display: block !important;
+    height: 2px !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar-thumb {
+    background: var(--dsw-alias-border-l2, rgba(0, 0, 0, .22)) !important;
+    border-radius: 1px !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navList"]::-webkit-scrollbar-track {
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navCell"] {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 32px !important;
+    padding: 0 10px !important;
+    gap: 6px !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    white-space: nowrap !important;
+    justify-content: flex-start !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > nav[class*="_nav"] [class*="_navCell"] svg {
+    width: 14px !important;
+    height: 14px !important;
+    flex: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] {
+    position: absolute !important;
+    top: 10px !important;
+    right: 12px !important;
+    z-index: 10 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0 0 0 4px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    background: transparent !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] [class*="_actions"] {
+    display: none !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] > [class*="_close"] {
+    position: relative !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    margin: 0 !important;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, .06)) !important;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_header"] > [class*="_close"]::after {
+    content: "";
+    position: absolute;
+    inset: -6px -6px 0 -6px;
+    border-radius: 50%;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) > [class*="_options"] {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) [class*="_row"]:has(> [class*="_rowText"]) > [class*="_rowText"] {
+    padding-right: 12px;
+  }
+  /* DSH 0.2.2 抽屉侧栏根新增 role="dialog" data-shortcut-modal="sidebar" aria-modal="true"，
+     避免未重装补丁的 dsh-web-mobile 用 [aria-modal="true"]:not(...) 把侧栏压窄 32px 或在平板居中为 720px。 */
+  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"] [class*="_sidebarCol"] > [data-shortcut-modal="sidebar"][aria-modal="true"] {
+    width: 100% !important;
+    max-width: none !important;
+    left: auto !important;
+    right: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  /* DSH 0.2.2 设置→模型页（zGbnIq_*）提供商卡片头部在窄屏允许换行，防止长名称+标签+操作按钮横向溢出。 */
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] [class*="zGbnIq_rowHead"] {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] [class*="zGbnIq_rowName"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 767px) and (pointer: coarse) {
+  /* DSH 0.2.2 推理等级菜单将 role="menuitemradio" 放进 ._groups 容器，补全 dsh-web-mobile 的 208px 宽度帽。 */
+  body.dsh-tavern-shell-active [class*="_7KE1Ra_menu"][role="menu"]:has(> [class*="_groups"] > [role="menuitemradio"]) {
+    width: min(208px, calc(100vw - 32px)) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 32px) !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) and (pointer: coarse) {
+  body.dsh-tavern-shell-active [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]):has(> [class*="_header"]) {
+    left: 0 !important;
+    right: 0 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: min(calc(100vw - 32px), 720px) !important;
+    max-width: min(calc(100vw - 32px), 720px) !important;
+  }
 }
 
 /* ---------- DSH 0.2.2 官方抽屉（[data-sidebar-drawer]）与 dsh-go 手机抽屉（[data-dsh-app-layout="drawer"]） ----------
@@ -4777,28 +4967,33 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
   /* 宿主设置：188px 导航 + 内容的桌面双栏会把内容压成一字一行。设置浮层渲染在 body 下（不在 frame 内），所以用 body:has(frame) 判断外壳。 */
   html:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important; left: 0;
-    flex-direction: column; width: 100vw; max-width: 100vw;
+    display: flex; flex-direction: column; width: 100vw; max-width: 100vw;
     height: var(--dsh-vv-height, 100dvh); max-height: var(--dsh-vv-height, 100dvh); border-radius: 0;
     padding-top: var(--dsh-play-top-inset, 0px); box-sizing: border-box;
   }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
-    flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
+    flex: 0 0 auto; flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
     overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_navTitle"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; min-width: 0; white-space: nowrap; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
     height: auto; align-items: center; padding: 6px 8px 6px 16px;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"],
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
     flex-wrap: wrap; justify-content: flex-start; margin-left: 0;
   }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"] *,
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_header"] > [class*="_actions"] button,
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
-    padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
+    flex: 1 1 auto; min-height: 0; padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
   }
   /* 设置行：说明在左、控件在右；放不下时控件换到下一行，而不是把说明压成竖条。 */
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }
@@ -6281,3 +6476,6 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
   .dsh-wbd-entry > .dsh-wbd-editor { padding-left: 14px; margin-left: 8px; }
   .dsh-wbd-fields > .fork-inline-field, .dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 5.5em; }
 }
+/* The game page's player face (reply-observer.js Avatar): the chat's face, or a silhouette for a name with none. */
+.dsh-tavern-game-face { display: inline-grid; place-items: center; width: var(--face-size); height: var(--face-size); border-radius: 50%; overflow: hidden; background: var(--fork-surface-2); color: var(--fork-ink-3); }
+.dsh-tavern-game-face img, .dsh-tavern-game-face svg { width: 100%; height: 100%; object-fit: cover; fill: currentColor; }

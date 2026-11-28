@@ -17,10 +17,6 @@ export function patchConversationBackground(chat, patch) {
     next.backgroundModelSelection = normalizeBackgroundModel(patch.backgroundModel)
     if (patch.backgroundModel !== null && !next.backgroundModelSelection) throw new Error('后台模型配置无效')
   }
-  if (Object.hasOwn(patch, 'worldbookStrategy')) {
-    if (typeof patch.worldbookStrategy !== 'string' || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(patch.worldbookStrategy) || patch.worldbookStrategy.length > 96) throw new Error('世界书策略配置无效')
-    next.worldbookStrategy = patch.worldbookStrategy === 'legacy' ? 'native-skills' : patch.worldbookStrategy
-  }
   if (Object.hasOwn(patch, 'backgroundTasks')) {
     next.backgroundTasks = normalizeConfiguredBackgroundTasks({ ...normalizeConfiguredBackgroundTasks(chat.backgroundTasks), ...patch.backgroundTasks })
   }

@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -145,9 +145,7 @@ test('Windows system proxy becomes standard proxy variables', () => {
   assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:7890')
 })
 
-const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
-// NODE_USE_ENV_PROXY exists since Node 22.21 / 24.0; older Node ignores it (curl and git still use the variables).
-test('downloads honour proxy variables through NODE_USE_ENV_PROXY', { skip: nodeMajor === 22 && nodeMinor < 21 }, async t => {
+test('downloads honour proxy variables through NODE_USE_ENV_PROXY', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'download-proxy-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const seen = []
@@ -220,6 +218,41 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
   assert.deepEqual(asked, [pinned], '指定的清单不换节点')
 })
 
+test('指定版本的清单一到就取消滞后的镜像请求', async () => {
+  const { readManifest } = require('../bin/download.cjs')
+  const revision = 'a'.repeat(40)
+  const metadata = { revision, version: '3.5.0', files: [{ path: 'package.json', sha256: 'b'.repeat(64), size: 1 }] }
+  const stale = { ...metadata, revision: 'c'.repeat(40) }
+  const aborted = []
+  const result = await readManifest({ metadataUrl: 'https://cdn.jsdelivr.net/gh/o/r@main/dsh-tavern-runtime.json', targetCommit: revision,
+    minVersion: '3.5.0', attempts: 1, stallMs: 1000, fetch: async (url, { signal }) => {
+      const host = new URL(url).hostname
+      if (host === 'raw.githubusercontent.com') return new Response(JSON.stringify(stale))
+      if (host === 'fastly.jsdelivr.net') return new Response(JSON.stringify(metadata))
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => { aborted.push(host); reject(signal.reason) }, { once: true }))
+    } })
+  assert.equal(result.revision, revision)
+  assert.deepEqual(aborted.sort(), ['cdn.jsdelivr.net', 'gcore.jsdelivr.net'])
+})
+
+test('安装器使用更新检查保存的清单，仍核对提交和最低版本', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'download-checked-manifest-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const targetCommit = 'a'.repeat(40)
+  const checked = path.join(root, 'checked.json')
+  const destination = path.join(root, 'published.json')
+  const metadata = { revision: targetCommit, version: '3.5.0', files: [{ path: 'package.json', sha256: 'b'.repeat(64), size: 1 }] }
+  await writeFile(checked, JSON.stringify(metadata))
+  const { base, hits } = await serve(t, {})
+  const env = { ...process.env, DSH_TAVERN_TARGET_COMMIT: targetCommit, DSH_TAVERN_INSTALL_MANIFEST: checked }
+  const run = (extra = [], override = {}) => execute(process.execPath, [moduleFile, 'manifest', `${base}/newer-manifest`, destination, ...extra], { env: { ...env, ...override } })
+  await run()
+  assert.deepEqual(JSON.parse(await readFile(destination, 'utf8')), metadata)
+  await assert.rejects(run([], { DSH_TAVERN_TARGET_COMMIT: 'c'.repeat(40) }), /目标提交不符/)
+  await assert.rejects(run(['--min-version', '3.6.0']), /还没更新到 v3\.6\.0/)
+  assert.equal(hits.size, 0)
+})
+
 // A minimal zip writer for tests (stored or deflated entries, UTF-8 names).
 function zipOf(entries) {
   const { deflateRawSync } = require('node:zlib')
@@ -285,4 +318,53 @@ test('downloadRuntime reuses preloaded manifest without fetching metadataUrl aga
   assert.equal(got.revision, metadata.revision)
   assert.equal(hits.get('/manifest') || 0, 0, '传入 manifest 时不再请求 metadataUrl')
   assert.deepEqual(await readFile(path.join(out, 'bin/a.js')), Buffer.from('hello'))
+})
+
+test('增量下载复用校验通过的文件，只请求需要替换的文件，超出预算时交给完整下载', async t => {
+  const files = new Map([['bin/a.js', Buffer.from('unchanged')], ['bin/b.js', Buffer.from('updated')]])
+  const { root, metadata, args, hits } = await runtimeFixture(t, files)
+  metadata.archive = { commit: 'e'.repeat(40), path: 'runtime.zip', sha256: 'f'.repeat(64), size: 200 }
+  metadata.executables = ['bin/a.js', 'bin/b.js']
+  const installed = path.join(root, 'installed')
+  const destination = path.join(root, 'new-version')
+  await mkdir(path.join(installed, 'bin'), { recursive: true })
+  await writeFile(path.join(installed, 'bin/a.js'), files.get('bin/a.js'))
+  await writeFile(path.join(installed, 'bin/b.js'), 'corrupt')
+  const options = { ...args, manifest: metadata, installed, destination, mode: 'incremental' }
+  await downloadRuntime(options)
+  assert.deepEqual([...hits.keys()], [`/repo@${metadata.revision}/bin/b.js`])
+  assert.deepEqual(await readFile(path.join(destination, 'bin/b.js')), files.get('bin/b.js'))
+  assert.equal(await readFile(path.join(installed, 'bin/b.js'), 'utf8'), 'corrupt')
+  if (process.platform !== 'win32') {
+    for (const file of files.keys()) assert.ok((await stat(path.join(destination, file))).mode & 0o100)
+    assert.equal((await stat(path.join(installed, 'bin/a.js'))).mode & 0o100, 0)
+  }
+
+  hits.clear()
+  const large = { ...metadata, files: [{ path: 'bin/big.js', sha256: 'a'.repeat(64), size: 5 * 1024 * 1024 }] }
+  const failed = path.join(root, 'over-budget')
+  await assert.rejects(downloadRuntime({ ...options, manifest: large, destination: failed }), /改用完整下载/)
+  assert.equal(hits.size, 0)
+  await assert.rejects(readFile(path.join(failed, 'dsh-tavern-runtime.json')), { code: 'ENOENT' })
+})
+
+test('自动取源发现大版本差异时直接下载校验过的压缩包', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'download-auto-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const installed = path.join(root, 'installed')
+  await mkdir(installed)
+  await writeFile(path.join(installed, 'dsh-tavern-runtime.json'), JSON.stringify({ files: [] }))
+  const file = 'bin/dsh-tavern'
+  const bytes = Buffer.alloc(4 * 1024 * 1024 + 1, 'a')
+  const zip = zipOf([[file, bytes, true]])
+  const revision = 'c'.repeat(40), commit = 'd'.repeat(40)
+  const metadata = { revision, executables: [file], files: [{ path: file, size: bytes.length, sha256: sha(bytes) }],
+    archive: { commit, path: 'runtime.zip', size: zip.length, sha256: sha(zip) } }
+  const archivePath = `/repo@${commit}/runtime.zip`
+  const { base, hits } = await serve(t, { [archivePath]: (req, res) => res.end(zip) })
+  const destination = path.join(root, 'out')
+  await downloadRuntime({ manifest: metadata, rootUrl: `${base}/repo`, destination, installed, mode: 'auto' })
+  assert.deepEqual([...hits.keys()], [archivePath])
+  assert.deepEqual(await readFile(path.join(destination, file)), bytes)
+  if (process.platform !== 'win32') assert.ok((await stat(path.join(destination, file))).mode & 0o100)
 })

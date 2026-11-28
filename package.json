@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "scripts": {
     "build:website": "node bin/build-website.mjs",
     "wiki:references": "node bin/sync-wiki-references.mjs",
@@ -78,7 +78,7 @@
   },
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.9.0"
   },
   "repository": {
     "type": "git",

@@ -9,8 +9,8 @@ const long = 'x'.repeat(4400)
 const entries = ['漕帮', '剑宗', '药王谷', '铁骨', '商会', '皇女'].map((name, i) => ({ ref: 'e' + i, title: name, enabled: true, primaryKeys: [name], content: name + '设定' + long }))
 
 // Old screening options must never invoke a model.
-function setup({ screening = true } = {}) {
-  const worldBook = { view: { entries: structuredClone(entries) } }
+function setup({ screening = true, tokenBudget } = {}) {
+  const worldBook = { view: { entries: structuredClone(entries), raw: { token_budget: tokenBudget } } }
   const screened = []
   const chat = { backgroundTasks: { worldbookScreening: screening }, messages: [{ role: 'assistant', turn: 1, text: '漕帮 剑宗 药王谷 铁骨 商会 皇女' }] }
   const filterCandidates = async () => { screened.push('unexpected') }
@@ -37,13 +37,14 @@ for (const screening of [false, true]) test(`世界书模型筛选已退役，�
   h.chat.worldBookReads = { e1: { turn: 1, fingerprint: fingerprint(h.worldBook.view.entries[1].content), kind: 'screened' } }
   h.chat.messages[0].text = '剑宗'
   const sent = await h.project({ chat: h.chat, card: {}, userText: '继续' })
-  assert.equal(sent.context, '')
-  assert.match(sent.titleHints, /可能用到的世界书条目：剑宗/)
+  assert.deepEqual(sent.refs, ['e1'])
+  assert.match(sent.context, /剑宗设定/)
+  assert.equal(sent.titleHints, '')
   assert.equal(h.screened.length, 0)
 })
 
-test('十轮内已有工具结果时不补标题，也不影响常驻设定', async () => {
-  const h = setup()
+test('正文超预算且十轮内已有工具结果时不补标题，也不影响常驻设定', async () => {
+  const h = setup({ tokenBudget: 100 })
   h.chat.messages[0].text = '剑宗'
   h.worldBook.view.entries.push({ ref: 'constant', enabled: true, constant: true, content: '常驻设定' })
   const request = { chat: h.chat, card: {}, userText: '继续', requestKey: 'same-request' }

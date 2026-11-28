@@ -22,8 +22,11 @@ function tavernFrameViewportFloor() {
                 if (!summary || !summary.contains(node)) return false;
             }
         }
-		var rect = node.getBoundingClientRect();
 		var style = getComputedStyle(node);
+		// Decorative fixed layers fill the frame they are given. They do not
+		// request a taller frame than the menu or other in-flow content needs.
+		if (style.position === 'fixed' && style.pointerEvents === 'none' && node.closest('[aria-hidden="true"]')) return false;
+		var rect = node.getBoundingClientRect();
 		return rect.width > window.innerWidth / 2 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
 	}
 	function matchesRules(rules, rootsOnly) {

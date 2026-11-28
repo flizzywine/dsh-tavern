@@ -26,3 +26,10 @@ export function readUpdateDiagnostics(dataRoot) {
   }
   return { version: 1, records }
 }
+
+export function readInstallerFailure(dataRoot, attemptId) {
+  if (!attemptId) return ''
+  const failure = readUpdateDiagnostics(dataRoot).records.findLast(record =>
+    record.attemptId === attemptId && record.event === 'installer.finished' && Number(record.exitCode) !== 0 && record.output)
+  return String(failure?.output || '').replace(/^System\.Management\.Automation\.\w+Exception:\s*/, '').trim()
+}

@@ -6,7 +6,7 @@ import {projectSessionMessage,projectChatSessionState,projectSceneImageState,pro
 import {createScopedMessages} from './scoped-messages.js'
 import {createBufferedJsonRecords} from './buffered-json-records.js'
 import path from 'node:path'
-import {createConversationPageStore} from './conversation-page-store.js'
+import {createConversationPageStore,recordBlock} from './conversation-page-store.js'
 import {createConversationState} from './conversation-state.js'
 import {createIncrementalJsonState,createDecodedJsonCache} from './incremental-json-state.js'
 import {diffJson,applyJsonChangesShared} from './json-mutation.js'
@@ -52,8 +52,8 @@ export async function mapRead(values,read,newestFirst=false){
  * Full read/update remain explicit compatibility materializations. Migration
  * creates a verified head and retains pre-cutover revisions in legacy storage.
  */
-export function createNativeConversationStorage({dataRoot,onIO}){
- const pages=createConversationPageStore({root:path.join(dataRoot,'chats'),onIO})
+export function createNativeConversationStorage({dataRoot,onIO,format,keepOpenMs}){
+ const pages=createConversationPageStore({root:path.join(dataRoot,'chats'),onIO,...(format!==undefined?{format}:{}),...(keepOpenMs!==undefined?{keepOpenMs}:{})})
  const domain=createConversationState({store:pages})
  const summaryCache=new Map(),summaryLoads=new Map()
  let summaryBytes=0
@@ -228,10 +228,10 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   if(!view)return null
   const t=tree(id),paths=fields=>fields.map(field=>pointer(field.split('.')))
   return Object.freeze({
-   header:fields=>selectedHeader(id,view,fields),
-   summaries:async()=>(await sessionSummaries(id,view)).messages,
+   header:fields=>pages.withSession(id,()=>selectedHeader(id,view,fields)),
+   summaries:()=>pages.withSession(id,async()=>(await sessionSummaries(id,view)).messages),
    // Each floor's runtime record reference: one page-metadata read per 500 floors.
-   async refs(indices){
+   refs:indices=>pages.withSession(id,async()=>{
     const sorted=[...new Set(indices)].sort((a,b)=>a-b),references=new Map()
     for(let start=0;start<sorted.length;){
      let end=start
@@ -241,12 +241,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
      start=end+1
     }
     return references
-   },
-   get:(ref,field)=>t.get(ref,pointer(field.split('.'))),
-   fields:(ref,fields,omitted=[])=>t.getFields(ref,paths(fields),paths(omitted)),
-   selectedSwipe:(ref,swipe)=>selectedSceneSwipe(t,ref,swipe),
+   }),
+   get:(ref,field)=>pages.withSession(id,()=>t.get(ref,pointer(field.split('.')))),
+   fields:(ref,fields,omitted=[])=>pages.withSession(id,()=>t.getFields(ref,paths(fields),paths(omitted))),
+   selectedSwipe:(ref,swipe)=>pages.withSession(id,()=>selectedSceneSwipe(t,ref,swipe)),
    // Bounded parallel floor reads, results in input order.
-   map:(values,read,newestFirst)=>mapRead(values,read,newestFirst)
+   map:(values,read,newestFirst)=>pages.withSession(id,()=>mapRead(values,read,newestFirst))
   })
  }
  // Floor summaries (role, turn, greeting, MVU flags) of the latest `count` floors, from
@@ -369,7 +369,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    }
    return -1
   }
-  return {chat,messageCount:count,denseMessages:true,ensure,previousMvu}
+  return {chat,messageCount:count,denseMessages:true,ensure:indices=>pages.withSession(id,()=>ensure(indices)),previousMvu:before=>pages.withSession(id,()=>previousMvu(before))}
  }
  // Helper owns a read projection, not an editable runtime Chat. Bind header
  // and every page to one immutable head, even while another writer appends.
@@ -629,10 +629,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
     ...(view.state.sceneIndexRevision===revision?{sceneIndexRevision:nextRevision}:{}),
     ...(view.state.displayIndexRevision===revision?{displayIndexRevision:nextRevision}:{})}
    assertCurrent?.()
-   await batch.flush([chatHeaderRef])
-   const changeRef=await pages.writeRecord(id,{baseRevision:revision,revision:nextRevision,indices:[],tail:null,layoutFrom:null})
-   await pages.commit(id,{expectedRevision:view.revision,state,edits:[],append:[],truncateTo:view.messageCount,
-    records:[['chat-revision:'+revision,view.snapshotCursor.snapshotId],['chat-change:'+nextRevision,changeRef]]},{assertCurrent})
+   const flushed=batch.collect([chatHeaderRef])
+   const changeFrame={baseRevision:revision,revision:nextRevision,indices:[],tail:null,layoutFrom:null}
+   const changeBlock=recordBlock(changeFrame)
+   const extraRecords=[...flushed.refs.map((ref,i)=>({ref,value:flushed.values[i]})),{ref:changeBlock.ref,value:changeFrame,bytes:changeBlock.bytes}]
+   await pages.commit(id,{expectedRevision:view.revision,state,edits:[],append:[],truncateTo:view.messageCount,extraRecords,
+    records:[['chat-revision:'+revision,view.snapshotCursor.snapshotId],['chat-change:'+nextRevision,changeBlock.ref]]},{assertCurrent})
    const saved=await head(id)
    return result({...await selectedHeader(id,saved,returnProjection),messages:[]},saved)
   }
@@ -822,13 +824,14 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    storyRevision:view.state.storyRevision+(append.length||changedMessageIndices.length||retained<view.messageCount?1:0),
    worldRevision:view.state.worldRevision+(worldRef!==view.state.worldRef?1:0)}
   assertCurrent?.()
-  await batch.flush([sceneIndexRef,worldRef,chatHeaderRef,...edits.map(edit=>edit.message.runtimeRef),...append.map(row=>row.runtimeRef)])
+  const flushed=batch.collect([sceneIndexRef,worldRef,chatHeaderRef,...edits.map(edit=>edit.message.runtimeRef),...append.map(row=>row.runtimeRef)])
   let layoutFrom=Number.isFinite(from)?from:null
   for(const [position,mutations] of grouped)if(mutations.some(change=>!change.path.length||['turn','role','greeting','tavernRole','importSource'].includes(change.path[0])))layoutFrom=Math.min(layoutFrom??Infinity,position)
-  const changeRef=await pages.writeRecord(id,{baseRevision:stored.revision,revision:next._storageRevision,
-   indices:changedMessageIndices,tail:Number.isFinite(from)?from:null,layoutFrom})
-  await pages.commit(id,{expectedRevision:view.revision,state,edits,append,truncateTo:retained,
-   records:[['chat-revision:'+stored.revision,view.snapshotCursor.snapshotId],['chat-change:'+next._storageRevision,changeRef]]},{assertCurrent})
+  const changeFrame={baseRevision:stored.revision,revision:next._storageRevision,indices:changedMessageIndices,tail:Number.isFinite(from)?from:null,layoutFrom}
+  const changeBlock=recordBlock(changeFrame)
+  const extraRecords=[...flushed.refs.map((ref,i)=>({ref,value:flushed.values[i]})),{ref:changeBlock.ref,value:changeFrame,bytes:changeBlock.bytes}]
+  await pages.commit(id,{expectedRevision:view.revision,state,edits,append,truncateTo:retained,extraRecords,
+   records:[['chat-revision:'+stored.revision,view.snapshotCursor.snapshotId],['chat-change:'+next._storageRevision,changeBlock.ref]]},{assertCurrent})
   return result(next,await head(id))
  }
  // Physically drop revisions nothing can reach any more. `retain(revision)`
@@ -861,5 +864,6 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readShared,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ const scoped=fn=>(id,...args)=>pages.withSession(id,()=>fn(id,...args))
+ return Object.freeze({compact:scoped(compact),relayout:scoped(relayout),readRetentionHeader:scoped(readRetentionHeader),patch:scoped(patch),read:scoped(read),readShared:scoped(readShared),readWindow:scoped(readWindow),readWorldSnapshot:scoped(readWorldSnapshot),openSnapshot:scoped(openSnapshot),readRecentSummaries:scoped(readRecentSummaries),readSettlementBase:scoped(readSettlementBase),readChangedSlice:scoped(readChangedSlice),readRevisionMetadata:scoped(readRevisionMetadata),readHelperContext:scoped(readHelperContext),readSlice:scoped(readSlice),readSessionState:scoped(readSessionState),readDisplayRuntimeState:scoped(readDisplayRuntimeState),readSceneImageState:scoped(readSceneImageState),version:scoped(version),create:scoped(create),write:scoped(write),withSession:(id,work)=>pages.withSession(id,work),close:id=>pages.close(id),closeAll:()=>pages.closeAll()})
 }
