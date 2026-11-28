@@ -35,7 +35,7 @@
 				}
 			useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["scripts", "cards", "sessions"], "resources"); }, refresh, props.sessionId);
 			const h = React.createElement;
-				const readOnly = !view || view.mode !== "card";
+				const canManage = view?.mode === "card";
 			async function renameResource(item, label) {
 				const current = item.path.split("/").pop();
 				const name = await askTavernText({ title: "重命名文件", initialValue: current, maxLength: 120 });
@@ -79,7 +79,7 @@
 					const availableCards = cards.filter(function (card) { return !card.readError && card.script == null; });
 					const meta = (item.chunkCount ? item.chunkCount + " 块 · " : "") + (boundCard ? "已绑定：" + boundCard.name : "未绑定");
 					const name = h("button", { className: "dsh-tavern-resource-name dsh-tavern-resource-open", title: "查看工作版：" + label, onClick: function () { openScript(item); } }, label);
-					if (readOnly) return h("div", { key: path, className: "dsh-tavern-resource-row" }, h("div", { className: "dsh-tavern-resource-row-main" }, name, h("span", { className: "dsh-tavern-resource-meta" }, meta)));
+					if (!canManage) return h("div", { key: path, className: "dsh-tavern-resource-row" }, h("div", { className: "dsh-tavern-resource-row-main" }, name, h("span", { className: "dsh-tavern-resource-meta" }, meta)));
 					const bindingOpen = bindingPath === path && !boundCard;
 					const menu = h("details", {
 						className: "dsh-tavern-resource-menu",
@@ -140,10 +140,10 @@
 					error ? h("div", { className: "dsh-tavern-dock-error" }, error) : h("pre", { className: "dsh-tavern-resource-body dsh-tavern-script-preview" }, openedScript.text)
 				);
 				// ST JSONL files may have no registered MIME type, so let the importer check the file.
-				const sourceActions = h("div", { className: "dsh-tavern-resource-actions" }, h("button", { className: "dsh-tavern-resource-import", disabled: busy, onClick: function () { sourceInput.current && sourceInput.current.click(); } }, "导入剧本"), h("input", { ref: sourceInput, type: "file", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importSourceResource(file); event.target.value = ""; } }));
+				const sourceActions = h("div", { className: "dsh-tavern-resource-actions" }, h("button", { type: "button", className: "dsh-tavern-resource-import", disabled: busy, onClick: function () { sourceInput.current && sourceInput.current.click(); } }, "导入小说或剧本"), h("input", { ref: sourceInput, type: "file", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importSourceResource(file); event.target.value = ""; } }));
 				return h("div", { className: "dsh-tavern-resources" },
-						h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "剧本库"), h("div", { className: "dsh-tavern-question-sub" }, readOnly ? "点击名称查看内容；导入、引用和管理请前往卡片工作台。" : "导入后按需引用；引用教学素材并提出要求，可在卡片工作台编写写作 Skill")),
-					h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("剧本", "source", resources.resources || [], readOnly ? null : sourceActions))
+						h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "剧本库"), h("div", { className: "dsh-tavern-question-sub" }, canManage ? "导入后按需引用；引用教学素材并提出要求，可在卡片工作台编写写作 Skill" : "点击名称查看内容。引用和管理可在卡片工作台进行。")),
+					h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("剧本", "source", resources.resources || [], sourceActions))
 			);
 		}
 		function register(input) {

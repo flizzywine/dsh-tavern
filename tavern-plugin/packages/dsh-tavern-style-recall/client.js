@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'style-recall-book-mark', 'aria-hidden': true },
                 book.path === selected ? h(Icon, { name: 'check', size: 12 }) : null)))))
           : h(EmptyState, { compact: true, query: sources.length ? query : '', onClear: () => setQuery(''),
-            text: sources.length ? undefined : '剧本库还没有小说。可在卡片工作台的「剧本库」导入。' }))
+            text: sources.length ? undefined : '可在右侧栏「剧本库」导入参考小说。' }))
     }
 
     function Panel({ ui, gameId }) {
