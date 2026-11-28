@@ -158,18 +158,7 @@
 		// @include mod-clients.js
 		// @include-mods client/core.js
 		// @include modal.js
-		// @include stage-audio-math.js
-		// @include stage-audio.js
-		// @include ui-sfx.js
-		// @include voice.js
-		// @include-stage-source bubble-presets.js
-		// @include-stage-source bubbles.js
-		// @include pixi-runtime.js
-		// @include phone-call.js
-		// @include stage-sfx.js
-		// @include asset-catalogue.js
-		// @include-stage-source bubble-modes.js
-		// @include-stage-source bubble-modals.js
+// @include stage-includes/frame-document.js
 		// @include speech-recognition-ui.js
 		// @include asset-launcher.js
 		// @include card-zip-entry.js
