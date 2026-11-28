@@ -12,7 +12,7 @@ import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { createScriptLibrary } from '../tavern-plugin/lib/domain/script-library.js'
 import { projectPureWritingRequest } from '../tavern-plugin/lib/domain/pure-writing-request.js'
-import { projectPriorWritingReferences } from '../tavern-plugin/lib/domain/style-reference-request.js'
+import { projectPriorWritingReferences, projectWithoutStyleReference } from '../tavern-plugin/lib/domain/style-reference-request.js'
 import { createPluginBodyGeneration } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
 import { characterDesignArchive } from '../tavern-plugin/lib/host/character-design.js'
 import * as characterDesign from '../tavern-plugin/packages/dsh-tavern-character-design/lib/index.js'
@@ -104,7 +104,7 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   const cards = { one: 'cards/a.json', another: 'cards/a.json', other: 'cards/b.json' }
   const source = 'materials/夜雨.txt'
   const chunks = Array.from({ length: 20 }, (_, order) => ({ id: 'chunk-' + order, order,
-    text: order === 18 ? '雨水从长街尽头的挑檐滴落。' : '城里晨雾低低地浮着。' }))
+    text: order === 18 ? '雨水从长街尽头的挑檐滴落。\n\n　　“雨停了么？”' : '城里晨雾低低地浮着。' }))
   let book = { path: source, title: '夜雨.txt', chunks }
   let beforeReadScript = async () => {}
   const scriptLibrary = createScriptLibrary({ fileResources: { list: async () => book ? [source] : [] },
@@ -151,8 +151,7 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   const [section] = await turn()
   assert.deepEqual(await turn('other'), [section], '另一张人物卡使用同一本全局小说')
   assert.equal(section.writingReference, true)
-  assert.match(section.text, /文风参考/)
-  assert.deepEqual(JSON.parse(section.text.split('\n').at(-1)), { book: book.title, excerpts: [chunks[18].text] })
+  assert.equal(section.text, '<文风参考>\n模仿以下文风。\n\n' + chunks[18].text + '\n</文风参考>')
   const frame = { frameId: 'f', turn: 8, contributions: [
     { text: section.text, source: { writingReference: true } }, { text: '其他插件内容', source: {} }
   ] }
@@ -164,6 +163,7 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
   const projected = projectPriorWritingReferences([nativeFrame, player, nativeFrame])
   assert.equal(projected[0].content[0].text, '其他插件内容')
   assert.equal(projected[2], nativeFrame)
+  assert.equal(projectWithoutStyleReference({ messages: projected }).messages.at(-1), nativeFrame)
   assert.equal(runTask.mock.callCount(), 0, '小说选段不调用后台模型')
 
   const background = { source, enabled: true, mode: 'background', guidance: '写得克制一些' }
@@ -182,7 +182,7 @@ test('文风联想从全局小说直接选段，或用后台模型为本轮生�
     本轮输入: '继续', 文风偏好: background.guidance
   })
   assert.equal(generated.writingReference, true)
-  assert.deepEqual(JSON.parse(generated.text.split('\n').at(-1)), { excerpts: ['一阵雨落在深巷。'] })
+  assert.equal(generated.text, '<文风参考>\n模仿以下文风。\n\n一阵雨落在深巷。\n</文风参考>')
   assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。' })
   assert.equal((await rpc('settings', { gameId: 'another' })).reference, null)
 
