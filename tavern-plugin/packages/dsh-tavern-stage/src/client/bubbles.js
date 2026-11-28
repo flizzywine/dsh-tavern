@@ -58,7 +58,7 @@ function bubbleMoodBadge(word, moods, config, alias) {
 // (figure-color-contrast.js), not from scheme tokens (the host's character.ink is no longer read). A speaker without a figure
 // has no image colour: the fallback token (ui-design §2.4), and its name stays in the reading ink.
 function bubbleColor(character) {
-    return character && character.color || "var(--fork-figure-fallback)";
+    return character?.color || "var(--fork-figure-fallback)";
 }
 // Per-session bubble settings, shared by every rendered message.
 const bubbleStore = (function () {

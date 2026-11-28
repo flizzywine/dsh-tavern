@@ -7,7 +7,9 @@ test('bookmarks wait for complete matching text and restore paragraph anchors af
  const parts=[{text:'abcdef'}],pages=[{para:1,text:'abc'},{para:1,text:'def'}]
  const digest=position.digest(parts),saved={turn:2,page:0,pageCount:1,textDigest:digest,anchor:{para:1,offset:4}}
  assert.equal(position.ready(saved,2,[{text:'abc',streaming:true}],pages),false)
- assert.equal(position.ready(saved,2,[{text:'other'}],pages),false)
+ assert.equal(position.ready(saved,2,[{text:'other',unloaded:true}],pages),false)
+ assert.equal(position.ready(saved,2,[{text:'other'}],pages),true,'an edited round settles instead of waiting for the old text')
+ assert.equal(position.restore(saved,2,2,position.digest([{text:'other'}]),pages).page,0)
  assert.equal(position.ready(saved,2,parts,pages),true)
  assert.equal(position.restore(saved,2,2,digest,pages).page,1)
  assert.equal(position.restore(saved,3,2,digest,pages).page,0)
