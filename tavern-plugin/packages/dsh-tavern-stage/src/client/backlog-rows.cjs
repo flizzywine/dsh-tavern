@@ -25,7 +25,11 @@ function galPlayerInputs(nodes, storyTurnOf, sourceOf) {
     return out;
 }
 // Prefix offsets include estimated heights for unvisited rows; measured rows replace them.
-function galBacklogWindow(offsets, scrollTop, height, overscan) {
+// kept: the window drawn now ({start, end} over the same rows), kept while it still holds the visible rows and half the
+// overscan on each side. Drawing or dropping a row moves the scroll position by the row's sub-pixel misestimate (the
+// browser's anchoring, rounded to device pixels); a window that followed every pixel could flip on that move and back
+// on the next layout pass, without end (React #185, 履历 scrolled up at a fractional device pixel ratio).
+function galBacklogWindow(offsets, scrollTop, height, overscan, kept) {
     const count = offsets.length - 1;
     if (count <= 0) return { start: 0, end: 0 };
     const top = Math.max(0, Math.min(scrollTop, Math.max(0, offsets[count] - height)));
@@ -34,7 +38,9 @@ function galBacklogWindow(offsets, scrollTop, height, overscan) {
         while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= value) lo = mid + 1; else hi = mid; }
         return lo;
     }
-    return { start: Math.max(0, at(top) - overscan), end: Math.min(count, at(Math.max(top, top + height - 0.001)) + 1 + overscan) };
+    const first = at(top), last = at(Math.max(top, top + height - 0.001)), margin = overscan >> 1;
+    if (kept && kept.end <= count && kept.start <= Math.max(0, first - margin) && kept.end >= Math.min(count, last + 1 + margin)) return kept;
+    return { start: Math.max(0, first - overscan), end: Math.min(count, last + 1 + overscan) };
 }
 
 // immutable session paragraphs, with voice handles built only for visible rows.

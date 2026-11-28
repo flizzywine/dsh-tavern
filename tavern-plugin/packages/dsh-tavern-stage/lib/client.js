@@ -20949,7 +20949,14 @@ function GalBacklog(props) {
     const pendingFocus = React.useRef(null);
     const pendingEnd = React.useRef(false);
     const anchorRow = React.useRef(null);
-    const [viewport, setViewport] = React.useState({ top: Infinity, height: 800 });
+    const drawn = React.useRef(null);
+    // Two numbers, not one {top, height} object: readViewport runs in every layout pass, and while a scroll or resize
+    // reading of a lower priority is still pending React rebases the state, so an object (even one the updater returns
+    // unchanged) comes back as a new one, the pass re-renders and reads again - a synchronous loop that ends the stage
+    // (React #185, 履历 open while its list resizes). Equal numbers compare equal and end the pass.
+    const [viewTop, setViewTop] = React.useState(Infinity);
+    const [viewHeight, setViewHeight] = React.useState(800);
+    const viewport = { top: viewTop, height: viewHeight };
     // 回到最新 at the sheet's bottom edge once the reader scrolls up (jump-latest.js).
     const [listBox, setListBox] = React.useState(null);
     const latest = useJumpLatest(listBox);
@@ -20960,7 +20967,9 @@ function GalBacklog(props) {
     // is drawn round where that row now is, so the row stays drawn and the browser's anchoring keeps it in place.
     const moved = anchorRow.current && anchorRow.current.entries !== entries && viewport.top !== Infinity
         ? entries.findIndex(entry => entry.key === anchorRow.current.key) : -1;
-    const range = stageViews.backlogRows.galBacklogWindow(offsets, moved >= 0 ? viewport.top + offsets[moved] - anchorRow.current.offset : viewport.top, viewport.height, 20);
+    // The window drawn last over these rows stays while it holds what is read (galBacklogWindow kept).
+    const kept = moved < 0 && drawn.current?.entries === entries ? drawn.current : null;
+    const range = stageViews.backlogRows.galBacklogWindow(offsets, moved >= 0 ? viewport.top + offsets[moved] - anchorRow.current.offset : viewport.top, viewport.height, 20, kept);
     // names in an image colour too dark/light for this panel get the nearest readable lightness.
     useFigureTextContrast(React, scroller, true, range.start, range.end, entries.length, props.page);
     const visibleTurns=JSON.stringify([...new Set(entries.slice(range.start,range.end).map(row=>row.turn))].filter(turn=>turn!==props.turn));
@@ -20994,7 +21003,7 @@ function GalBacklog(props) {
         const bar = barRef.current, room = box.scrollHeight - height;
         if (bar) { bar.style.setProperty("--bl-thumb", String(Math.min(1, height / Math.max(1, box.scrollHeight)))); bar.style.setProperty("--bl-pos", String(room > 0 ? top / room : 1)); }
         // Layout corrections, scroll events and ResizeObserver can report the same viewport.
-        setViewport(previous => previous.top === top && previous.height === height ? previous : { top, height });
+        setViewTop(top); setViewHeight(height);
     }
     // The list follows new rows only while the reader is at the end: where the last scroll left the list (the list opens
     // there), not where content that grew since puts it.
@@ -21017,6 +21026,7 @@ function GalBacklog(props) {
         }
         const first = stageViews.backlogRows.galBacklogWindow(offsets, box.scrollTop, box.clientHeight, 0).start;
         anchorRow.current = { entries, key: entries[first]?.key, offset: offsets[first] || 0, top: nodes.current.get(first)?.offsetTop };
+        drawn.current = { entries, start: range.start, end: range.end };
         readViewport();
     });
     React.useLayoutEffect(function () {
@@ -21513,7 +21523,11 @@ function galPlayerInputs(nodes, storyTurnOf, sourceOf) {
     return out;
 }
 // Prefix offsets include estimated heights for unvisited rows; measured rows replace them.
-function galBacklogWindow(offsets, scrollTop, height, overscan) {
+// kept: the window drawn now ({start, end} over the same rows), kept while it still holds the visible rows and half the
+// overscan on each side. Drawing or dropping a row moves the scroll position by the row's sub-pixel misestimate (the
+// browser's anchoring, rounded to device pixels); a window that followed every pixel could flip on that move and back
+// on the next layout pass, without end (React #185, 履历 scrolled up at a fractional device pixel ratio).
+function galBacklogWindow(offsets, scrollTop, height, overscan, kept) {
     const count = offsets.length - 1;
     if (count <= 0) return { start: 0, end: 0 };
     const top = Math.max(0, Math.min(scrollTop, Math.max(0, offsets[count] - height)));
@@ -21522,7 +21536,9 @@ function galBacklogWindow(offsets, scrollTop, height, overscan) {
         while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= value) lo = mid + 1; else hi = mid; }
         return lo;
     }
-    return { start: Math.max(0, at(top) - overscan), end: Math.min(count, at(Math.max(top, top + height - 0.001)) + 1 + overscan) };
+    const first = at(top), last = at(Math.max(top, top + height - 0.001)), margin = overscan >> 1;
+    if (kept && kept.end <= count && kept.start <= Math.max(0, first - margin) && kept.end >= Math.min(count, last + 1 + margin)) return kept;
+    return { start: Math.max(0, first - overscan), end: Math.min(count, last + 1 + overscan) };
 }
 
 // immutable session paragraphs, with voice handles built only for visible rows.
