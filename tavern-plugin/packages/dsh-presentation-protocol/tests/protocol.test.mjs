@@ -30,14 +30,15 @@ test('inertness check distinguishes schema document parameters from the browser 
 })
 import skinContract from '../src/stage-skin.cjs'
 import skinSchema from '../schema/skin.schema.json' with { type: 'json' }
+import performanceContract from '../src/performance-contract.cjs'
 
 test('skin assets accept relative HTML performance paths in both contracts', () => {
   const pattern = new RegExp(skinSchema.properties.assets.additionalProperties.pattern)
   const skin = structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic)
-  skin.assets = { report: 'perform/report.html' }
-  assert.match(skin.assets.report, pattern)
+  skin.assets = { report: 'perform/report.html', look: 'phone/look.css' }
+  for (const path of Object.values(skin.assets)) assert.match(path, pattern)
   assert.doesNotThrow(() => skinContract.validateStageSkin(skin))
-  for (const path of ['/report.html', '../report.html', 'perform/./report.html', 'perform//report.html', 'perform/report.js', 'perform/report.css']) {
+  for (const path of ['/report.html', '../report.html', 'perform/./report.html', 'perform//report.html', 'perform/report.js']) {
     skin.assets.report = path
     assert.doesNotMatch(path, pattern)
     assert.throws(() => skinContract.validateStageSkin(skin), { code: 'INVALID_SKIN' })
@@ -54,6 +55,19 @@ test('skin source kinds describe provenance, with specific attribution in notes'
   }
   skin.license.derived = ['specific-work-title']
   assert.throws(() => skinContract.validateStageSkin(skin), { code: 'INVALID_SKIN' })
+})
+
+test('a retired source kind is refused with the kind that replaced it, in skins and performance themes', () => {
+  for (const [retired, kind] of Object.entries(skinContract.STAGE_SKIN_RETIRED_SOURCE_KINDS)) {
+    assert.ok(skinContract.STAGE_SKIN_SOURCE_KINDS.includes(kind))
+    assert.ok(!skinContract.STAGE_SKIN_SOURCE_KINDS.includes(retired))
+  }
+  const [retired] = Object.keys(skinContract.STAGE_SKIN_RETIRED_SOURCE_KINDS)
+  const skin = { ...structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic), license: { privateUse: true, derived: ['ai-generated', retired] } }
+  const message = `license.derived "${retired}" is a retired source kind: replace it with "official-asset" (the work title belongs in license.notes), then export the pack again`
+  assert.throws(() => skinContract.validateStageSkin(skin), { code: 'INVALID_SKIN', message })
+  const performance = { schema: 'dsh.performance/1', theme: skin }
+  assert.throws(() => performanceContract.validateStagePerformance(performance), { code: 'INVALID_SKIN', message: `theme.${message}` })
 })
 import * as protocol from '../src/index.js'
 import { canonicalJson, assertJson } from '../src/json.js'
