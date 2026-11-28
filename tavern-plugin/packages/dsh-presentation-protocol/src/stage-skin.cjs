@@ -346,8 +346,9 @@ const skinModes = value => value !== null && typeof value === 'object' && !Array
 // vertical: the words run top to bottom, centred on [l, r] and on y (a hanging plaque).
 // rule: a drawn rule hugging the words on both sides - the image as the right-hand one at its natural size (design px),
 // mirrored on the left, gap design px from the words.
+// weight / stroke: the words' weight and a hard outline under their ink (the original's heavy title words; as tiles.label).
 const skinMenuStripFields = {image:skinImage,x:skinPx,y:skinPx,text:skinArray(skinNumber(0,8192),3,3),font:skinNumber(8,256),ink:skinColor,align:skinEnum(['start','center','end']),vertical:value => value === true,
-    rule:skinObject({image:skinImage,gap:skinNumber(0,512)},['image'])};
+    rule:skinObject({image:skinImage,gap:skinNumber(0,512)},['image']),weight:skinEnum([400,500,700]),stroke:skinObject({color:skinColor,width:skinNumber(0,16)},['color','width'])};
 const skinMenuStrip = skinObject(skinMenuStripFields,['x','y','text','font']);
 // letter ransom (§18 N31): the words cut into glyph blocks like the ransom name plate (each glyph one of a few closed
 // variants of paint, size and tilt, picked from the word itself) - the title strip and the menu rows (art.menu.rows.letter).
@@ -402,7 +403,7 @@ const skinMenuPart = value => skinObject({ms:skinNumber(60,1500),delay:skinNumbe
     keys:skinArray(skinObject({...skinPoseFields,at:skinNumber(0,1)},['at']),2,6)},['ms','keys'])(value) && skinMotion({ms:value.ms,keys:value.keys});
 const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:skinPx,on:skinArray(skinEnum(SKIN_MENU_ACTIONS),1,10)},['image','alert','x','y','on']);
 // narrow (§18 N28): the bar menu on stages of 640px and less, in portrait - one design px = unit CSS px; only what differs from
-// the wide menu, the rest inherited (merged like art.backlog.narrow). sheet = its own backdrop (covering the screen; default
+// the wide menu, the rest inherited (merged like art.backlog.narrow); under a tiles menu its rows are whole (nothing to inherit). sheet = its own backdrop (covering the screen; default
 // the wide sheet); rows = the bars stacked full width from x (left inset) and y, gap apart, slant px right per bar (each bar
 // that much shorter), at least 44 CSS px tall; title = the title strip centred x px right of the screen's middle at y, scale x
 // its wide size; signal = the lamp at x, y from the title's top-left (none on phones without it). The info and key strips are
@@ -412,8 +413,17 @@ const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:sk
 // rows.poses (§18 N32): each label's own offset (x design px) and turn (rot degrees), cycled by its place - a hand-pasted, staggered
 // column; the bar and hit area stay.
 const skinMenuPoses = skinArray(skinObject({x:skinNumber(-256,256),rot:skinNumber(-12,12)}),1,12);
+// rows.icons (邦邦, owner 11-20 「补充上 icon」): each action's own icon on its bar (the original's menu buttons carry one), keyed
+// by the menu's action ids, drawn size design px square with its left edge icon.x from the bar's start, centred on the bar.
+const skinMenuIcons = value => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length >= 1
+    && Object.entries(value).every(([key,image]) => SKIN_MENU_ACTIONS.includes(key) && skinImage(image));
+const skinMenuNarrowRows = value => skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256),poses:skinMenuPoses,
+    // cols: the bars as a grid of tiles, that many to a row (the wide tiles' grid on a phone); icon.place top: each icon centred
+    // above its words, x then the space between them.
+    cols:skinEnum([2,3]),
+    icons:skinMenuIcons,icon:skinObject({x:skinNumber(0,1024),size:skinNumber(8,512),place:skinEnum(['start','top'])},['x','size'])})(value) && !value.icons === !value.icon;
 const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,anchor:skinEnum(['middle']),
-    rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256),poses:skinMenuPoses}),
+    rows:skinMenuNarrowRows,
     title:skinObject({x:skinPx,y:skinPx,scale:skinNumber(.25,4)}),signal:skinObject({x:skinPx,y:skinPx},['x','y'])},['unit']);
 const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,narrow:skinMenuNarrow,
     // frame / frameOut: the frame (the device) itself rising in and dropping out (a pose of the whole panel); decor: 'hide'
@@ -441,7 +451,10 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     && (!value.tiles?.plainFocus || Boolean(value.tiles.plain)) && (value.tiles?.minScale === undefined || value.tiles.fit !== undefined)
     // the glyph cut and its tiles come together: a word is only cut where a skin says how its glyphs are drawn.
     && Boolean(value.glyphTiles) === Boolean(value.rows?.letter || value.title?.letter)
-    && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
+    // a tiles menu (a landscape grid) has no wide bars to inherit: its phone bars are its own, whole (narrow.rows with images,
+    // slice, text, font, y and gap).
+    && (!value.narrow || (Boolean(value.rows) || ['images','slice','text','font','y','gap'].every(key => value.narrow.rows?.[key] !== undefined))
+        && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
 // the stage's own overlays drawn as the original's
 // screens on wide stages. A placed image: its top-left at x, y on the design screen at `scale` design px per image px; focus
 // = the image under the pointer and keyboard focus. Every overlay may carry a sheet (an image over the whole game area),
@@ -537,13 +550,15 @@ const skinBacklogDecor = skinArray(skinObject({image:skinImage,scale:skinScale,x
 const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false || skinBacklogClip(value),help:skinBacklogHelp,turn:skinBacklogTurn,decor:skinBacklogDecor,latest:value => value === false,ground:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
-    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
+    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,ink:skinColor,
         letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,avatar:skinBacklogAvatar,roll:skinBacklogRoll,
     scrollbar:skinObject({track:skinImage,thumb:skinImage,x:skinPx,y:skinPx,w:skinNumber(1,256),h:skinNumber(16,4096)},['track','thumb','x','y','w','h']),
     // hover = the one highlight: behind the entry under the pointer / keyboard focus and the entry the stage stands on.
     hover:skinHighlight,plates:skinBacklogPlates,
     // narrow: phones draw the same sheet, title, close, row head and highlight at unit CSS px per design px (words at the reading size).
-    narrow:skinObject({unit:skinNumber(0.05,0.5)},['unit']),
+    // narrow.voice: the replay control's place on phones (as voice, in the phone's design px; anchor text = its left edge at
+    // the row's right end + at x, as the text column runs to it there).
+    narrow:skinObject({unit:skinNumber(0.05,0.5),voice:skinBacklogVoice},['unit']),
     // badges (§18 N26): a mod line kind's 履历 badge drawn as the skin's own image (the phone mod's 「手机」), by kind id.
     badges:value => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length >= 1 && Object.keys(value).length <= 8
         && Object.entries(value).every(([kind,image]) => /^[a-z][a-z0-9-]*(?:\.[a-zA-Z0-9_-]+)+$/.test(kind) && kind.length <= 128 && skinImage(image))},['list','font','pitch','text','gap']);
@@ -579,10 +594,31 @@ const skinVoice = value => skinObject({image:skinImage,focus:skinImage,active:sk
 // size, full width), h = the band's least height, pad [top, bottom], gap between its rows, width = the content column, dim =
 // the stage's dim behind it; the words at font px in ink. button = the actions as the original's buttons: plain and focus
 // images at their natural size, the label at font px (ink / focusInk), lead = the first glyph's colour under focus, gap px apart.
-const skinConfirm = skinObject({band:skinImage,top:skinImage,bottom:skinImage,h:skinNumber(64,4096),pad:skinArray(skinNumber(0,2048),2,2),gap:skinNumber(0,1024),
+// card = the band as the original's centred dialog instead of a full-width band: the band image nine-sliced (slice) round the
+// content column and side px on each side, the head (h2) at its start or centre (align), no torn edges; unit = the same card
+// on phones (640px and less), one design px = unit CSS px (omitted: phones keep the shared dialog). button.primary = the
+// dialog's own action (its submit, 确定) drawn by its own images and inks (the original's OK beside キャンセル).
+const skinConfirmButton = {plain:skinImage,focus:skinImage,ink:skinColor,focusInk:skinColor};
+// gallery = the 回想 grid page as the original's own page at every width (the CG viewer stays the dark media viewer): paint = its
+// opaque ground and inks (fg / bg >= 4.5, fgMuted / bg >= 3), ground = an image covering the page, head = a plate behind the
+// title row (nine-sliced, CSS px), cell = a frame over each tile's edge (nine-sliced, its rim width CSS px), close = the ✕ as
+// its own images (44px). CSS px throughout: the grid reflows to the window, no design screen.
+// panel = a plate behind the grid (the original's white card storage panel), nine-sliced, CSS px.
+const skinGallery = value => skinObject({paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted']),ground:skinImage,
+    panel:skinObject({image:skinImage,slice:skinSlice},['image','slice']),
+    head:skinObject({image:skinImage,slice:skinSlice},['image','slice']),
+    cell:skinObject({plain:skinImage,focus:skinImage,slice:skinSlice,width:skinNumber(1,48)},['plain','focus','slice','width']),
+    close:skinObject({plain:skinImage,focus:skinImage},['plain','focus'])},['paint'])(value)
+    && skinContrast(value.paint.fg,value.paint.bg) >= 4.5 && skinContrast(value.paint.fgMuted,value.paint.bg) >= 3;
+const skinConfirm = value => skinObject({band:skinImage,top:skinImage,bottom:skinImage,h:skinNumber(64,4096),pad:skinArray(skinNumber(0,2048),2,2),gap:skinNumber(0,1024),
     width:skinNumber(64,8192),dim:skinNumber(0,1),font:skinNumber(8,256),ink:skinColor,
-    button:skinObject({plain:skinImage,focus:skinImage,font:skinNumber(8,256),ink:skinColor,focusInk:skinColor,lead:skinColor,gap:skinNumber(0,1024)},['plain','focus','font'])},
-    ['band','h','font','button']);
+    card:skinObject({slice:skinSlice,side:skinNumber(0,1024),align:skinEnum(['start','center']),unit:skinNumber(0.05,1)},['slice','side']),
+    // label: each field's label on its own plate (the original's dark grey label pill), nine-sliced, its words in ink.
+    // button.cancel: the dialog's 取消 on its own images and inks (the original's blue キャンセル beside the pink OK).
+    // button.choices: the choices' size as a share of the actions' (default .62).
+    label:skinObject({image:skinImage,slice:skinSlice,ink:skinColor},['image','slice','ink']),
+    button:skinObject({...skinConfirmButton,font:skinNumber(8,256),lead:skinColor,gap:skinNumber(0,1024),choices:skinNumber(0.3,1),primary:skinObject(skinConfirmButton,['plain','focus']),cancel:skinObject(skinConfirmButton,['plain','focus'])},['plain','focus','font'])},
+    ['band','h','font','button'])(value) && !(value.card && (value.top || value.bottom));
 // the text box drawn as vector shapes
 // in design px over view [x, y, w, h]. boxes = one box per text row count (the last for more rows), narration = the box of a
 // narration page. A point [x, y] or [x, y, kx, ky] moves (kx, ky) per unit of the box's stretch: per axis max(min, base +
@@ -719,7 +755,7 @@ const skinArtShape = skinObject({
     // the stage menu drawn as the original's own menu screen (skinMenu above).
     menu:skinMenu,
     // the backlog, CONFIG and voice controls drawn as the original's (skinBacklog above).
-    backlog:skinBacklog,config:skinConfig,voice:skinVoice,confirm:skinConfirm,
+    backlog:skinBacklog,config:skinConfig,voice:skinVoice,confirm:skinConfirm,gallery:skinGallery,
     // The speaker's portrait (the face window's mood avatar) for an ADV layout, which otherwise has none: a square `size` px
     // wide, its left edge at `left` and its bottom `bottom` px above the screen's bottom edge (Persona 5's bust).
     portrait:skinPortrait,
@@ -846,7 +882,7 @@ const skinMod = skinObject({enabled:value => typeof value === 'boolean',options:
 // whose ends are only its min / max numbers shows its value in the box instead of the rail (drag and keys unchanged); a slider
 // with end words keeps the rail. section tag (§18 N32): the head a small tilted tag on section.paint at the label column's end.
 const STAGE_CONFIG_LOOKS = Object.freeze({frame:['sheet','drawer','full'],title:['word','vertical','hidden','crest'],nav:['tabs','index','pills'],section:['caption','rule','band','numbered','tag'],row:['plain','line','card'],
-    controls:Object.freeze({segmented:['groove','chips','stamps','cycler'],toggle:['switch','lamp','word','cycler'],slider:['track','ticks','bar','value'],select:['field','plate'],text:['inline','plate'],colour:['swatch','ring'],picker:['row','tile'],other:['row','block']})});
+    controls:Object.freeze({segmented:['groove','chips','stamps','cycler','radio'],toggle:['switch','lamp','word','cycler','radio'],slider:['track','ticks','bar','value'],select:['field','plate'],text:['inline','plate'],colour:['swatch','ring'],picker:['row','tile'],other:['row','block']})});
 const skinFlag = value => typeof value === 'boolean';
 // plate = one image stretched over the part by its nine-slice (image px; scale = CSS px per image px at the edges);
 // states = the same with the part's state images (plain; on = chosen / open; focus = pointer and keyboard focus).
@@ -871,9 +907,24 @@ const skinConfigWord = value => typeof value === 'string' && [...value].length >
 // controls.plate / paint (§18 N30): the value plate - one plate behind each row's whole control (a segmented group, a rail with
 // its end words and readout, a switch, a field; focus = while its row has the focus) - and the words on it: fg the values and
 // the chosen option, fgMuted the unchosen options and the rail's end words, bg the plate's ground they are checked against.
+const skinConfigMark = skinObject({plain:skinImage,on:skinImage,focus:skinImage},['plain','on']);
 const skinConfigControls = skinObject({...Object.fromEntries(Object.entries(STAGE_CONFIG_LOOKS.controls).map(([type,looks]) => [type,type === 'slider'
-    // ends (§18 X7): the plate behind each end word of the rail (a slanted tag), the words upright on it.
-    ? skinObject({look:skinEnum(looks),track:skinConfigPlate,fill:skinConfigPlate,thumb:skinObject({image:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['image']),ends:skinConfigPlate})
+    // ends (§18 X7): the plate behind each end word of the rail (a slanted tag), the words upright on it. endWords hidden: the
+    // rail without its end words (the originals' volume rails; the reading still names the value). readout: the reading's own
+    // plate (a dark value field) and paint (fg on bg >= 4.5: the words on that field, or on the panel when there is no plate).
+    ? skinObject({look:skinEnum(looks),track:skinConfigPlate,fill:skinConfigPlate,thumb:skinObject({image:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['image']),ends:skinConfigPlate,
+        endWords:skinEnum(['shown','hidden']),readout:skinObject({plate:skinConfigPlate,paint:skinObject({bg:skinColor,fg:skinColor},['bg','fg'])})})
+    // segmented mark (邦邦, look radio): each option a round mark beside its word - plain, on = the chosen one, focus.
+    // steps (look cycler): the button image either side of the value (the next one as drawn, the previous one mirrored); plate
+    // under look cycler is the value's field between them.
+    : type === 'segmented' ? value => skinObject({look:skinEnum(looks),plate:skinConfigStates,mark:skinConfigMark,steps:skinObject({plain:skinImage,focus:skinImage},['plain'])})(value)
+        && (value.look === 'radio') === Boolean(value.mark) && (!value.steps || value.look === 'cycler')
+    // toggle radio: the two words as round marks of its own (mark required), each on toggle.plate when drawn - drawn apart from the
+    // segmented look (a cycler for the multi-way rows, radio pills for 开 / 关). order: which word comes first (default 关 开).
+    : type === 'toggle' ? value => skinObject({look:skinEnum(looks),plate:skinConfigStates,mark:skinConfigMark,order:skinEnum(['off-on','on-off'])})(value) && (value.look === 'radio') === Boolean(value.mark)
+    // select list: the open list of a picker (the stage's font and skin lists) - its ground (plate), each option's plate (states:
+    // on = the chosen one) and the chosen mark in place of the ✓ (plain on every option, on the chosen).
+    : type === 'select' ? skinObject({look:skinEnum(looks),plate:skinConfigStates,list:value => skinObject({plate:skinConfigPlate,option:skinConfigStates,mark:skinConfigMark})(value) && Object.keys(value).length > 0})
     : skinObject({look:skinEnum(looks),plate:skinConfigStates})])),
     plate:skinConfigStates,paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted']),
     // font (§18 N31): the values' own face - ui (the labels' face) or title (ui.titleFont: a condensed display face beside the
@@ -893,12 +944,14 @@ const skinConfigSurfaceShape = skinObject({
     // title: word = one display word in place of 设置 (skinConfigWordOne; the accessible name stays 设置); plate = a drawn wordmark behind it;
     // look crest = the title set on frame.crest (a torii's plaque: top to bottom when the crest stands taller than wide) on wide
     // frames, a word on a phone (no crest there) - needs frame.crest (skinConfigSurface).
-    title:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.title),word:skinConfigWord,plate:skinConfigPlate}),
+    // ink: the title's own colour (the original's dark wordmark; >= 4.5 on the panel).
+    title:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.title),word:skinConfigWord,plate:skinConfigPlate,gem:skinEnum([false]),ink:skinColor,weight:skinEnum([400,500,700])}),
     // nav.paint: the tab list's own opaque ground and inks (a gold leaf beside a dark page), checked like
     // frame.paint: fg / bg and accent / bg >= 4.5, fgMuted / bg >= 3; the open tab's plate (nav.plate.on) may carry the page's.
     // nav.mark: a state image before each tab's name (a lens slot that holds a lens when open, a lamp), drawn at the ladder's
     // mark size in every layout - plain, on = the open tab, focus = pointer and keyboard focus.
-    nav:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.nav),place:skinEnum(['start','end','top']),numerals:skinEnum(['none','arabic','roman','kanji']),plate:skinConfigStates,
+    // align center: a tab's words centred on its plate (the original's tabs), else from its start.
+    nav:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.nav),place:skinEnum(['start','end','top']),numerals:skinEnum(['none','arabic','roman','kanji']),plate:skinConfigStates,align:skinEnum(['start','center']),
         mark:skinObject({plain:skinImage,on:skinImage,focus:skinImage},['plain']),
         paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onBg:skinColor},['bg','fg']),
         // nav.tilt / lead (§18 N32): each tab turned by its own angle (degrees, cycled by its place: paper tabs pinned at odd
@@ -919,7 +972,10 @@ const skinConfigSurfaceShape = skinObject({
         // row.block (§18 N30): on wide stages the rows and section heads stand in one block - label design px for the label
         // column, control for the control's - placed at the page's start, centre or end (never wider than the page).
         block:skinObject({label:skinNumber(80,1200),control:skinNumber(120,1600),place:skinEnum(['start','center','end'])},['label','control']),
-        focusPaint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted'])}),
+        focusPaint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted']),
+        // row.labelPlate / labelPaint (邦邦): each label on its own plate (the original's dark grey label pill across the column),
+        // its words in fg on the plate's ground bg (>= 4.5).
+        labelPlate:skinConfigPlate,labelPaint:skinObject({bg:skinColor,fg:skinColor},['bg','fg'])}),
     // foot (§18 X15): a strip h design px tall along the frame's foot (a torn skyline), its image tiled across; the page ends
     // above it. close = the ✕ moves onto the strip's middle, drawn on this image (natural size x scale; focus = pointer / keyboard).
     // foot.fit / place (§18 N31): how the image fills the strip - tile (the default: repeated across at its own aspect), stretch (one
@@ -939,13 +995,13 @@ const skinConfigSurfaceShape = skinObject({
     ambient:skinConfigAmbient,
     // scale: the one size ladder of CONFIG and the Esc menu (skin-config-surface.md §二.1). base = the body size on a phone in CSS
     // px (the wide screen grows it to 1.25x at 1920); ratio = the step between the four type sizes.
-    scale:skinObject({base:skinNumber(14,20),ratio:skinNumber(1.125,1.5)})});
+    scale:skinObject({base:skinNumber(14,20),ratio:skinNumber(1,1.5)})});
 const skinConfigSurface = value => skinConfigSurfaceShape(value) && (value.title?.look !== 'crest' || Boolean(value.frame?.crest));
 // The images of the CONFIG surface (skinConfigSurface).
 function stageSkinConfigFiles(config) {
     const plate=value => value ? [value.image,value.plain,value.on,value.focus].filter(Boolean) : [];
-    return [config?.frame?.plate,config?.frame?.backdrop && {image:config.frame.backdrop.image},config?.frame?.crest,config?.title?.plate,config?.nav?.plate,config?.nav?.mark,config?.section?.plate,config?.row?.plate,
-        ...Object.values(config?.controls || {}).flatMap(control => [control.plate,control.track,control.fill,control.thumb,control.ends]),config?.controls?.plate,...(config?.ambient || []),config?.foot,config?.foot?.close].flatMap(plate);
+    return [config?.frame?.plate,config?.frame?.backdrop && {image:config.frame.backdrop.image},config?.frame?.crest,config?.title?.plate,config?.nav?.plate,config?.nav?.mark,config?.section?.plate,config?.row?.plate,config?.row?.labelPlate,
+        ...Object.values(config?.controls || {}).flatMap(control => [control.plate,control.track,control.fill,control.thumb,control.ends,control.mark,control.steps,control.readout?.plate,control.list?.plate,control.list?.option,control.list?.mark]),config?.controls?.plate,...(config?.ambient || []),config?.foot,config?.foot?.close].flatMap(plate);
 }
 // a devices side's patch: the keys it may override, each an object (merged) or null (removed); the merged skin is checked whole.
 // config (§18 N24): a phone may draw the CONFIG screen as the original's handheld layout does.
@@ -1083,6 +1139,11 @@ function validateStageSkin(value, at = 'art') {
         ...(value.config?.controls?.paint ? [[value.config.controls.paint.fg,value.config.controls.paint.bg,4.5],[value.config.controls.paint.fgMuted,value.config.controls.paint.bg,4.5]] : []),
         ...(value.config?.hints ? [[value.config.hints.paint.fg,value.config.hints.paint.bg,4.5]] : []),
         ...(value.config?.nav?.platePaint ? (pp => [[pp.fg,pp.bg,4.5],[pp.onFg,pp.onBg,4.5]])(value.config.nav.platePaint) : []),
+        // row.labelPaint: the labels on their own plates; title.ink: the title on the panel's ground.
+        ...(value.config?.row?.labelPaint ? [[value.config.row.labelPaint.fg,value.config.row.labelPaint.bg,4.5]] : []),
+        ...(value.config?.title?.ink ? [[value.config.title.ink,value.config.frame?.paint?.bg || ui.bg,4.5]] : []),
+        // controls.slider.readout.paint: the reading on its field (or the panel).
+        ...(value.config?.controls?.slider?.readout?.paint ? [[value.config.controls.slider.readout.paint.fg,value.config.controls.slider.readout.paint.bg,4.5]] : []),
         ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : []),
         // toast.paint: the words on the toast's ground; the mark (non-text) at 3:1.
         ...(value.toast?.paint ? [[value.toast.paint.fg,value.toast.paint.bg,4.5],[value.toast.paint.accent,value.toast.paint.bg,3]] : []),
@@ -1177,11 +1238,12 @@ function stageSkinArtFiles(art) {return [...(art?.spinner ? art.spinner.parts ? 
     ...(art?.toast ? [...Object.values(art.toast.plates),...Object.values(art.toast.marks || {})] : [])];}
 // The images of the drawn overlays (art.menu / art.backlog / art.config / art.confirm) and of the voice controls (art.voice).
 function stageSkinScreenFiles(art) {
-    const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm;
+    const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm, g=art?.gallery;
     return [...new Set([...(m ? [m.sheet,m.frame?.image,...Object.values(m.rows?.images || {}),m.rows?.cursor?.image,...['title','info','keys'].flatMap(key => [m[key]?.image,m[key]?.rule?.image]),
             ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.plainFocus,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
-            m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
-        ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
+            m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {}),...Object.values(m.narrow?.rows?.icons || {})] : []),
+        ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus,k.button.primary?.plain,k.button.primary?.focus,k.button.cancel?.plain,k.button.cancel?.focus,k.label?.image] : []),
+        ...(g ? [g.ground,g.panel?.image,g.head?.image,g.cell?.plain,g.cell?.focus,g.close?.plain,g.close?.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...(b.clip ? [...placed(b.clip),b.clip.on] : []),...placed(b.help),...(b.decor || []).map(item => item.image),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
             ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image)),b.avatar?.mask,b.avatar?.frame,b.avatar?.placeholder?.image,b.roll?.image] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),

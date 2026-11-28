@@ -6,7 +6,7 @@ import { classifyDshVersion, compareDshVersions, dshRangeLabel } from '../tavern
 // One release-specific source for bootstrap installers, the launcher and documentation checks.
 const compatibility = JSON.parse(readFileSync(new URL('../config/dsh-compatibility.json', import.meta.url), 'utf8'))
 export const { adaptedDshVersion, recommendedDesktopVersion, desktopReleasesUrl, recommendedDshaVersion, dshaReleasesUrl } = compatibility
-export const { minDshVersion, belowDshVersion } = compatibility
+export const { minDshVersion, belowDshVersion, minNodeVersion } = compatibility
 export const blockedDshVersions = compatibility.blockedDshVersions || []
 if (classifyDshVersion(adaptedDshVersion, compatibility).status !== 'allowed') throw new Error('DSH 适配版本配置无效：须在支持范围内')
 
@@ -50,14 +50,6 @@ export function dshCompatibilityNotice(currentVersion = '', host = 'desktop') {
   return `${classifyDshVersion(currentVersion, compatibility).reason}；已停止安装，不会修改宿主版本。支持的版本：${allowed}；${hostGuidance(host)}`
 }
 
-export function minimumNodeVersion(dshVersion) {
-  let minimum = compatibility.minNodeVersion
-  for (const rule of compatibility.nodeRequirements || []) {
-    if (compareDshVersions(dshVersion, rule.fromDshVersion) >= 0) minimum = rule.minNodeVersion
-  }
-  return minimum
-}
-
 // Desktop wrappers and Electron own their Node; the shell's Node may be older.
 export function hostNodeVersion(host, { env = process.env, run = spawnSync } = {}) {
   const desktopNode = (host === 'desktop' || host === 'next') && (env.DSH_DESKTOP_NODE_EXECUTABLE || env.DSH_DESKTOP_APP_EXECUTABLE)
@@ -74,10 +66,9 @@ export function hostNodeVersion(host, { env = process.env, run = spawnSync } = {
 }
 
 export function assertCompatibleNodeVersion(dshVersion, nodeVersion) {
-  const minimum = minimumNodeVersion(dshVersion)
   const version = String(nodeVersion || '').replace(/^v/, '')
-  if (!/^\d+\.\d+\.\d+$/.test(version) || compareDshVersions(version, minimum) < 0) {
-    throw new Error(`已停止安装：DSH ${dshVersion} 需要 Node.js ${minimum} 或更高版本，当前宿主 Node.js ${nodeVersion || '未知'}。请升级该宿主使用的 Node.js 后重试；官方桌面端请升级 DeepSeek Harness，命令行/Android 请升级 node。`)
+  if (!/^\d+\.\d+\.\d+$/.test(version) || compareDshVersions(version, minNodeVersion) < 0) {
+    throw new Error(`已停止安装：酒馆需要 Node.js ${minNodeVersion} 或更高版本，当前宿主 Node.js ${nodeVersion || '未知'}（DSH ${dshVersion}）。官方桌面端请升级 DeepSeek Harness，命令行和 Android 请升级 Node.js。`)
   }
 }
 

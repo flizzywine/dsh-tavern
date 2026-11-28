@@ -192,13 +192,13 @@ export function stageHostScript() {
 export function stageClientPageScript(seams = [], stageBuild) {
   // The module text as a strict function body (its top-level names stay out of the page), completing with the plugin.
   if (!cachedClient) {
-    const text = stageClientModuleAsScript(readFileSync(new URL('packages/dsh-tavern-stage/lib/client.js', tavern), 'utf8'))
+    const text = stageClientModuleAsScript(readFileSync(new URL('packages/dsh-tavern-stage/lib/client.js', tavern), 'utf8').replace(/\r\n/g, '\n'))
     const at = text.lastIndexOf('stageClientPlugin;')
     cachedClient = '(()=>{' + text.slice(0, at) + 'return stageClientPlugin;' + text.slice(at + 'stageClientPlugin;'.length) + '\n})()'
   }
   let client = cachedClient
   if (stageBuild) {
-    const text = stageClientModuleAsScript(readFileSync(stageBuild, 'utf8'))
+    const text = stageClientModuleAsScript(readFileSync(stageBuild, 'utf8').replace(/\r\n/g, '\n'))
     const at = text.lastIndexOf('stageClientPlugin;')
     client = '(()=>{' + text.slice(0, at) + 'return stageClientPlugin;' + text.slice(at + 'stageClientPlugin;'.length) + '\n})()'
   }

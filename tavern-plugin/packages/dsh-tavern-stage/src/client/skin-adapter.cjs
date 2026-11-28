@@ -180,7 +180,13 @@ function stageSkinConfigSurface(document) {
     const mark=(name,value,fallback) => { if (value !== undefined && value !== fallback) marks['data-fk-cs-' + name]=String(value); };
     for (const part of ['frame','title','nav','section','row']) mark(part,c[part]?.look,STAGE_CONFIG_DEFAULT_LOOKS[part]);
     for (const [type,control] of Object.entries(c.controls || {})) mark('control-' + type,control.look,STAGE_CONFIG_DEFAULT_LOOKS[type]);
+    // controls.toggle.order (开 before 关: config-fields.cjs reads it), controls.slider.endWords hidden (the rail without 慢 / 快)
+    mark('toggle-order',c.controls?.toggle?.order,'off-on'); mark('slider-ends',c.controls?.slider?.endWords,'shown');
+    // controls.slider.readout.paint: the reading's words on its field
+    if (c.controls?.slider?.readout?.paint) {marks['data-fk-cs-readout-paint']=''; Object.assign(tokens,{'--cs-readout-bg':c.controls.slider.readout.paint.bg,'--cs-readout-fg':c.controls.slider.readout.paint.fg});}
     mark('side',c.frame?.side); mark('texture',c.frame?.texture); mark('nav-place',c.nav?.place,'start'); mark('numerals',c.nav?.numerals,'none');
+    // nav.align center: each tab's words centred on its plate (theme.css «stage skin: config surface»)
+    mark('nav-align',c.nav?.align,'start');
     // nav.paint (§18 N9): the tab list's own ground and inks; the open tab keeps the page's ink (onBg, else the panel's fg).
     if (c.nav?.paint) {
         const p=c.nav.paint;
@@ -225,6 +231,12 @@ function stageSkinConfigSurface(document) {
     if (c.controls?.font) {marks['data-fk-cs-value-font']=c.controls.font.face; if (c.controls.font.weight) tokens['--cs-value-weight']=String(c.controls.font.weight);}
     mark('fade',c.scroll?.fade,'none'); mark('motion',c.motion?.rows,'none');
     if (c.title?.word) {marks['data-fk-cs-word']=''; tokens['--cs-word']=JSON.stringify(c.title.word);}
+    // gem false: the title's own mark is in its plate (ガルパ's pencil), the stage's heading gem leaves it.
+    if (c.title?.gem === false) marks['data-fk-cs-title-gem']='none';
+    if (c.title?.ink) {marks['data-fk-cs-title-ink']=''; tokens['--cs-title-ink']=c.title.ink;}
+    if (c.title?.weight) {marks['data-fk-cs-title-weight']=''; tokens['--cs-title-weight']=String(c.title.weight);}
+    // row.labelPaint: the labels' words on their own plates (theme.css «config label plates»)
+    if (c.row?.labelPaint) {marks['data-fk-cs-label-paint']=''; Object.assign(tokens,{'--cs-label-bg':c.row.labelPaint.bg,'--cs-label-fg':c.row.labelPaint.fg});}
     // frame.tilt: the sheet turned in depth, as one axis-angle rotate (rotateX x then rotateY y for these small angles) so it
     // composes with the sheet's own entrance transform.
     if (c.frame?.tilt) {
@@ -256,9 +268,12 @@ function stageSkinConfigSurface(document) {
 // in art units (--gal-cfg-u: 1 CSS px at a ladder base of 20, the wide 1920 screen), so the art grows and shrinks with the type.
 const stageSkinConfigLength = px => 'calc(' + Math.round(px * 100) / 100 + ' * var(--gal-cfg-u))';
 const STAGE_CONFIG_ART_PARTS = Object.freeze([['frame',c => c.frame?.plate],['backdrop',c => c.frame?.backdrop?.image && {image:c.frame.backdrop.image}],['crest',c => c.frame?.crest],['title',c => c.title?.plate],
-    ['nav',c => c.nav?.plate],['mark',c => c.nav?.mark],['section',c => c.section?.plate],['row',c => c.row?.plate],
+    ['nav',c => c.nav?.plate],['mark',c => c.nav?.mark],['section',c => c.section?.plate],['row',c => c.row?.plate],['label',c => c.row?.labelPlate],['radio',c => c.controls?.segmented?.mark],
     ...['segmented','toggle','select','text','colour','picker','other'].map(type => [type,c => c.controls?.[type]?.plate]),
     ['value',c => c.controls?.plate],['track',c => c.controls?.slider?.track],['fill',c => c.controls?.slider?.fill],['thumb',c => c.controls?.slider?.thumb],['ends',c => c.controls?.slider?.ends],
+    // toggle radio's own marks, the cycler's step buttons, the slider's reading field, the pickers' open list (ground, rows, chosen mark)
+    ['tmark',c => c.controls?.toggle?.mark],['steps',c => c.controls?.segmented?.steps],['readout',c => c.controls?.slider?.readout?.plate],
+    ['list',c => c.controls?.select?.list?.plate],['option',c => c.controls?.select?.list?.option],['lmark',c => c.controls?.select?.list?.mark],
     ['foot',c => c.foot && {image:c.foot.image}],['close',c => c.foot?.close]]);
 function stageSkinConfigArt(document, files, entry = '') {
     const c=document?.config;
@@ -277,6 +292,8 @@ function stageSkinConfigArt(document, files, entry = '') {
         const edges=stageSkinSlice(plate.slice) || [0,0,0,0], scale=plate.scale || 1;
         tokens[p + '-slice']=edges.join(' ') + ' fill';
         tokens[p + '-edge']=edges.map(n => stageSkinConfigLength(n * scale)).join(' ');
+        // the start edge alone: a band's words begin past its fixed start (a star, a tab end; theme.css «section band plates»)
+        if (part === 'section') tokens[p + '-edge-start']=stageSkinConfigLength(edges[3] * scale);
         // outset / repeat: the plate drawn past its part / its edges and centre tiled (theme.css reads them with 0 / stretch).
         if (plate.outset !== undefined) tokens[p + '-outset']=[plate.outset].flat().map(stageSkinConfigLength).join(' ');
         // the frame's surroundings above and below the sheet: a wide sheet makes room for them on the stage (theme.css).
@@ -625,6 +642,8 @@ function stageSkinArt(document, files, entry = '') {
     // art.menu: the stage menu as the original's menu screen on wide stages (theme.css
     // 「stage skin: art menu」): the sheet, the item bars and the title / info / keys strips, in design px.
     if (art.menu) marks['data-fk-skin-art-menu']='';
+    // poses (§18 N32): each label's own offset and turn, cycled over twelve places (wide --art-mr-p*, phone --art-mn-p*)
+    const poses=(p,list) => {for (let i=0; i < 12; i++) {const pose=list[i % list.length]; Object.assign(tokens,{[p + 'x-' + (i + 1)]:String(pose.x || 0),[p + 'r-' + (i + 1)]:(pose.rot || 0) + 'deg'});}};
     if (art.menu?.rows) {
         const m=art.menu, r=m.rows, [rw,rh]=size(r.images.plain), [st,sr,sb,sl]=stageSkinSlice(r.slice), [left,right,middle]=r.text;
         Object.assign(tokens,{'--art-mr':url(r.images.plain),'--art-mr-focus':url(r.images.focus),'--art-mr-off':url(r.images.off || r.images.plain),'--art-mr-w':String(rw),'--art-mr-h':String(rh),
@@ -642,27 +661,39 @@ function stageSkinArt(document, files, entry = '') {
         if (r.focusScale) Object.assign(tokens,{'--art-mr-focus-scale':String(r.focusScale),'--art-mr-origin':({center:'50%',end:'100%'}[r.align] || '0%') + ' 50%'});
         if (r.spacing !== undefined) tokens['--art-mr-spacing']=r.spacing + 'em';
         if (r.stroke) Object.assign(tokens,{'--art-mr-stroke':r.stroke.color,'--art-mr-stroke-w':String(r.stroke.width)});
-        // poses (§18 N32): each label's own offset and turn, cycled over twelve places (wide --art-mr-p*, phone --art-mn-p*)
-        const poses=(p,list) => {for (let i=0; i < 12; i++) {const pose=list[i % list.length]; Object.assign(tokens,{[p + 'x-' + (i + 1)]:String(pose.x || 0),[p + 'r-' + (i + 1)]:(pose.rot || 0) + 'deg'});}};
         if (r.poses) {marks['data-fk-skin-art-menu-poses']=''; poses('--art-mr-p',r.poses);}
         if (r.cursor) {
             const [cw,ch]=size(r.cursor.image);
             marks['data-fk-skin-art-menu-cursor']='';
             Object.assign(tokens,{'--art-mr-cursor':url(r.cursor.image),'--art-mr-cursor-x':String(r.cursor.x),'--art-mr-cursor-y':String(r.cursor.y),'--art-mr-cursor-w':String(cw),'--art-mr-cursor-h':String(ch)});
         }
-        // narrow (§18 N28): the same menu on phones in portrait (theme.css «art menu: narrow»), the wide fields merged under the
-        // phone's own (like art.backlog.narrow); --art-mn-* in design px, one design px = --art-mn-u CSS px.
-        if (m.narrow) {
-            const n=m.narrow, nr={...r,...n.rows,x:n.rows?.x || 0,slant:n.rows?.slant ?? r.slant ?? 0}, [nw,nh]=size(nr.images.plain), [nt,ns,nb,nl]=stageSkinSlice(nr.slice), [nleft,nright]=nr.text, sheet=n.sheet || m.sheet;
-            marks['data-fk-skin-art-menu-narrow']='';
-            if (n.anchor) marks['data-fk-skin-art-menu-narrow-anchor']=n.anchor;
-            Object.assign(tokens,{'--art-mn-u':n.unit + 'px','--art-mn-sheet':sheet ? url(sheet) : 'none','--art-mn-r':url(nr.images.plain),'--art-mn-r-focus':url(nr.images.focus),'--art-mn-r-off':url(nr.images.off || nr.images.plain),
-                '--art-mn-r-w':String(nw),'--art-mn-r-h':String(nh),'--art-mn-r-st':String(nt),'--art-mn-r-sr':String(ns),'--art-mn-r-sb':String(nb),'--art-mn-r-sl':String(nl),'--art-mn-r-l':String(nleft),'--art-mn-r-r':String(nright),
-                '--art-mn-r-font':String(nr.font),'--art-mn-r-x':String(nr.x),'--art-mn-r-y':String(nr.y),'--art-mn-r-gap':String(nr.gap),'--art-mn-r-slant':String(nr.slant)});
-            if (m.title) Object.assign(tokens,{'--art-mn-t-x':String(n.title?.x || 0),'--art-mn-t-y':String(n.title?.y ?? m.title.y),'--art-mn-t-scale':String(n.title?.scale || 1)});
-            if (n.signal) {marks['data-fk-skin-art-menu-narrow-signal']=''; Object.assign(tokens,{'--art-mn-sig-x':String(n.signal.x),'--art-mn-sig-y':String(n.signal.y)});}
-            if (nr.poses) {marks['data-fk-skin-art-menu-narrow-poses']=''; poses('--art-mn-p',nr.poses);}
+    }
+    // narrow (§18 N28): the menu on phones in portrait as bars (theme.css «art menu: narrow»), the wide rows merged under the
+    // phone's own (like art.backlog.narrow); a tiles menu gives the phone its whole own rows, the bars in the tiles' label inks.
+    // --art-mn-* in design px, one design px = --art-mn-u CSS px.
+    if (art.menu?.narrow) {
+        const m=art.menu, r=m.rows || {}, l=m.tiles?.label || {};
+        if (!m.rows) {tokens['--art-mr-justify']=l.align === 'start' ? 'flex-start' : 'center'; if (l.ink) tokens['--art-mr-ink']=l.ink; if (l.focusInk) tokens['--art-mr-focus-ink']=l.focusInk; if (l.weight) tokens['--art-mr-weight']=String(l.weight);
+            // the tiles' label outline on the phone's bars too (its width in the phone's design px)
+            if (l.stroke) Object.assign(tokens,{'--art-mr-stroke':l.stroke.color,'--art-mr-stroke-w':String(l.stroke.width)});}
+        const n=m.narrow, nr={...r,...n.rows,x:n.rows?.x || 0,slant:n.rows?.slant ?? r.slant ?? 0}, [nw,nh]=size(nr.images.plain), [nt,ns,nb,nl]=stageSkinSlice(nr.slice), [nleft,nright]=nr.text, sheet=n.sheet || m.sheet;
+        marks['data-fk-skin-art-menu-narrow']='';
+        if (n.anchor) marks['data-fk-skin-art-menu-narrow-anchor']=n.anchor;
+        Object.assign(tokens,{'--art-mn-u':n.unit + 'px','--art-mn-sheet':sheet ? url(sheet) : 'none','--art-mn-r':url(nr.images.plain),'--art-mn-r-focus':url(nr.images.focus),'--art-mn-r-off':url(nr.images.off || nr.images.plain),
+            '--art-mn-r-w':String(nw),'--art-mn-r-h':String(nh),'--art-mn-r-st':String(nt),'--art-mn-r-sr':String(ns),'--art-mn-r-sb':String(nb),'--art-mn-r-sl':String(nl),'--art-mn-r-l':String(nleft),'--art-mn-r-r':String(nright),
+            '--art-mn-r-font':String(nr.font),'--art-mn-r-x':String(nr.x),'--art-mn-r-y':String(nr.y),'--art-mn-r-gap':String(nr.gap),'--art-mn-r-slant':String(nr.slant)});
+        if (m.title) Object.assign(tokens,{'--art-mn-t-x':String(n.title?.x || 0),'--art-mn-t-y':String(n.title?.y ?? m.title.y),'--art-mn-t-scale':String(n.title?.scale || 1)});
+        if (n.signal) {marks['data-fk-skin-art-menu-narrow-signal']=''; Object.assign(tokens,{'--art-mn-sig-x':String(n.signal.x),'--art-mn-sig-y':String(n.signal.y)});}
+        if (nr.poses) {marks['data-fk-skin-art-menu-narrow-poses']=''; poses('--art-mn-p',nr.poses);}
+        // rows.icons: each action's icon on its bar (theme.css «art menu: narrow icons»), marks the actions that have one
+        if (n.rows?.icons) {
+            marks['data-fk-skin-art-menu-narrow-icons']=Object.keys(n.rows.icons).join(' ');
+            Object.assign(tokens,{'--art-mn-ic-x':String(n.rows.icon.x),'--art-mn-ic-size':String(n.rows.icon.size)});
+            for (const [id,image] of Object.entries(n.rows.icons)) tokens['--art-mn-ic-' + id]=url(image);
+            if (n.rows.icon.place === 'top') marks['data-fk-skin-art-menu-narrow-icon']='top';
         }
+        // rows.cols: the bars as a grid of tiles, cols to a row (theme.css «art menu: narrow grid»)
+        if (n.rows?.cols) {marks['data-fk-skin-art-menu-narrow-cols']=''; tokens['--art-mn-r-cols']=String(n.rows.cols);}
     }
     // art.menu.tiles / frame (phone menu): the items as a grid of drawn tiles keyed by action id, on a
     // frame image (a device) turned about its centre; marks data-fk-skin-art-menu-tiles / -frame, tokens --art-mt-* / --art-mf-*.
@@ -753,6 +784,9 @@ function stageSkinArt(document, files, entry = '') {
                 Object.assign(tokens,{[p + '-rule']:url(s.rule.image),[p + '-rule-w']:String(rw),[p + '-rule-h']:String(rh),[p + '-rule-gap']:String(s.rule.gap || 0)});
             }
             if (s.ink) tokens[p + '-ink']=s.ink;
+            // weight / stroke: the words' weight and their hard outline (the original's heavy title)
+            if (s.weight) tokens[p + '-weight']=String(s.weight);
+            if (s.stroke) Object.assign(tokens,{[p + '-stroke']:s.stroke.color,[p + '-stroke-w']:String(s.stroke.width)});
         }
         if (m.title?.letter) marks['data-fk-skin-art-menu-title-letter']=m.title.letter;
     }
@@ -808,6 +842,8 @@ function stageSkinArt(document, files, entry = '') {
         if (b.name) {
             parts.push('name');
             Object.assign(tokens,{[p + '-name-x']:String(b.name.x),[p + '-name-y']:String(b.name.y),[p + '-name-h']:String(b.name.h),[p + '-name-font']:String(b.name.font),[p + '-head']:String(b.name.head)});
+            // name.ink: the name's own ink on its frame (a solid tab), else the row's ink
+            if (b.name.ink) tokens[p + '-name-ink']=b.name.ink;
             if (b.name.frame) {parts.push('frame'); placed(p + '-frame',b.name.frame);}
             if (b.name.rule) {parts.push('rule'); placed(p + '-rule',b.name.rule);}
             // name.letter / align (C2): the name as glyph tiles, its right edge on the text column (theme.css 「art backlog glyph tiles」).
@@ -860,6 +896,13 @@ function stageSkinArt(document, files, entry = '') {
         // narrow: the same drawn sheet, title, close, row head and highlight on phones, one design px = unit CSS px; the
         // words keep the reading size (theme.css «art backlog: phone»).
         if (b.narrow) {marks['data-fk-skin-art-backlog-narrow']=''; tokens[p + '-nu']=b.narrow.unit + 'px';}
+        // narrow.voice: the replay control's place on phones (as voice, in the phone's design px; theme.css «art backlog: narrow voice»)
+        if (b.narrow?.voice) {
+            const v=Array.isArray(b.narrow.voice) ? {anchor:'row',at:b.narrow.voice.slice(0,2),size:b.narrow.voice.slice(2)} : b.narrow.voice, [x,y]=v.at || [0,0];
+            marks['data-fk-skin-art-backlog-narrow-voice']=v.anchor;
+            Object.assign(tokens,{[p + '-nv-x']:String(x),[p + '-nv-y']:String(y)});
+            if (v.size) Object.assign(tokens,{[p + '-nv-w']:String(v.size[0]),[p + '-nv-h']:String(v.size[1])});
+        }
     }
     if (art.config) {
         const c=art.config, p='--art-cf';
@@ -907,7 +950,47 @@ function stageSkinArt(document, files, entry = '') {
         if (k.ink) tokens[p + '-ink']=k.ink;
         if (b.ink) tokens[p + '-btn-ink']=b.ink;
         if (b.focusInk) tokens[p + '-btn-focus-ink']=b.focusInk;
+        // button.choices: the choices' size as a share of the actions' (default .62; 1 = the actions' own size, wrapping)
+        if (b.choices !== undefined) {marks['data-fk-skin-art-confirm-choices']=''; tokens[p + '-choices']=String(b.choices);}
         if (b.lead) tokens[p + '-btn-lead']=b.lead;
+        // card: the band as a centred dialog nine-sliced round the content column (theme.css «art confirm: card»), and on
+        // phones at unit CSS px per design px; primary: the submit action's own images and inks.
+        if (k.card) {
+            const [ct,cr,cb,cl]=stageSkinSlice(k.card.slice);
+            marks['data-fk-skin-art-confirm-card']=k.card.align || 'center';
+            Object.assign(tokens,{[p + '-side']:String(k.card.side),[p + '-st']:String(ct),[p + '-sr']:String(cr),[p + '-sb']:String(cb),[p + '-sl']:String(cl)});
+            if (k.card.unit) {marks['data-fk-skin-art-confirm-narrow']=''; tokens[p + '-u']=k.card.unit + 'px';}
+        }
+        if (b.primary) {
+            marks['data-fk-skin-art-confirm-primary']='';
+            Object.assign(tokens,{[p + '-pri']:url(b.primary.plain),[p + '-pri-focus']:url(b.primary.focus)});
+            if (b.primary.ink) tokens[p + '-pri-ink']=b.primary.ink;
+            if (b.primary.focusInk) tokens[p + '-pri-focus-ink']=b.primary.focusInk;
+        }
+        // cancel: the 取消 action's own images and inks; label: the field labels on their plates (theme.css «art confirm: card»).
+        if (b.cancel) {
+            marks['data-fk-skin-art-confirm-cancel']='';
+            Object.assign(tokens,{[p + '-can']:url(b.cancel.plain),[p + '-can-focus']:url(b.cancel.focus)});
+            if (b.cancel.ink) tokens[p + '-can-ink']=b.cancel.ink;
+            if (b.cancel.focusInk) tokens[p + '-can-focus-ink']=b.cancel.focusInk;
+        }
+        if (k.label) {
+            const [lt,lr,lb,ll]=stageSkinSlice(k.label.slice);
+            marks['data-fk-skin-art-confirm-label']='';
+            Object.assign(tokens,{[p + '-lab']:url(k.label.image),[p + '-lab-ink']:k.label.ink,[p + '-lab-s']:[lt,lr,lb,ll].join(' '),[p + '-lab-t']:String(lt),[p + '-lab-r']:String(lr),[p + '-lab-b']:String(lb),[p + '-lab-l']:String(ll)});
+        }
+    }
+    // art.gallery (邦邦, owner 11-20 「回想…专门设计」): the 回想 grid page as the original's page (theme.css «art gallery»),
+    // marks data-fk-skin-art-gallery (its parts), tokens --art-gl-*; CSS px.
+    if (art.gallery) {
+        const g=art.gallery, p='--art-gl', edges=value => stageSkinSlice(value).join(' ');
+        marks['data-fk-skin-art-gallery']=['ground','panel','head','cell','close'].filter(part => g[part]).join(' ');
+        if (g.panel) Object.assign(tokens,{[p + '-panel']:url(g.panel.image),[p + '-panel-s']:edges(g.panel.slice),[p + '-panel-w']:stageSkinSlice(g.panel.slice).map(n => n + 'px').join(' ')});
+        Object.assign(tokens,{[p + '-bg']:g.paint.bg,[p + '-fg']:g.paint.fg,[p + '-fg2']:g.paint.fgMuted});
+        if (g.ground) tokens[p + '-ground']=url(g.ground);
+        if (g.head) Object.assign(tokens,{[p + '-head']:url(g.head.image),[p + '-head-s']:edges(g.head.slice),[p + '-head-w']:stageSkinSlice(g.head.slice).map(n => n + 'px').join(' ')});
+        if (g.cell) Object.assign(tokens,{[p + '-cell']:url(g.cell.plain),[p + '-cell-focus']:url(g.cell.focus),[p + '-cell-s']:edges(g.cell.slice),[p + '-cell-w']:g.cell.width + 'px'});
+        if (g.close) Object.assign(tokens,{[p + '-close']:url(g.close.plain),[p + '-close-focus']:url(g.close.focus)});
     }
     if (art.narration) {
         if (box) marks['data-fk-skin-narration']='veil';

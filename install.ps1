@@ -11,7 +11,8 @@ if ($LauncherOnly -and $InstallHost -eq 'cli') { throw '--launcher-only 需要�
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
 # This installer's release (package.json, written by bin/build-installer-scripts.mjs): never install older code.
-$InstallerVersion = '3.4.0'
+$InstallerVersion = '3.5.0'
+$MinNodeVersion = '24.9.0'
 $CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@runtime-archive-main/dsh-tavern-runtime.json" }
 $CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.TrimEnd('/') } else { "https://cdn.jsdelivr.net/gh/$Repository" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME }
@@ -391,7 +392,7 @@ $DownloadModuleSource = @'
 // Shared network downloads for the installers and Windows Desktop package management.
 // install.ps1 and install.sh embed this file verbatim because they run before any
 // code is downloaded: edit it here, then run `node bin/build-installer-scripts.mjs`.
-// Keep it dependency-free CommonJS for Node >= 22.19 (Desktop runs it under Electron).
+// Keep it dependency-free CommonJS for the standalone installers and Electron.
 //
 // Timeouts follow one rule: a transfer fails when no bytes arrive for `stallMs`
 // (slow but moving downloads keep going); `deadlineMs` is only a generous upper bound.
@@ -584,27 +585,50 @@ function compareVersions(left, right) {
 }
 async function readManifest({ metadataUrl, exact, minVersion, targetCommit = '', stallMs = 30000, attempts = 2, fetch: request, status = () => {} }) {
   const urls = manifestCandidates(metadataUrl, exact)
-  const results = await Promise.allSettled(urls.map(async url => {
+  const controller = new AbortController()
+  const requests = urls.map(async url => {
     // raw 在受限网络里可能完全不通：给它更短的等待，别让主源拖慢整次安装。
     const rawHost = hostOf(url) === RAW_HOST
     const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, rawHost ? 4000 : 15000),
-      attempts: rawHost ? 1 : attempts, fetch: request })
+      attempts: rawHost ? 1 : attempts, signal: controller.signal, fetch: request,
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } })
     const metadata = JSON.parse(bytes.toString('utf8'))
     runtimeFiles(metadata)
     return { url, metadata }
-  }))
+  })
+  if (targetCommit) {
+    // The requested revision already fixes the result. A stalled mirror cannot
+    // offer a newer eligible manifest, so release the others as soon as it arrives.
+    try {
+      const metadata = await Promise.any(requests.map(async pending => {
+        const { metadata } = await pending
+        if (metadata.revision.toLowerCase() !== targetCommit.toLowerCase()) throw new Error('运行清单版本不同')
+        assertManifestVersion(metadata, minVersion)
+        return metadata
+      }))
+      controller.abort()
+      return metadata
+    } catch (error) {
+      const stale = error.errors.find(reason => reason.code === 'DSH_TAVERN_CDN_STALE')
+      if (stale) throw stale
+    }
+  }
+  const results = await Promise.allSettled(requests)
   const found = results.filter(result => result.status === 'fulfilled').map(result => result.value)
   if (!found.length) throw results[0].reason
+  if (targetCommit) throw new Error(`运行清单不再提供目标提交 ${targetCommit.slice(0, 12)}，请重新检查更新。`)
   const sequence = item => Number(item.metadata.releaseSequence) || 0
-  const eligible = targetCommit ? found.filter(item => item.metadata.revision.toLowerCase() === targetCommit.toLowerCase()) : found
-  if (!eligible.length) throw new Error(`运行清单不再提供目标提交 ${targetCommit.slice(0, 12)}，请重新检查更新。`)
-  const best = eligible.reduce((newest, item) => sequence(item) > sequence(newest) ? item : newest)
+  const best = found.reduce((newest, item) => sequence(item) > sequence(newest) ? item : newest)
   if (found.length > 1 && found.some(item => item.metadata.revision !== best.metadata.revision)) status(`下载源各节点版本不一，使用最新的 ${hostOf(best.url)}（v${best.metadata.version || '?'}）`)
-  // Never install code older than this installer: a stale CDN would hand back a release built for another host.
-  if (minVersion && compareVersions(best.metadata.version, minVersion) < 0) {
-    throw Object.assign(new Error(`运行清单还没更新到 v${minVersion}，当前只有 v${best.metadata.version || '未知'}。请稍后重试。`), { code: 'DSH_TAVERN_CDN_STALE' })
-  }
+  assertManifestVersion(best.metadata, minVersion)
   return best.metadata
+}
+
+function assertManifestVersion(metadata, minVersion) {
+  // Never install code older than this installer: a stale CDN would hand back a release built for another host.
+  if (minVersion && compareVersions(metadata.version, minVersion) < 0) {
+    throw Object.assign(new Error(`运行清单还没更新到 v${minVersion}，当前只有 v${metadata.version || '未知'}。请稍后重试。`), { code: 'DSH_TAVERN_CDN_STALE' })
+  }
 }
 
 async function verifyPublishedRuntime(directory, metadata) {
@@ -662,11 +686,12 @@ function archiveUrls(rootUrl, archive) {
   return urls
 }
 
-// Download the runtime files listed by a jsDelivr manifest into `destination`.
-// Files whose bytes already match in `installed` are reused instead of downloaded.
+// Desktop bootstraps try incremental first, then retain their own source fallbacks.
+// Other installers can use auto to let this module also handle those fallbacks.
 async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
-  budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false } = {}) {
-  const source = hostOf(rootUrl)
+  budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false,
+  mode = 'full' } = {}) {
+  if (!['full', 'incremental', 'auto'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
   const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, targetCommit, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
@@ -676,28 +701,91 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
   if (/^[0-9a-f]{40}$/.test(target) && String(metadata.revision).toLowerCase() !== target) {
     throw new Error(`jsDelivr 运行清单（${String(metadata.revision).slice(0, 12)}）与目标版本（${target.slice(0, 12)}）不一致，可能尚未同步`)
   }
-  const controller = new AbortController()
   const budget = AbortSignal.timeout(budgetMs)
-  const signal = AbortSignal.any([controller.signal, budget])
+  const write = runtimeWriter(destination, metadata.executables)
+  const options = { files, revision: metadata.revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write }
+  try {
+    await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    budget.throwIfAborted()
+  } catch (error) {
+    if (budget.aborted) throw new Error(`下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
+    throw error
+  }
+  await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
+  return metadata
+}
+
+function runtimeWriter(destination, executableFiles) {
+  const executables = new Set(Array.isArray(executableFiles) ? executableFiles : [])
+  const directories = new Map()
+  return async (file, content) => {
+    const target = path.join(destination, ...file.split('/'))
+    const directory = path.dirname(target)
+    if (!directories.has(directory)) directories.set(directory, fs.mkdir(directory, { recursive: true }))
+    await directories.get(directory)
+    await fs.writeFile(target, content, { mode: executables.has(file) ? 0o755 : 0o644 })
+  }
+}
+
+function assertIncrementalSize(count, bytes) {
+  if (count > 64 || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > 4 * 1024 * 1024) {
+    throw new Error('需要下载的运行文件较多，改用完整下载。')
+  }
+}
+
+async function checkInstalledManifest(installed, files) {
+  let previous
+  try { previous = JSON.parse(await fs.readFile(path.join(installed, 'dsh-tavern-runtime.json'), 'utf8')) } catch { return }
+  if (!Array.isArray(previous?.files)) return
+  const hashes = new Map(previous.files.map(file => [file?.path, file?.sha256]))
+  const changed = files.filter(file => hashes.get(file.path) !== file.sha256)
+  // A hint to skip large upgrades. Reused bytes are always hashed before writing.
+  assertIncrementalSize(changed.length, changed.reduce((total, file) => total + file.size, 0))
+}
+
+async function retrieveRuntimeFiles(options, { metadata, mode, budget }) {
+  const { installed, files, stallMs, status } = options
+  // Legacy manifests never recorded executable bits. Git/tar preserves them.
+  const incrementalSupported = installed && (process.platform === 'win32' || Array.isArray(metadata.executables))
+  if (mode === 'incremental' && !incrementalSupported) throw new Error('缺少本地安装或发布清单未记录执行权限，改用完整下载。')
+  if (mode !== 'full' && incrementalSupported) {
+    try {
+      const signal = AbortSignal.any([budget, AbortSignal.timeout(16000)])
+      await checkInstalledManifest(installed, files)
+      await downloadRuntimeFiles({ ...options, stallMs: Math.min(stallMs, 6500), signal, incremental: true })
+      signal.throwIfAborted()
+      return
+    } catch (error) {
+      if (mode === 'incremental' || budget.aborted) throw error
+      status(`增量取源未完成（${describeFailure(error)}），改用完整下载…`)
+    }
+  }
   const archive = runtimeArchive(metadata)
   if (archive) {
     try {
-      await extractRuntimeArchive({ archive, files, rootUrl, destination, stallMs, signal, fetch: request, status })
-      await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
-      return metadata
+      await extractRuntimeArchive({ ...options, archive, signal: budget })
+      return
     } catch (error) {
-      if (budget.aborted) throw new Error(`备用源下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
+      if (budget.aborted) throw error
       status(`代码压缩包不可用（${describeFailure(error)}），改为逐个文件下载…`)
     }
   }
+  await downloadRuntimeFiles({ ...options, signal: budget })
+}
+
+async function downloadRuntimeFiles({ files, revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write, signal: budget, incremental = false }) {
+  const source = hostOf(rootUrl)
+  const controller = new AbortController()
+  const signal = AbortSignal.any([controller.signal, budget])
   let next = 0, done = 0, reused = 0, received = 0, reportedAt = 0
+  let requestedFiles = 0, requestedBytes = 0
   // A progress line every five seconds at most: the Windows installer appends each line to its log
   // and echoes it, and a pipe it reads slower than we write stalls this process (and the download).
   const report = (force = false) => {
     const now = Date.now()
     if (!force && now - reportedAt < 5000) return
     reportedAt = now
-    status(`下载代码（${source}）：${done}/${files.length} 文件，复用 ${reused}，已下载 ${(received / 1048576).toFixed(1)} MB`)
+    status(`下载代码（${incremental ? '增量' : source}）：${done}/${files.length} 文件，复用 ${reused}，已下载 ${(received / 1048576).toFixed(1)} MB`)
   }
   report(true)
   const worker = async () => {
@@ -713,35 +801,37 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
         } catch {}
       }
       if (!content) {
-        const url = `${rootUrl}@${metadata.revision}/${parts.map(encodeURIComponent).join('/')}`
-        const mirrors = [url, rawMirror(url)].filter(Boolean)
-        content = (await download(mirrors, { label: file.path, sha256: file.sha256, stallMs, attempts, signal, fetch: request,
-          onRetry: ({ attempt, attempts: total, reason, willRetry }) => status(`下载失败（${source}）：${file.path}，${reason}；尝试 ${attempt}/${total}${willRetry ? '，正在重试' : '，将切换备用方案'}。`),
+        if (incremental) {
+          requestedFiles++
+          requestedBytes += Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : NaN
+          assertIncrementalSize(requestedFiles, requestedBytes)
+        }
+        const url = `${rootUrl}@${revision}/${parts.map(encodeURIComponent).join('/')}`
+        const mirrors = (incremental ? [rawMirror(url), url] : [url, rawMirror(url)]).filter(Boolean)
+        content = (await download(mirrors, { label: file.path, sha256: file.sha256, size: incremental ? file.size : undefined, stallMs, attempts, signal, fetch: request,
+          onRetry: ({ host, attempt, attempts: total, reason, willRetry }) => status(`下载失败（${host}）：${file.path}，${reason}；尝试 ${attempt}/${total}${willRetry ? '，正在重试' : '，将切换备用方案'}。`),
         })).bytes
         received += content.length
       }
       signal.throwIfAborted()
-      const target = path.join(destination, ...parts)
-      await fs.mkdir(path.dirname(target), { recursive: true })
-      await fs.writeFile(target, content)
+      await write(file.path, content)
       done++
       report()
     }
   }
+  const workers = Array.from({ length: Math.min(concurrency, files.length) }, worker)
   try {
-    await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, worker))
+    await Promise.all(workers)
     report(true)
   } catch (error) {
     controller.abort()
-    if (budget.aborted) throw new Error(`备用源下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
+    await Promise.allSettled(workers)
     throw error
   }
-  await fs.writeFile(path.join(destination, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
-  return metadata
 }
 
 // One zip, verified as a whole and then file by file against the manifest, before anything is written.
-async function extractRuntimeArchive({ archive, files, rootUrl, destination, stallMs, signal, fetch: request, status }) {
+async function extractRuntimeArchive({ archive, files, rootUrl, stallMs, signal, fetch: request, status, write }) {
   const urls = archiveUrls(rootUrl, archive)
   let reportedAt = 0
   const megabytes = bytes => (bytes / 1048576).toFixed(1)
@@ -762,9 +852,7 @@ async function extractRuntimeArchive({ archive, files, rootUrl, destination, sta
   })
   for (const { file, content } of verified) {
     signal.throwIfAborted()
-    const target = path.join(destination, ...file.path.split('/'))
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    await fs.writeFile(target, content)
+    await write(file.path, content)
   }
   status(`代码已就绪：${files.length} 个文件`)
 }
@@ -853,7 +941,8 @@ const seconds = (value, fallback) => (value === undefined ? fallback : Number(va
 //   node download.cjs file <destination> [--sha256 H] [--stall S] [--deadline S] [--attempts N] <url>...
 //   node download.cjs manifest <metadata-url> <destination> [--min-version V]
 //   node download.cjs verify-runtime <manifest-file> <source-directory>
-//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V]
+//   node download.cjs restore-executables <manifest-file> <installed-directory>
+//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto]
 //     (DSH_TAVERN_CDN_METADATA_URL set: that manifest only, no other jsDelivr nodes)
 //   node download.cjs proxy-env   prints KEY=VALUE lines to add (Windows system proxy)
 async function main(argv) {
@@ -870,14 +959,34 @@ async function main(argv) {
   if (command === 'manifest') {
     const [metadataUrl, destination] = rest
     if (!metadataUrl || !destination) throw new Error('用法：download.cjs manifest <清单 URL> <目标文件>')
-    const manifest = await readManifest({ metadataUrl, targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT,
+    const targetCommit = process.env.DSH_TAVERN_TARGET_COMMIT || ''
+    const checkedFile = targetCommit && process.env.DSH_TAVERN_INSTALL_MANIFEST
+    const manifest = checkedFile ? JSON.parse(await fs.readFile(checkedFile, 'utf8')) : await readManifest({ metadataUrl, targetCommit,
       minVersion: options['min-version'], exact: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL) })
+    if (checkedFile) {
+      runtimeFiles(manifest)
+      if (manifest.revision.toLowerCase() !== targetCommit.toLowerCase()) throw new Error('已检查的运行清单与目标提交不符，请重新检查更新。')
+      assertManifestVersion(manifest, options['min-version'])
+    }
     await fs.writeFile(destination, JSON.stringify(manifest))
     return
   }
   if (command === 'verify-runtime') {
     const [manifestFile, directory] = rest
     await verifyPublishedRuntime(directory, JSON.parse(await fs.readFile(manifestFile, 'utf8')))
+    return
+  }
+  if (command === 'restore-executables') {
+    const [manifestFile, directory] = rest
+    const metadata = JSON.parse(await fs.readFile(manifestFile, 'utf8'))
+    if (!Array.isArray(metadata.executables)) return
+    const executables = new Set(metadata.executables)
+    for (const { path: file } of runtimeFiles(metadata)) {
+      if (!executables.has(file)) continue
+      const target = path.join(directory, ...file.split('/'))
+      const info = await fs.lstat(target)
+      if (info.isFile() && !(info.mode & 0o100)) await fs.chmod(target, info.mode | 0o100)
+    }
     return
   }
   if (command === 'runtime') {
@@ -887,7 +996,7 @@ async function main(argv) {
     const metadata = await downloadRuntime({ manifest, metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
       stallMs: seconds(options.stall, 30000), budgetMs: seconds(options.budget, 300000), status,
       targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT, minVersion: options['min-version'] || '',
-      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL) })
+      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode })
     status(`下载代码完成：${metadata.revision.slice(0, 12)}`)
     return
   }
@@ -1553,13 +1662,13 @@ if (require.main === module) {
   }
   if (-not (Test-Command 'node')) {
     Start-Process 'https://nodejs.org/'
-    throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本），然后重新运行本命令。'
+    throw "未找到 Node.js。请安装 Node.js $MinNodeVersion 或更高版本，然后重新运行本命令。"
   }
 
   $NodeVersionText = (& node --version).Trim()
   $NodeVersion = [version]$NodeVersionText.TrimStart('v')
-  if ($NodeVersion -lt [version]'22.19.0') {
-    throw "Node.js 版本过低，安装入口至少需要 22.19（DSH 0.2.2 起需要 24.9 或更高版本）（当前：$NodeVersionText）。"
+  if ($NodeVersion -lt [version]$MinNodeVersion) {
+    throw "Node.js 版本过低，安装需要 $MinNodeVersion 或更高版本（当前：$NodeVersionText）。"
   }
   # Reserve before installation markers, persistent PATH, logs or source writes.
   New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
@@ -1721,7 +1830,7 @@ try {
     $Code = 1
     $InvocationError = ''
     # At a console these steps show only their progress, every few seconds; everything else is logged.
-    $Quiet = $FriendlyOutput -and $Step -in @('source.files', 'dependencies.install', 'dependencies.relink', 'profile.install', 'profile.prepare-next')
+    $Quiet = $FriendlyOutput -and $Step -in @('source.incremental', 'source.files', 'dependencies.install', 'dependencies.relink', 'profile.install', 'profile.prepare-next')
     $PackageLabel = if ($Step -like 'profile.*') { '本地配置' } else { '安装依赖' }
     $ShownAt = [DateTime]::MinValue
     try {
@@ -1761,6 +1870,10 @@ try {
     }
     if ($CaptureOutput) { return $Stdout.Trim() }
   }
+  function Assert-InstallationActive {
+    & node $InstallationStateModule check --home $DshRoot --attempt $InstallationOwner.attemptId
+    Assert-LastCommand '安装任务已中止或子进程尚未安全结束。'
+  }
   Write-UpdateLog 'installer.started' 'bootstrap'
   if (-not $FriendlyOutput) { Write-Host "更新诊断日志：$UpdateLogRoot/update-diagnostics.jsonl" }
   $ArchivePath = Join-Path $TempDir 'app.zip'
@@ -1773,7 +1886,18 @@ try {
   $UsedGit = $false
   $UsedArchive = $false
   $UsedCdn = $false
-  if ($null -ne $GitCommand) {
+  if (-not $env:DSH_TAVERN_ARCHIVE_URL -and (Test-Path -LiteralPath (Join-Path $AppDir 'package.json') -PathType Leaf)) {
+    $IncrementalSource = Join-Path $TempDir 'incremental-source'
+    try {
+      Invoke-InstallCommand 'source.incremental' 'node' @((Get-DownloadModule), 'runtime', $CdnMetadataUrl, $CdnRootUrl, $IncrementalSource, $AppDir, '--manifest-file', $PublishedManifest, '--mode', 'incremental')
+      $CdnSource = $IncrementalSource
+      $UsedCdn = $true
+    } catch {
+      Assert-InstallationActive
+      Write-InstallStatus '运行文件增量更新未完成，正在切换完整下载…'
+    }
+  }
+  if (-not $UsedCdn -and $null -ne $GitCommand) {
     try {
       Write-InstallStatus '下载代码：正在连接 GitHub，使用 Git 增量同步…'
       New-Item -ItemType Directory -Force -Path (Split-Path $SourceCache -Parent) | Out-Null
@@ -1790,8 +1914,8 @@ try {
       Write-Warning ("Git 增量更新失败，正在尝试 jsDelivr 备用源：" + $_.Exception.Message)
     }
   }
-  if ($null -eq $GitCommand) { Write-UpdateLog 'installer.stage.failed' 'git.unavailable' '127'; if ($FriendlyOutput) { Write-InstallStatus '下载代码：未安装 Git，改用 jsDelivr 下载' } else { Write-Warning '未找到 Git，正在尝试备用源。' } }
-  if (-not $UsedGit) {
+  if (-not $UsedCdn -and $null -eq $GitCommand) { Write-UpdateLog 'installer.stage.failed' 'git.unavailable' '127'; if ($FriendlyOutput) { Write-InstallStatus '下载代码：未安装 Git，改用 jsDelivr 下载' } else { Write-Warning '未找到 Git，正在尝试备用源。' } }
+  if (-not $UsedCdn -and -not $UsedGit) {
     # GitHub 和 CDN 都使用先前选定的发布版本。
     Write-InstallStatus '下载代码：正在连接 GitHub，下载精简运行压缩包…'
     $PreviousProgressPreference = $ProgressPreference
@@ -1818,7 +1942,7 @@ try {
       $ProgressPreference = $PreviousProgressPreference
     }
   }
-  if (-not $UsedGit -and -not $UsedArchive) {
+  if (-not $UsedCdn -and -not $UsedGit -and -not $UsedArchive) {
     try {
       Write-InstallStatus '下载代码：GitHub 压缩包不可用，正在连接 jsDelivr 备用源…'
       Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'
@@ -1901,8 +2025,7 @@ try {
       catch { $PnpmNeedsInstall = $true }
     }
   }
-  & node $InstallationStateModule check --home $DshRoot --attempt $InstallationOwner.attemptId
-  Assert-LastCommand '安装任务已中止或子进程尚未安全结束。'
+  Assert-InstallationActive
   if ($PnpmNeedsInstall) { $MissingPackages += "pnpm@$PnpmVersion" }
   if ($MissingPackages.Count -gt 0) {
     Write-Host ("正在安装缺失依赖：" + ($MissingPackages -join '、') + '……')
@@ -1931,7 +2054,7 @@ try {
     & node $Stager prepare --app $AppDir --source $SourceDir.FullName --commit $TargetCommit | Out-Null
     Assert-LastCommand '准备新版本失败，当前版本未改动。'
     Write-InstallStatus '安装依赖：正在连接软件包仓库，已有缓存将直接复用…'
-    Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
+    Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--prefer-offline', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
     if ($InstallHost -eq 'next' -and $env:DSH_TAVERN_PUBLISH_GATE -and -not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
       Write-InstallStatus '本地配置：正在准备并验证新版 Tavern Profile…'
@@ -1952,6 +2075,17 @@ try {
         Remove-Item Env:DSH_TAVERN_PREPARE_NEXT_APP -ErrorAction SilentlyContinue
       }
     } else {
+      $DependenciesRelocated = $false
+      if (Test-Path -LiteralPath (Join-Path $SourceDir.FullName 'bin\relocate-pnpm-install.mjs') -PathType Leaf) {
+        Write-InstallStatus '本地处理：正在准备新版的依赖链接…'
+        try {
+          Invoke-InstallCommand 'dependencies.prepare-links' 'node' @($Stager, 'relocate-dependencies', '--app', $AppDir) -TimeoutMs 60000
+          $DependenciesRelocated = $true
+        } catch {
+          Assert-InstallationActive
+          Write-InstallStatus '将在切换后由 pnpm 重建依赖链接。'
+        }
+      }
       if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1') {
         $PreviousApp = Test-Path $OldLauncher
       } elseif ($env:DSH_TAVERN_PUBLISH_GATE) {
@@ -1974,8 +2108,9 @@ try {
       $AppSwapped = $true
       & node $Stager swap --app $AppDir
       Assert-LastCommand ('切换新版本失败，已恢复原版本。安装目录可能被占用：请关闭位于 ' + $AppDir + ' 中的终端、资源管理器窗口或编辑器后重试。')
-      # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
-      Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
+      if (-not $DependenciesRelocated) {
+        Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
+      }
 
       Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
       if ($env:DSH_TAVERN_DESKTOP_UPDATE -ne '1' -and $env:DSH_TAVERN_LATE_PUBLISH -ne '1' -and (Close-DesktopForFirstInstall)) { $ReopenDesktop = $true }
@@ -2014,7 +2149,7 @@ try {
     }
 
     Write-InstallStatus '安装依赖：正在连接软件包仓库，已有缓存将直接复用…'
-    Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', $AppDir, 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
+    Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', $AppDir, 'install', '--frozen-lockfile', '--prefer-offline', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
     Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
     if (Close-DesktopForFirstInstall) { $ReopenDesktop = $true }

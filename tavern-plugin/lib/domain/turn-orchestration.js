@@ -798,7 +798,7 @@ export function createTurnOrchestrator(options) {
     // input first, then continue from its latest timeline instead of overwriting it.
     if (typeof options.projectForegroundWorldbook === 'function') await savePreparation({ source: 'foreground.prepare-worldbook' })
     const foregroundWorldBook = typeof options.projectForegroundWorldbook === 'function'
-      ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId }) : null
+      ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId, signal: input.signal }) : null
     if (typeof options.projectForegroundWorldbook === 'function') {
       const screenedFrom = Number(preparationBase?._storageRevision)
       if (!preview) {
@@ -859,6 +859,7 @@ export function createTurnOrchestrator(options) {
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
+    if (foregroundWorldBook?.automaticContext) source.worldBook.automaticContext = foregroundWorldBook.automaticContext
     if (foregroundWorldBook?.virtualState) source.worldBook.virtualWorldbook = {
       scope: foregroundWorldBook.virtualState.scope,
       texts: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.contextText ?? foregroundWorldBook.virtualState.entries[ref]?.text])),
@@ -1497,7 +1498,7 @@ export function createTurnOrchestrator(options) {
   // game's history calls it refuses its calls (the mod's own authorize), so it is not callable.
   async function foregroundTools(sessionId) {
     // Every model call asks: mode, the web-search switch and the disabled tools live in the header.
-    const chat = store.headerForSession ? await store.headerForSession(sessionId, ['mode', 'cardPath', 'usedModTools', 'webSearchEnabled', 'disabledForegroundTools', 'worldbookStrategy', 'backgroundTasks'])
+    const chat = store.headerForSession ? await store.headerForSession(sessionId, ['mode', 'cardPath', 'usedModTools', 'webSearchEnabled', 'disabledForegroundTools', 'backgroundTasks'])
       : await (store.stateForSession || store.chatForSession)(sessionId)
     if (chat === undefined || chat === null) return { visible: [], callable: [] }
     const mode = chat.mode || 'story'

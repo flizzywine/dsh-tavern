@@ -16,6 +16,7 @@ import { createHelperGenerationTasks } from './helper-generation-tasks.js'
 import { helperGenerationHistory } from './helper-generation-prompts.js'
 
 const copy = value => structuredClone(value)
+const templateWorldName = draft => draft.card.name || 'opening'
 
 const untraced = { stage: (_name, run) => run() }
 
@@ -123,13 +124,22 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
       return present(await createDraft(cardPath, settings))
     },
     templateState(id) {
-      const draft = requireDraft(id), world = draft.card.name || 'opening'
+      const draft = requireDraft(id), world = templateWorldName(draft)
       const card = { ...copy(draft.card), data: { ...copy(draft.card), extensions: { ...draft.card.extensions, world } } }
       return { state: projectFullPromptTemplateState(draft.chat), environment: { characters: [card], this_chid: 0,
         name1: draft.userName, name2: draft.card.name, world_names: [world], selected_world_info: [],
         extension_settings: { ...copy(draft.extensionSettings), variables: { global: copy(draft.globalVariables || {}) } },
         worldbooks: { [world]: draft.document ? exportSillyTavernWorldBook(draft.document) : { entries: {} } },
         dsh: { cardPath: draft.cardPath, regexScripts: [], model: '' } } }
+    },
+    readTemplateWorldbook(id, name) {
+      const draft = requireDraft(id)
+      if (!draft.document) return { worldbook: null }
+      const view = inspectWorldBookDocument(draft.document)
+      if (name && name !== 'current' && name !== view.displayName && name !== templateWorldName(draft)) {
+        throw new Error('当前兼容层只能访问人物卡绑定的世界书: ' + name)
+      }
+      return { worldbook: projectTavernHelperWorldbook({ ...view, displayName: templateWorldName(draft) }) }
     },
     saveTemplateState(id, state) {
       const draft = requireDraft(id)
@@ -173,7 +183,8 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         if (!callback) throw new Error('独立生成服务尚未就绪')
         return await generations.run(draft.chat.sessionId, args.config?.generation_id, async signal => ({ text: await callback(args.config, {
           sessionId: draft.sourceSessionId, signal, chat: { ...copy(draft.chat), macroState: { ...copy(draft.chat.macroState), global: copy(draft.globalVariables || {}) } }, card: copy(draft.card),
-          worldBook: draft.document ? { view: inspectWorldBookDocument(copy(draft.document)) } : null,
+          worldBook: draft.document ? { view: { ...inspectWorldBookDocument(copy(draft.document)), displayName: templateWorldName(draft) } } : null,
+          templateSettings: copy(draft.extensionSettings.EjsTemplate),
           presetSnapshot: copy(draft.presetSnapshot), characterVariables: copy(draft.characterVariables || {}),
           extensions: { globalRegexScripts: copy(draft.regexScripts.global), characterRegexScripts: copy(draft.regexScripts.character), regexScripts: copy([...draft.regexScripts.global, ...draft.regexScripts.character]) },
           history: helperGenerationHistory(draft.chat)

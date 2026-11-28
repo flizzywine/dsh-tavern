@@ -1205,7 +1205,14 @@ function GalStage(props) {
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    // A game's figures follow its reading: a line read with a speaker stands that speaker alone (a focus actor - a picked target -
+    // stays), the player's own line or a name with no figure standing nobody; narration keeps the scene's actors; the player's own
+    // line in the text box (scene.input) is theirs, so only the scene's actors stand, not the line read before it.
+    const leaseRead = leasing && !leaseInput ? leaseView.pages?.[leaseView.page] : null;
+    const leaseStands = actor => leaseInput ? leaseView.scene.actors.some(item => item.alias === actor.id)
+        : !leaseRead || leaseRead.kind !== 'line' || actor.id === leaseRead.alias || actor.focus === true;
+    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage
+        && leaseStands(actor)) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));

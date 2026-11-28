@@ -159,7 +159,7 @@ const data = await ctx.tavern.readGameData({ gameId })
 | 1 ✅ | 插件存档数据（按轮、整局）；分叉时带上按轮数据和媒体项；生命周期观察 `onTimelineChanged`（回退、撤销回退、重新生成、编辑、分叉）；编辑正文后重新发 `onTurnSettled` | — |
 | 2 ✅ | 插件出错时退回 Tavern 自己的做法并记进日志（本局插件面板与按局开关已于 2026-10 去掉） | — |
 | 3 ✅ | 第一个替换类接口：结算替换 `replaceSettlement`。第一版只替换普通卡的姿势结算，交回 `posture`；官方 MVU 卡的变量结算仍由 Tavern 负责，变量更新的交回格式等有实际需求再定 | 批次 2 |
-| 4 部分 ✅ | 已开放：候选与压缩的「添加」（`candidateSection`、`compactionSection`）、浏览器侧插件面板 `registerPanel`。其余（输入、生成、宿主侧回复处理、世界书召回替换、候选与压缩的替换、MVU 变量结算替换）按实际需求开放 | 各自的需求 |
+| 4 部分 ✅ | 已开放：候选与压缩的「添加」（`candidateSection`、`compactionSection`）、浏览器侧插件面板 `registerPanel`、静态非常驻世界书的自动注入策略 `worldbookStrategy`。其余按实际需求开放 | 各自的需求 |
 
 每一批都附带：文档、内置 Skill 里的副本、示例插件中相关的部分，以及「插件出错时游戏照常」的测试。
 

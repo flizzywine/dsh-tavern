@@ -97,18 +97,16 @@ test('宿主没有补丁要改的字号代码时跳过（返回 null），不让
 })
 
 
-test('Node 门禁覆盖 0.2.2 预发布与 24.9 边界，保留旧 DSH / 独立 CLI 的 Node 22', () => {
-  for (const dsh of ['0.2.2-alpha.3', '0.2.2-rc.1', '0.2.2', '0.2.3']) {
+test('所有酒馆宿主统一要求 Node 24.9 或更新版本', () => {
+  const hosts = { desktop: minDshVersion, next: '0.2.2-rc.1', android: '0.2.1-rc.5', cli: adaptedDshVersion }
+  for (const [host, dsh] of Object.entries(hosts)) {
     for (const node of ['22.22.2', '24.8.9']) {
-      assert.throws(() => assertCompatibleDshVersion(dsh, 'desktop', node), /需要 Node.js 24\.9\.0[^]*当前宿主 Node.js/)
+      assert.throws(() => assertCompatibleDshVersion(dsh, host, node), /需要 Node.js 24\.9\.0[^]*当前宿主 Node.js/)
     }
     for (const node of ['24.9.0', '24.21.0', '25.0.0']) {
-      assert.doesNotThrow(() => assertCompatibleDshVersion(dsh, 'desktop', node))
+      assert.doesNotThrow(() => assertCompatibleDshVersion(dsh, host, node))
     }
   }
-  assert.doesNotThrow(() => assertCompatibleDshVersion(adaptedDshVersion, 'cli', '22.19.0'))
-  assert.doesNotThrow(() => assertCompatibleDshVersion('0.2.1-rc.5', 'android', '22.22.2'))
-  assert.throws(() => assertCompatibleNodeVersion(adaptedDshVersion, '22.18.0'), /22\.19\.0/)
   assert.throws(() => assertCompatibleNodeVersion('0.2.2-rc.1', ''), /当前宿主 Node.js 未知/)
 })
 

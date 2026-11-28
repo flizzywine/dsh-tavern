@@ -613,7 +613,7 @@
 				}
 			};
 			Object.defineProperty(sillyTavern, "chatMetadata", { enumerable: true, get: chatData.metadata });
-			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat });
+			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat, readExtensionSettings: () => extensionSettings });
 			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
 			const officialMvuContext = Object.freeze(Object.create(sillyTavern, {

@@ -9,7 +9,7 @@ export function identifyHelperModelMessages(messages) {
 
 /** Compile actual DSH card/preset/worldbook context without Session writes. */
 export async function generateHelper(config, context) {
-  const ordered_prompts = compileHelperGenerate(config, context)
+  const ordered_prompts = await compileHelperGenerate(config, context)
   const document = context.presetSnapshot?.compatibilityPresetDocument || {}
   const sampling = { ...config.custom_api }
   for (const [key, fallback] of [['temperature', document.temperature], ['max_tokens', document.openai_max_tokens ?? document.max_completion_tokens ?? document.max_tokens]]) {

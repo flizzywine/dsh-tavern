@@ -457,7 +457,7 @@ function GalBacklog(props) {
         // In export mode the wheel only scrolls (a drag to the end must not close the sheet).
         onWheel: clip.on ? event => event.stopPropagation() : onWheel },
         // art.backlog.decor: the skin's still or looping pictures over the sheet (theme.css 「art backlog decor」 draws them wide only).
-        looks.decor ? h("div", { className: "fork-gal-backlog-decor", "aria-hidden": true }, looks.decor.map((motion, index) => h("i", { key: index, "data-motion": motion || undefined,
+        looks.decor ? h("div", { className: "fork-gal-backlog-decor", "data-fk-layer": "", "aria-hidden": true }, looks.decor.map((motion, index) => h("i", { key: index, "data-motion": motion || undefined,
             style: Object.fromEntries(["img", "x", "y", "w", "h", "period", "delay"].map(key => ["--bd-" + key, "var(--art-bl-decor-" + index + "-" + key + ")"])) }))) : null,
         // art.backlog.turn: the current turn's number on the sheet (a folio); the digits' count sizes a long number down (theme.css 「art backlog turn」).
         props.turn && !props.lease ? h("p", { className: "fork-gal-backlog-folio", style: { "--bl-turn-digits": String(props.turn).length } },

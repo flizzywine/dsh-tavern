@@ -3,7 +3,7 @@ import { fork } from 'node:child_process'
 import { randomUUID, createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { redactMvuLoadError } from './mvu-diagnostics.js'
 
 const rpcMethods = new Set(['getFullPromptTemplateState', 'saveFullPromptTemplateState',
@@ -60,10 +60,11 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     // Do not inherit API keys, NODE_OPTIONS or arbitrary launch flags. File access
     // is limited to executable dependencies and plugin code, never profile data.
     const modules = dirname(dirname(require.resolve('jsdom/package.json')))
+    const jsdomEntry = pathToFileURL(require.resolve('jsdom')).href
     const plugin = fileURLToPath(new URL('../../', import.meta.url))
     // Node 24 removed the experimental alias; older hosts still need it.
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
-    const child = fork(worker, [], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+    const child = fork(worker, [jsdomEntry], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
       execArgv: [permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=' + heapMb],
       stdio: ['ignore', 'ignore', 'pipe', 'ipc', 'pipe'], serialization: 'advanced', windowsHide: true })
     const record = { child, sessionId, pending: new Map(), busy: true, ready: false, closed: false, stderr: '', usedAt: Date.now(), writes: Promise.resolve() }
@@ -120,7 +121,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     record.initialization = request(record, { type: 'initialize', sessionId, readOnly }).then(() => { record.ready = true })
     return record
   }
-  async function invoke(sessionId, operation, input, transient = false) {
+  async function invoke(sessionId, operation, input, transient = false, readOnlyProjection = false) {
     if (disposed || !sessionId) throw new Error('服务端提示词模板会话不可用')
     // Match the former JSON transport: host-only callbacks (notably random)
     // stay in the caller; randomSeed/randomRef carry deterministic evaluation.
@@ -139,7 +140,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
         record.busy = true; clearTimeout(record.idle)
         await record.initialization
         const result = operation === 'connect' ? undefined
-          : await request(record, operation === 'synchronize' ? { type: 'synchronize' } : { type: 'project', operation, input })
+          : await request(record, operation === 'synchronize' ? { type: 'synchronize' } : { type: 'project', operation, input, readOnlyProjection })
         if (disposed || generation !== generations.get(sessionId)) throw new Error('提示词模板任务已取消')
         job.phase = 'completed'; job.completedAt = Date.now()
         await save(sessionId, job)
@@ -166,6 +167,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
   return {
     forSession: sessionId => ({
       historyContext: 'session',
+      projectionScopeChanges: true,
       connect: () => invoke(sessionId, 'connect', {}, true),
       renderInput: (text, context = {}) => invoke(sessionId, 'input', { text, context }),
       prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }),
@@ -178,6 +180,13 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
       projectRequest: request => invoke(sessionId, 'request', { request }),
       projectRequestProjection: request => invoke(sessionId, 'request', { request }, true),
       initializeVariables: (entries, context = {}) => invoke(sessionId, 'initialize', { entries, context })
+    }),
+    forReadOnlyProjection: sessionId => ({
+      historyContext: 'session',
+      projectionScopeChanges: true,
+      prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true, true),
+      render: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true, true),
+      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true, true)
     }),
     synchronize: sessionId => invoke(sessionId, 'synchronize', {}, true),
     inspect: async sessionId => {

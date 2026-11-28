@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { recordUpdateDiagnostic, readUpdateDiagnostics } from '../../bin/update-diagnostics.mjs'
+import { readInstallerFailure, recordUpdateDiagnostic, readUpdateDiagnostics } from '../../bin/update-diagnostics.mjs'
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -102,9 +102,8 @@ async function readVerifiedRuntimeMetadata(sourceRoot) {
 export function sanitizeUpdateError(value) {
   const message = String(value || '').trim()
   if (/PostQueuedCompletionStatus:\s*\(6\)/.test(message)) return '更新失败：Windows 安装子进程退出异常（PostQueuedCompletionStatus: 6，句柄无效）。请使用修复后的更新程序重试；原始详情见更新诊断日志。'
-  const replacements = (message.match(/\uFFFD/g) || []).length
-  if (replacements >= 2) return '更新失败：安装程序输出编码异常。建议重新安装一次。'
-  return message || '更新失败，请重新安装一次。'
+  const readable = message.split(/\r?\n/).filter(line => !line.includes('\uFFFD')).join('\n').trim()
+  return readable || '更新失败，请查看更新诊断日志。'
 }
 
 function installHostOf(manifest) {
@@ -322,15 +321,18 @@ export function createApplicationUpdater(options) {
     }
   }
 
+  let checkedManifest
   async function versions(identity) {
     const { currentVersion, currentCommit } = identity
     if (currentVersion === 'unknown') throw new Error('无法确认当前构建，请手动重新安装')
     if (currentVersion === '') throw new Error('版本信息不完整')
     async function publishedVersion(checkSource, fetchManifest) {
-      const compared = await compareCdnRuntime(sourceRoot, await fetchManifest())
+      const manifest = await fetchManifest()
+      const compared = await compareCdnRuntime(sourceRoot, manifest)
       record('manifest.comparison', { ...identity, latestVersion: compared.version, latestCommit: compared.revision,
         latestReleaseSequence: compared.releaseSequence, matches: compared.matches, checkSource })
       const updateAvailable = !compared.matches && await relationTo(identity, compared)
+      checkedManifest = manifest
       return { currentVersion, latestVersion: compared.version || 'unknown', currentCommit, latestCommit: compared.revision, checkSource, updateAvailable }
     }
     let githubError
@@ -467,7 +469,8 @@ export function createApplicationUpdater(options) {
         return { ...recovered, ...identity }
       }
       if (current.phase === 'failed') {
-        const error = sanitizeUpdateError(current.error)
+        const details = String(current.error || '').includes('安装程序输出编码异常') ? readInstallerFailure(dataRoot, current.attemptId) : ''
+        const error = sanitizeUpdateError(details || current.error)
         if (error !== current.error) {
           const readable = { ...current, error }
           await writeStatus(readable, { expectedAttemptId: current.attemptId })
@@ -610,7 +613,12 @@ export function createApplicationUpdater(options) {
         checkSource: version.checkSource, checkWarning: version.checkWarning,
       }),
     }
-    try { await writeStatus(running, { attemptId }) } catch (error) {
+    try {
+      if (installHost !== 'android' && checkedManifest && checkedManifest.revision === version.latestCommit) {
+        lease.withOwnership(() => writeFileSync(path.join(lease.lockDir, 'runtime-manifest.json'), JSON.stringify(checkedManifest), { flag: 'wx', mode: 0o600 }))
+      }
+      await writeStatus(running, { attemptId })
+    } catch (error) {
       // No launch has been attempted; release this exact reservation even when
       // status persistence fails, rather than leaving an unadoptable pid:0 lock.
       lease.release()

@@ -153,6 +153,8 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             reportError("候选项重新生成", error);
             if (guide.getSnapshot() === loading) guide.set({ ...panel, phase: "input", error: String(error?.message || error) });
             if (candidates.getSnapshot() === candidate) candidates.set({ ...candidate, phase: "error", error: String(error?.message || error) });
+        } finally {
+            coordination.invalidate(panel.sessionId);
         }
     }
     function cancelGuide(panel) {

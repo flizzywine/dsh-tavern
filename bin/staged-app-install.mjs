@@ -5,6 +5,7 @@
 // failure after the switch restores the previous directory exactly.
 //
 //   prepare  --app A --source S [--commit C]          build A.staging from S
+//   relocate-dependencies --app A                     prepare staged pnpm links for A
 //   swap     --app A                                   A -> A.previous, A.staging -> A, carry user files
 //   rollback --app A                                   undo swap: user files back, A.previous -> A
 //   commit   --app A                                   drop A.previous after a verified install
@@ -196,6 +197,11 @@ if (isEntryPoint) {
     // prepare may clean an interrupted .previous; commit removes the old release.
     if (command === 'prepare' || command === 'commit') await preserveInstallationFonts(app)
     if (command === 'prepare') console.log(prepare({ app, source: argument(args, 'source'), commit: argument(args, 'commit') || '' }))
+    else if (command === 'relocate-dependencies') {
+      const { relocatePnpmInstall } = await import('./relocate-pnpm-install.mjs')
+      const paths = stagedPaths(app)
+      relocatePnpmInstall([[paths.staging, paths.app]])
+    }
     else if (command === 'swap') {
       if (process.env.DSH_TAVERN_DESKTOP_UPDATE === '1') {
         const { assertDesktopStopped } = await import('./import-user-home.mjs')

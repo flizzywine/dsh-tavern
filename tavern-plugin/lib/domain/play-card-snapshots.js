@@ -1,5 +1,6 @@
 import { worldbookContentDigest } from './worldbook-version.js'
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { constantWorldBookContext } from './worldbook-recall.js'
 import { inspectWorldBookDocument } from './worldbook-resource.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
@@ -95,13 +96,12 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     return patch.cardContextSnapshot
   }
 
-  /** A game that follows the library has no world book to update or synchronize. */
+  /** A game that follows the library adopts embedded book edits without reloading its card. */
   function libraryBoundStatus(chat, card) {
     const base = cardStatusBase(chat, card)
-    // The card itself is still frozen: its explicit reload needs a digest, which
-    // guards the card alone because the game reads the live book every turn.
+    const cardChanged = base.cardChanged && !sameCardDefinition(chat, card)
     const digest = keepsCopy(chat) ? '' : cardOnlyDigest(card)
-    return { ...base, available: base.cardChanged, worldbookChanged: false, worldbookSyncRequired: false, digest }
+    return { ...base, cardChanged, available: cardChanged, worldbookChanged: false, worldbookSyncRequired: false, digest }
   }
 
   /** The stored snapshot when ensure() would neither rebuild nor rewrite it. */
@@ -199,6 +199,13 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     return { legacy: !chat.cardContentDigest, cardChanged, migrations }
   }
 
+  function sameCardDefinition(chat, card) {
+    if (!chat.cardContentDigest || !chat.cardDefinitionSnapshot || !card) return false
+    const { character_book: _frozenBook, ...frozen } = chat.cardDefinitionSnapshot
+    const { character_book: _libraryBook, ...library } = card
+    return isDeepStrictEqual(withoutPresentationOnly(frozen), withoutPresentationOnly(library))
+  }
+
   async function updateStatus(chat, card, observed) {
     const base = cardStatusBase(chat, card)
     try {
@@ -229,10 +236,18 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     if (syncing.has(key)) return null
     syncing.add(key)
     try {
+      if (chat.openingWorldbookSnapshot?.version !== 1) {
+        if (keepsCopy(chat)) return await refreshConstantPrefix(chat, card ?? await readCard(chat))
+        const definition = chat.cardDefinitionSnapshot ?? await readCard(chat)
+        const latest = card ?? await readLatestCard?.(chat.cardPath)
+        // Only adopt the book here. Other card changes still go through the
+        // reload path, which owns script restarts and variable migrations.
+        const syncEmbeddedBook = latest && definition
+          && !isDeepStrictEqual(definition.character_book, latest.character_book) && sameCardDefinition(chat, latest)
+        return await refreshConstantPrefix(chat, syncEmbeddedBook
+          ? { ...definition, character_book: latest.character_book } : definition, syncEmbeddedBook)
+      }
       const definition = card ?? await readCard(chat)
-      // A game that keeps no copy already reads the library every turn; only its
-      // fixed prefix can be stale, and it is the same "next read" promise.
-      if (chat.openingWorldbookSnapshot?.version !== 1) return await refreshConstantPrefix(chat, definition)
       let observed
       try { observed = await observe(chat, definition) }
       catch (error) {
@@ -285,25 +300,30 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     } finally { syncing.delete(key) }
   }
 
-  async function refreshConstantPrefix(chat, definition) {
-    if (!chat.cardContextConstants) return { applied: false }
+  async function refreshConstantPrefix(chat, definition, syncEmbeddedBook) {
+    if (!chat.cardContextConstants && !syncEmbeddedBook) return { applied: false }
     let record = null
     try { record = await worldBooks.bound(chat.cardPath, definition, chat) } catch { return { applied: false } }
     // Digest exactly what build() bakes in; a different projection rewrites the save on every read.
     const digest = constantWorldbookDigest(prefixText(record))
-    if (chat.cardContextConstants === digest) return { applied: false }
-    const patch = await build({ ...chat, cardContextConstants: digest }, chat.cardDefinitionSnapshot || definition, true, record)
-    patch.cardContextRevision = (Number(chat.cardContextRevision) || 0) + 1
+    const prefixChanged = chat.cardContextConstants !== digest
+    if (!prefixChanged && !syncEmbeddedBook) return { applied: false }
+    const patch = prefixChanged
+      ? { ...(await build(chat, syncEmbeddedBook ? definition : chat.cardDefinitionSnapshot || definition, true, record)),
+          cardContextRevision: (Number(chat.cardContextRevision) || 0) + 1 }
+      : { cardDefinitionSnapshot: structuredClone(definition), cardContentDigest: cardContentDigest(definition),
+          worldbookLibraryDigest: worldbookContentDigest(record) }
     // The recall prepared for the next turn was built against the old prefix.
     patch.preparedWorldBook = null
     patch.preparedWorldBookContext = ''
     let applied = false
     // Another read may already have refreshed the prefix while this one ran.
     const saved = await updateChat(chat.id, current => {
-      if (current.cardContextConstants !== chat.cardContextConstants || current.openingWorldbookSnapshot?.version === 1) return current
+      if (current.cardContextConstants !== chat.cardContextConstants || current.cardContentDigest !== chat.cardContentDigest
+        || current.cardContextRevision !== chat.cardContextRevision || current.openingWorldbookSnapshot?.version === 1) return undefined
       applied = true
       return Object.assign({}, current, patch)
-    }, { source: 'card-context.constants' })
+    }, { source: prefixChanged ? 'card-context.constants' : 'card-context.embedded-worldbook' })
     if (!applied || !saved) return { applied: false }
     try { Object.assign(chat, patch) } catch { /* a projection may be frozen; the save above is authoritative */ }
     return { applied: true, patch, saved }
@@ -365,7 +385,7 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
   async function currentStatus(chat, { busy = false } = {}) {
     const latest = await readLatestCard(chat.cardPath)
     if (!keepsCopy(chat)) {
-      if (!busy) await autoSync(chat, undefined)
+      if (!busy) await autoSync(chat, latest)
       return libraryBoundStatus(chat, latest)
     }
     const synced = busy ? null : await autoSync(chat, latest)

@@ -88,6 +88,10 @@ else
   [ -f "${PNPM_CJS:-}" ] || die "找不到 pnpm（${PNPM_CJS:-未指定}）；先 corepack install，或设 PNPM_CJS"
   SHIM=$OUT/host-bin; mkdir -p "$SHIM"
   printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$HOST_NODE" "$PNPM_CJS" > "$SHIM/pnpm"; chmod +x "$SHIM/pnpm"
+  NPM_CLI=$(dirname "$HOST_NODE")/../lib/node_modules/npm/bin/npm-cli.js
+  if [ -f "$NPM_CLI" ]; then
+    printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$HOST_NODE" "$NPM_CLI" > "$SHIM/npm"; chmod +x "$SHIM/npm"
+  fi
   ln -sf "$HOST_NODE" "$SHIM/node"
 
   SRC=$OUT/src

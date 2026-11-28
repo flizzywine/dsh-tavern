@@ -2439,6 +2439,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-config-slider > .fork-gal-config-value-reset { grid-template-columns: auto var(--gal-cfg-hit); }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-seg { display: flex; box-sizing: border-box; width: 100%; }
 .fork-gal-stage .fork-gal-config[data-layout="compact"] .fork-gal-config-seg button { flex: 1 1 0; min-width: 0; padding: 0 calc(var(--gal-cfg-gap) / 2); letter-spacing: .06em; white-space: nowrap; }
+/* A toggle's 关 | 开 stays on its label's line, each word a full touch target. */
+.fork-gal-stage .fork-gal-config[data-layout="compact"] .fork-gal-config-row[data-fk-control="toggle"] .fork-gal-config-seg button { flex: none; min-width: calc(var(--gal-cfg-field) * 1.6); }
 /* The skin select takes the row's width like the font pickers; its list stays a list. */
 .fork-gal-stage .fork-gal-config[data-layout="compact"] :is(.fork-gal-skin-trigger, .fork-font-pick.is-stage .fork-font-trigger) { width: 100%; letter-spacing: .06em; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-preview { max-width: none; margin: var(--gal-cfg-gap) 0 0; padding: var(--gal-cfg-gap) calc(var(--gal-cfg-gap) * 1.5); }
@@ -5693,17 +5695,21 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-sep { height: 0; margin: 0; border: 0 none; }
   .fork-gal-stage[data-fk-skin-art-menu-strips~="title"]:not(.is-film) .fork-gal-menu-strip[data-show="title"] { display: flex; --s-img: var(--art-ms-title-img); --s-x: var(--art-ms-title-x); --s-y: var(--art-ms-title-y); --s-w: var(--art-ms-title-w); --s-h: var(--art-ms-title-h);
     --s-l: var(--art-ms-title-l); --s-r: var(--art-ms-title-r); --s-m: var(--art-ms-title-m); --s-font: var(--art-ms-title-font); --s-justify: var(--art-ms-title-justify); --s-ink: var(--art-ms-title-ink, var(--gal-ui-ink));
-    --s-rule: var(--art-ms-title-rule, none); --s-rule-w: var(--art-ms-title-rule-w, 0); --s-rule-h: var(--art-ms-title-rule-h, 0); --s-rule-gap: var(--art-ms-title-rule-gap, 0); }
+    --s-rule: var(--art-ms-title-rule, none); --s-rule-w: var(--art-ms-title-rule-w, 0); --s-rule-h: var(--art-ms-title-rule-h, 0); --s-rule-gap: var(--art-ms-title-rule-gap, 0);
+    --s-weight: var(--art-ms-title-weight, 500); --s-stroke: var(--art-ms-title-stroke, transparent); --s-stroke-w: var(--art-ms-title-stroke-w, 0); }
   .fork-gal-stage[data-fk-skin-art-menu-strips~="info"]:not(.is-film) .fork-gal-menu-strip[data-show="info"] { display: flex; --s-img: var(--art-ms-info-img); --s-x: var(--art-ms-info-x); --s-y: var(--art-ms-info-y); --s-w: var(--art-ms-info-w); --s-h: var(--art-ms-info-h);
     --s-l: var(--art-ms-info-l); --s-r: var(--art-ms-info-r); --s-m: var(--art-ms-info-m); --s-font: var(--art-ms-info-font); --s-justify: var(--art-ms-info-justify); --s-ink: var(--art-ms-info-ink, var(--gal-ui-ink));
-    --s-rule: var(--art-ms-info-rule, none); --s-rule-w: var(--art-ms-info-rule-w, 0); --s-rule-h: var(--art-ms-info-rule-h, 0); --s-rule-gap: var(--art-ms-info-rule-gap, 0); }
+    --s-rule: var(--art-ms-info-rule, none); --s-rule-w: var(--art-ms-info-rule-w, 0); --s-rule-h: var(--art-ms-info-rule-h, 0); --s-rule-gap: var(--art-ms-info-rule-gap, 0);
+    --s-weight: var(--art-ms-info-weight, 500); --s-stroke: var(--art-ms-info-stroke, transparent); --s-stroke-w: var(--art-ms-info-stroke-w, 0); }
   .fork-gal-stage[data-fk-skin-art-menu-strips~="keys"]:not(.is-film) .fork-gal-menu-strip[data-show="keys"] { display: flex; --s-img: var(--art-ms-keys-img); --s-x: var(--art-ms-keys-x); --s-y: var(--art-ms-keys-y); --s-w: var(--art-ms-keys-w); --s-h: var(--art-ms-keys-h);
     --s-l: var(--art-ms-keys-l); --s-r: var(--art-ms-keys-r); --s-m: var(--art-ms-keys-m); --s-font: var(--art-ms-keys-font); --s-justify: var(--art-ms-keys-justify); --s-ink: var(--art-ms-keys-ink, var(--gal-ui-ink));
-    --s-rule: var(--art-ms-keys-rule, none); --s-rule-w: var(--art-ms-keys-rule-w, 0); --s-rule-h: var(--art-ms-keys-rule-h, 0); --s-rule-gap: var(--art-ms-keys-rule-gap, 0); }
+    --s-rule: var(--art-ms-keys-rule, none); --s-rule-w: var(--art-ms-keys-rule-w, 0); --s-rule-h: var(--art-ms-keys-rule-h, 0); --s-rule-gap: var(--art-ms-keys-rule-gap, 0);
+    --s-weight: var(--art-ms-keys-weight, 500); --s-stroke: var(--art-ms-keys-stroke, transparent); --s-stroke-w: var(--art-ms-keys-stroke-w, 0); }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-strip { position: absolute; box-sizing: border-box; align-items: center; justify-content: var(--s-justify);
     left: calc(var(--gx) + var(--s-x) * var(--mu)); top: calc(var(--gy) + var(--s-y) * var(--mu)); width: calc(var(--s-w) * var(--mu)); height: calc(var(--s-h) * var(--mu));
     padding: max(0px, calc((2 * var(--s-m) - var(--s-h)) * var(--mu))) calc((var(--s-w) - var(--s-r)) * var(--mu)) max(0px, calc((var(--s-h) - 2 * var(--s-m)) * var(--mu))) calc(var(--s-l) * var(--mu));
-    background: var(--s-img) 0 0 / 100% 100% no-repeat; color: var(--s-ink); font: 500 calc(var(--s-font) * var(--mu)) / 1.2 var(--gal-ui-font); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+    background: var(--s-img) 0 0 / 100% 100% no-repeat; color: var(--s-ink); font: var(--s-weight, 500) calc(var(--s-font) * var(--mu)) / 1.2 var(--gal-ui-font); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+    -webkit-text-stroke: calc(var(--s-stroke-w, 0) * 2 * var(--mu)) var(--s-stroke, transparent); paint-order: stroke fill; }
   /* strip rule: the drawn rule hugging the words on both sides - the image as the right-hand rule at its natural
      size, mirrored on the left, --s-rule-gap from the words; the three stay centred as one in the text column (a strip without a
      rule of its own draws none: --s-rule none, 0 wide). */
@@ -5757,6 +5763,30 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     border-image: var(--art-mn-r) var(--art-mn-r-st) var(--art-mn-r-sr) var(--art-mn-r-sb) var(--art-mn-r-sl) fill / calc(var(--art-mn-r-st) * var(--mu)) calc(var(--art-mn-r-sr) * var(--mu)) calc(var(--art-mn-r-sb) * var(--mu)) calc(var(--art-mn-r-sl) * var(--mu)) stretch; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item b { font: inherit; letter-spacing: var(--art-mr-spacing, .04em);
     -webkit-text-stroke: calc(var(--art-mr-stroke-w, 0) * 2 * var(--mu)) var(--art-mr-stroke, transparent); paint-order: stroke fill; }
+  /* narrow icons (art.menu.narrow.rows.icons): each action's icon on its bar, --art-mn-ic-size design px square, its left edge
+     --art-mn-ic-x from the bar's start, centred on the bar; the label keeps its column. */
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-item { position: relative; }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-item::before { content: none; position: absolute; top: 50%;
+    left: calc(var(--art-mn-ic-x) * var(--mu)); width: calc(var(--art-mn-ic-size) * var(--mu)); height: calc(var(--art-mn-ic-size) * var(--mu)); translate: 0 -50%;
+    background: var(--art-mn-ic) center / contain no-repeat; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="resume"]:not(.is-film) .fork-gal-menu-item[data-item="resume"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-resume); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="backlog"]:not(.is-film) .fork-gal-menu-item[data-item="backlog"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-backlog); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="auto"]:not(.is-film) .fork-gal-menu-item[data-item="auto"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-auto); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="skip"]:not(.is-film) .fork-gal-menu-item[data-item="skip"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-skip); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="gallery"]:not(.is-film) .fork-gal-menu-item[data-item="gallery"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-gallery); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="latest"]:not(.is-film) .fork-gal-menu-item[data-item="latest"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-latest); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="regenerate"]:not(.is-film) .fork-gal-menu-item[data-item="regenerate"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-regenerate); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="config"]:not(.is-film) .fork-gal-menu-item[data-item="config"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-config); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="keys"]:not(.is-film) .fork-gal-menu-item[data-item="keys"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-keys); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icons~="leave"]:not(.is-film) .fork-gal-menu-item[data-item="leave"]::before { content: ""; --art-mn-ic: var(--art-mn-ic-leave); }
+  /* icon.place top: each icon centred above its words, --art-mn-ic-x design px between them, the pair centred on the bar */
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icon="top"]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-item { flex-direction: column; justify-content: center; align-items: center; gap: calc(var(--art-mn-ic-x) * var(--mu)); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-icon="top"]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-item::before { position: static; flex: none; translate: none; }
+  /* art menu: narrow grid - rows.cols: the bars as tiles, cols to a row sharing the list's width, gap apart both ways (the wide
+     tiles' grid on a phone); no slant, the separators not drawn (a gap in the grid would leave a hole). */
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-cols]:not(.is-film) .fork-gal-menu-list { display: grid; grid-template-columns: repeat(var(--art-mn-r-cols), minmax(0, 1fr)); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-cols]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-item { width: auto; min-width: 0; translate: none; }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-cols]:not(.is-film) .fork-gal-menu-list > .fork-gal-menu-sep { display: none; }
   /* anchor middle: the title and the bars one block centred in the height under the top bar (52px), on any phone height; taller
      than the screen, it scrolls from its top (safe center). rows.y = the space from the title to the first bar. */
   .fork-gal-stage[data-fk-skin-art-menu-narrow-anchor="middle"]:not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel:not(.fork-gal-confirm):not([hidden]) { display: flex; flex-direction: column;
@@ -5775,8 +5805,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     justify-content: var(--art-ms-title-justify); left: calc(50% + (var(--art-mn-t-x) - var(--art-ms-title-w) * var(--s-k) / 2) * var(--mu)); top: calc(var(--art-mn-t-y) * var(--mu));
     width: calc(var(--art-ms-title-w) * var(--s-k) * var(--mu)); height: calc(var(--art-ms-title-h) * var(--s-k) * var(--mu));
     padding: 0 calc((var(--art-ms-title-w) - var(--art-ms-title-r)) * var(--s-k) * var(--mu)) 0 calc(var(--art-ms-title-l) * var(--s-k) * var(--mu));
-    background: var(--art-ms-title-img) 0 0 / 100% 100% no-repeat; color: var(--art-ms-title-ink, var(--gal-ui-ink)); font: 500 max(var(--gal-ui-reading-size), calc(var(--art-ms-title-font) * var(--s-k) * var(--mu))) / 1.2 var(--gal-ui-font);
-    letter-spacing: .04em; white-space: nowrap; overflow: hidden; pointer-events: none; }
+    background: var(--art-ms-title-img) 0 0 / 100% 100% no-repeat; color: var(--art-ms-title-ink, var(--gal-ui-ink)); font: var(--art-ms-title-weight, 500) max(var(--gal-ui-reading-size), calc(var(--art-ms-title-font) * var(--s-k) * var(--mu))) / 1.2 var(--gal-ui-font);
+    letter-spacing: .04em; white-space: nowrap; overflow: hidden; pointer-events: none;
+    -webkit-text-stroke: calc(var(--art-ms-title-stroke-w, 0) * 2 * var(--s-k) * var(--mu)) var(--art-ms-title-stroke, transparent); paint-order: stroke fill; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-strip:is([data-show="info"], [data-show="keys"]) { display: none; }
   /* the lamp follows the title: x, y from its top-left */
   .fork-gal-stage[data-fk-skin-art-menu-narrow-signal]:not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel:not(.fork-gal-confirm)::after { content: ""; position: absolute; z-index: 2;
@@ -5797,6 +5828,63 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     transform-origin: var(--art-mp-sheet-origin); animation: fork-skin-menu-sheet var(--art-mp-sheet-ms) var(--art-mp-sheet-tf) var(--art-mp-sheet-delay) both; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow][data-fk-skin-art-menu-parts~="title"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving]) .fork-gal-menu-strip[data-show="title"] {
     transform-origin: var(--art-mp-title-origin); animation: fork-skin-menu-title var(--art-mp-title-ms) var(--art-mp-title-tf) var(--art-mp-title-delay) both; }
+}
+/* art gallery (art.gallery): the 回想 grid page as the original's page at every width - its ground and inks, a plate behind the
+   title row, a frame over each tile's edge, the ✕ as its own images; the CG viewer stays the dark media viewer. CSS px. */
+.fork-gal-stage[data-fk-skin-art-gallery]:not(.is-film) .fork-cg-gallery:not(.is-viewing) { --cg-ink: var(--art-gl-fg); --cg-ink-2: var(--art-gl-fg2); --cg-base: var(--art-gl-bg);
+  --cg-tile: color-mix(in srgb, var(--art-gl-fg2) 16%, var(--art-gl-bg)); --cg-card-hover: color-mix(in srgb, var(--art-gl-fg) 10%, transparent); --cg-glass-hover: color-mix(in srgb, var(--art-gl-fg) 18%, transparent); }
+.fork-gal-stage[data-fk-skin-art-gallery~="ground"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) { background: var(--art-gl-ground) center / cover no-repeat, var(--art-gl-bg); }
+.fork-gal-stage[data-fk-skin-art-gallery~="head"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-grid-top { margin: max(12px, 3vh) max(16px, 6%) 8px; padding: 0; border: 0 solid; border-width: var(--art-gl-head-w);
+  border-image: var(--art-gl-head) var(--art-gl-head-s) fill / var(--art-gl-head-w) stretch; }
+.fork-gal-stage[data-fk-skin-art-gallery~="panel"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-gallery-scroll { margin: 0 max(16px, 6%) max(16px, 4vh); padding: 0; border: 0 solid; border-width: var(--art-gl-panel-w);
+  border-image: var(--art-gl-panel) var(--art-gl-panel-s) fill / var(--art-gl-panel-w) stretch; }
+.fork-gal-stage[data-fk-skin-art-gallery]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-grid-top h2 { font-family: var(--gal-skin-font-name, var(--gal-ui-title-font, var(--gal-ui-font))); }
+.fork-gal-stage[data-fk-skin-art-gallery~="cell"]:not(.is-film) .fork-cg-gallery-cell { border-radius: calc(var(--art-gl-cell-w) * .8); }
+/* the caption stays light on the picture's shade, inside the frame */
+.fork-gal-stage[data-fk-skin-art-gallery]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-cell-title { color: #f4f5f9; }
+.fork-gal-stage[data-fk-skin-art-gallery~="cell"]:not(.is-film) .fork-cg-cell-title { padding: 30px calc(12px + var(--art-gl-cell-w)) calc(9px + var(--art-gl-cell-w)); }
+.fork-gal-stage[data-fk-skin-art-gallery~="cell"]:not(.is-film) .fork-cg-gallery-cell::after { content: ""; position: absolute; inset: 0; z-index: 4; border: 0 solid; border-width: var(--art-gl-cell-w);
+  border-image: var(--art-gl-cell) var(--art-gl-cell-s) / var(--art-gl-cell-w) stretch; pointer-events: none; }
+.fork-gal-stage[data-fk-skin-art-gallery~="cell"]:not(.is-film) .fork-cg-gallery-cell:is(:hover, :focus-visible):not(:disabled)::after { border-image-source: var(--art-gl-cell-focus); }
+.fork-gal-stage[data-fk-skin-art-gallery~="close"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-grid-top .fork-cg-round { border-radius: 0; background: var(--art-gl-close) center / contain no-repeat; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.fork-gal-stage[data-fk-skin-art-gallery~="close"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-grid-top .fork-cg-round:is(:hover, :focus-visible) { background-image: var(--art-gl-close-focus); }
+.fork-gal-stage[data-fk-skin-art-gallery~="close"]:not(.is-film) .fork-cg-gallery:not(.is-viewing) .fork-cg-grid-top .fork-cg-round > .fork-cg-icon { visibility: hidden; }
+/* art confirm: card on phones (art.confirm.card.unit): the same centred dialog at one design px = --art-cd-u CSS px, at most the
+   screen wide less 16px; its words at the reading size or more, its buttons at least 44px tall. The wide rules above, here. */
+@media (max-width: 640px) {
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film):has(.fork-gal-confirm) :is(.fork-gal-scene, .fork-gal-standins) { filter: brightness(calc(1 - var(--art-cd-dim))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-menu > .fork-gal-confirm { --mu: var(--art-cd-u); position: absolute; inset: auto; left: 50%; top: 50%; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; gap: calc(var(--art-cd-gap) * var(--mu)); box-sizing: border-box;
+    width: min(calc(100% - 16px), calc((var(--art-cd-width) + 2 * var(--art-cd-side)) * var(--mu))); max-width: none; height: auto; max-height: calc(100% - 16px); margin: 0;
+    padding: calc(var(--art-cd-pt) * var(--mu)) calc(var(--art-cd-side) * var(--mu)) calc(var(--art-cd-pb) * var(--mu)); border: 0 solid; border-radius: 0; box-shadow: none; animation: none; background: none;
+    border-image: var(--art-cd-band) var(--art-cd-st) var(--art-cd-sr) var(--art-cd-sb) var(--art-cd-sl) fill / calc(var(--art-cd-st) * var(--mu)) calc(var(--art-cd-sr) * var(--mu)) calc(var(--art-cd-sb) * var(--mu)) calc(var(--art-cd-sl) * var(--mu)) stretch;
+    color: var(--art-cd-ink, var(--gal-ui-ink)); font: 500 max(var(--gal-ui-reading-size), calc(var(--art-cd-font) * var(--mu))) / 1.4 var(--gal-skin-font-body, var(--gal-ui-font)); overflow: hidden auto; transform: translate(-50%, -50%); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm > * { position: relative; z-index: 1; width: 100%; margin: 0; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm h2 { justify-content: center; color: inherit; font: inherit; font-size: 1.15em; letter-spacing: .06em; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-card="start"]:not(.is-film) .fork-gal-confirm h2 { justify-content: flex-start; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm label { color: inherit; font-size: .8em; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg, .fork-gal-regenerate-actions) { display: flex; flex-wrap: wrap; justify-content: center; gap: calc(var(--art-cd-btn-gap) * var(--mu)); padding: 0; border-radius: 0; background: none; box-shadow: none; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)) { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; box-sizing: border-box;
+    min-width: 0; max-width: calc(var(--art-cd-btn-w) * var(--mu)); height: max(44px, calc(var(--art-cd-btn-h) * var(--mu))); min-height: 0; margin: 0; padding: 0 8px; border: 0 none; border-radius: 0;
+    background: var(--art-cd-btn) 0 0 / 100% 100% no-repeat; box-shadow: none; color: var(--art-cd-btn-ink, var(--gal-ui-ink)); font: 600 max(var(--gal-ui-reading-size), calc(var(--art-cd-btn-font) * var(--mu))) / 1 var(--gal-skin-font-name, var(--gal-ui-font)); letter-spacing: .06em; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm .fork-gal-config-seg button { height: 44px; font-size: var(--gal-ui-reading-size); }
+  /* button.choices: the choices at that share of the actions, as many to a row as fit */
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-choices]:not(.is-film) .fork-gal-confirm .fork-gal-config-seg button:not(.stage-wait) { min-width: calc(var(--art-cd-btn-w) * var(--mu) * var(--art-cd-choices));
+    height: max(44px, calc(var(--art-cd-btn-h) * var(--mu) * var(--art-cd-choices))); font-size: max(var(--gal-ui-reading-size), calc(var(--art-cd-btn-font) * var(--mu) * var(--art-cd-choices))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)):is(:hover, :focus-visible, [aria-checked="true"]):not(:disabled) {
+    background-image: var(--art-cd-btn-focus); color: var(--art-cd-btn-focus-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)):focus-visible { outline: 2px solid var(--art-cd-btn-lead, var(--gal-ui-accent)); outline-offset: -4px; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-primary]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[type="submit"]:not(.stage-wait) { background-image: var(--art-cd-pri);
+    color: var(--art-cd-pri-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-primary]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[type="submit"]:not(.stage-wait):is(:hover, :focus-visible):not(:disabled) { background-image: var(--art-cd-pri-focus);
+    color: var(--art-cd-pri-focus-ink, var(--art-cd-pri-ink, var(--art-cd-btn-ink, var(--gal-ui-ink)))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-cancel]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[data-ui-sfx="cancel"]:not(.stage-wait) { background-image: var(--art-cd-can);
+    color: var(--art-cd-can-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-cancel]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[data-ui-sfx="cancel"]:not(.stage-wait):is(:hover, :focus-visible):not(:disabled) { background-image: var(--art-cd-can-focus);
+    color: var(--art-cd-can-focus-ink, var(--art-cd-can-ink, var(--art-cd-btn-ink, var(--gal-ui-ink)))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow][data-fk-skin-art-confirm-label]:not(.is-film) .fork-gal-confirm .fork-gal-confirm-label { box-sizing: border-box; display: block; padding: .15em .9em; color: var(--art-cd-lab-ink);
+    border: 0 solid; border-image: var(--art-cd-lab) var(--art-cd-lab-s) fill / calc(var(--art-cd-lab-t) * var(--mu)) calc(var(--art-cd-lab-r) * var(--mu)) calc(var(--art-cd-lab-b) * var(--mu)) calc(var(--art-cd-lab-l) * var(--mu)) stretch; }
+  .fork-gal-stage[data-fk-skin-art-confirm-narrow]:not(.is-film) .fork-gal-confirm :disabled { filter: grayscale(1) brightness(.8); }
 }
 /* art menu: ransom and focusScale (skin-interface.md §18 N31): with art.menu.rows.letter / title.letter ransom the labels and the
    title are cut into glyph blocks (labels.cjs galRansomGlyphs: the name plate's closed variants, a word always the same) wherever
@@ -5978,10 +6066,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor { display: block; position: absolute; inset: 0; z-index: 0; pointer-events: none; }
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { position: absolute; left: calc(var(--gx) + var(--bd-x) * var(--mu)); top: calc(var(--gy) + var(--bd-y) * var(--mu));
     width: calc(var(--bd-w) * var(--mu)); height: calc(var(--bd-h) * var(--mu)); background: var(--bd-img) 0 0 / 100% 100% no-repeat; }
-  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i[data-motion="pulse"] { animation: fork-bl-decor-pulse var(--bd-period) ease-in-out var(--bd-delay) infinite; }
-  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i[data-motion="ping"] { opacity: 0; animation: fork-bl-decor-ping var(--bd-period) cubic-bezier(.2, .6, .35, 1) var(--bd-delay) infinite; }
-  .fork-gal-stage[data-reduced-motion][data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { animation: none; }
-  @media (prefers-reduced-motion: reduce) { .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor > i { animation: none; } }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor[data-fk-layer] > i[data-motion="pulse"] { animation: fork-bl-decor-pulse var(--bd-period) ease-in-out var(--bd-delay) infinite; }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor[data-fk-layer] > i[data-motion="ping"] { opacity: 0; animation: fork-bl-decor-ping var(--bd-period) cubic-bezier(.2, .6, .35, 1) var(--bd-delay) infinite; }
+  .fork-gal-stage[data-reduced-motion][data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor[data-fk-layer] > i { animation: none; }
+  @media (prefers-reduced-motion: reduce) { .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-decor[data-fk-layer] > i { animation: none; } }
   /* Backlog: the list in its rect; every entry the original's head (voice control, name over its frame and rule) and text. */
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-list { position: absolute; flex: none; box-sizing: border-box; left: calc(var(--gx) + var(--art-bl-list-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-list-y) * var(--mu));
     width: calc(var(--art-bl-list-w) * var(--mu)); height: calc(var(--art-bl-list-h) * var(--mu)); -webkit-mask-image: none; mask-image: none; }
@@ -6027,7 +6115,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-skin-art-backlog]:not([data-fk-skin-art-voice]):not(.is-film) .fork-gal-backlog-name > .fork-voice-button > svg { width: calc(var(--bl-voice-in) * .4); height: calc(var(--bl-voice-in) * .4); }
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { position: absolute; display: flex; align-items: flex-end; left: calc(var(--art-bl-name-x) * var(--mu)); top: calc(var(--art-bl-name-y) * var(--mu));
     height: calc(var(--art-bl-name-h) * var(--mu)); margin: 0; font-size: calc(var(--art-bl-name-font) * var(--mu)); line-height: 1; white-space: nowrap; }
-  .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b { position: relative; z-index: 1; color: inherit; font: var(--art-np-weight, 500) 1em / 1 var(--gal-skin-font-name, var(--gal-ui-font)); letter-spacing: 0; text-shadow: var(--art-np-halo, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b { position: relative; z-index: 1; color: var(--art-bl-name-ink, inherit); font: var(--art-np-weight, 500) 1em / 1 var(--gal-skin-font-name, var(--gal-ui-font)); letter-spacing: 0; text-shadow: var(--art-np-halo, none); }
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b::before,
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b::after { content: none; }
   /* With art.nameplate.initials the name takes the box plate's parts in the same ratios (galNameParts). */
@@ -6233,6 +6321,26 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="1"] { background-image: var(--art-voice-wave-1, none); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="2"] { background-image: var(--art-voice-wave-2, none); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="3"] { background-image: var(--art-voice-wave-3, none); }
+  /* art backlog: narrow voice - art.backlog.narrow.voice puts the replay control where the skin says on phones, as
+     art.backlog.voice does on wide stages (phone design px): row = its top-left at the entry's top-left + at; name = after the
+     name, moved by at; text = its left edge at the row's right end + at x (a phone's text column runs to it), centred on the
+     first line + at y. Its drawn size (default the name's size) gets 6px of touch margin round it. The name box reaches to the
+     row's end, so the row's width is known inside it. */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-narrow-voice][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button {
+    --bl-nv-w: calc(var(--art-bl-nv-w, var(--art-bl-name-font)) * var(--mu)); --bl-nv-h: calc(var(--art-bl-nv-h, var(--art-bl-name-font)) * var(--mu));
+    width: calc(var(--bl-nv-w) + 12px); height: calc(var(--bl-nv-h) + 12px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-narrow-voice="row"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; margin: 0; translate: none;
+    left: calc((var(--art-bl-nv-x) - var(--art-bl-name-x)) * var(--mu) - 6px); top: calc((var(--art-bl-nv-y) - var(--art-bl-name-y)) * var(--mu) - 6px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-narrow-voice="name"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: relative; margin: 0 0 0 calc(var(--art-bl-nv-x) * var(--mu) - 6px); translate: 0 calc(var(--art-bl-nv-y) * var(--mu)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-narrow-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { right: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-narrow-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; margin: 0; translate: none;
+    left: calc(100% + var(--art-bl-nv-x) * var(--mu) - 6px);
+    top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + 6px + (var(--art-bl-pitch) * var(--mu) - var(--bl-nv-h)) / 2 + var(--art-bl-nv-y) * var(--mu) - var(--art-bl-name-y) * var(--mu) - 6px); }
+  /* The name's rule never runs past the entry on a phone: the name box reaches to the row's end and the rule is drawn at most
+     to it (scaled to fit, as rules are stretchy lines). */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="rule"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { right: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="rule"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name::after {
+    width: min(calc(var(--art-bl-rule-w) * var(--mu)), calc(100% - (var(--art-bl-rule-x) - var(--art-bl-name-x)) * var(--mu))); }
   /* The highlight: the skin's image behind the current entry and the keyboard focus (touch has no hover). */
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row { isolation: isolate; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row:is(.is-here, .is-jump:hover, .is-jump:focus-visible) { background: none; outline: none; }
@@ -6447,6 +6555,26 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    mark is the screen's marker, so the title shows its word without the stage's gem. */
 .fork-gal-stage[data-fk-cs-art~="mark"] > .fork-gal-config .fork-gal-config-tab { grid-template-columns: var(--gal-cfg-mark) auto; }
 .fork-gal-stage[data-fk-cs-art~="mark"] > .fork-gal-config .fork-gal-config-title > .fork-gal-config-gem { display: none; }
+.fork-gal-stage[data-fk-cs-title-gem="none"] > .fork-gal-config .fork-gal-config-title > .fork-gal-config-gem { display: none; }
+.fork-gal-stage[data-fk-cs-title-ink] > .fork-gal-config .fork-gal-config-title { color: var(--cs-title-ink); }
+.fork-gal-stage[data-fk-cs-title-weight] > .fork-gal-config :is(.fork-gal-config-title, .fork-gal-config-title b) { font-weight: var(--cs-title-weight); }
+/* section band plates: a drawn band's words start past its fixed start edge (ガルパ's ★ before ライブ演出), in section.paint's ink */
+.fork-gal-stage[data-fk-cs-section="band"][data-fk-cs-art~="section"] > .fork-gal-config .fork-gal-config-caption { padding-block: .3em; padding-inline-start: calc(var(--cs-art-section-edge-start) + .25em); border-radius: 0; background: none; color: var(--cs-section-fg, inherit); }
+/* config label plates (row.labelPlate / labelPaint): each label on its own plate across its column (ガルパ's dark grey label pill), the words
+   in the plate's ink; the help mark in the same ink. */
+.fork-gal-stage[data-fk-cs-art~="label"] > .fork-gal-config .fork-gal-config-label { box-sizing: border-box; align-self: center; justify-self: start; width: min(100%, 20em); min-height: calc(var(--gal-cfg-hit) * .72); padding: 0 var(--gal-cfg-gap);
+  border: 0 solid; border-image: var(--cs-art-label) var(--cs-art-label-slice) / var(--cs-art-label-edge) / var(--cs-art-label-outset, 0) var(--cs-art-label-repeat, stretch); }
+.fork-gal-stage[data-fk-cs-label-paint] > .fork-gal-config .fork-gal-config-label { --gal-ui-ink: var(--cs-label-fg); --gal-ui-ink-2: var(--cs-label-fg); --gal-ui-muted: var(--cs-label-fg); color: var(--cs-label-fg); }
+/* segmented radio (controls.segmented.look radio + mark): each option a round mark beside its word, the chosen one's mark lit;
+   no plate, the words in the page's ink; the whole option is the hit area. */
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio { flex-wrap: wrap; gap: calc(var(--gal-cfg-gap) / 2) calc(var(--gal-cfg-gap) * 1.5); padding: 0; border-radius: 0; background: none; box-shadow: none; }
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio button { display: inline-flex; flex: none; align-items: center; gap: .4em; min-height: var(--gal-cfg-hit); padding: 0 .2em;
+  border: 0; border-radius: 0; border-image: none; background: none; box-shadow: none; color: var(--gal-ui-ink); }
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio button::before { content: ""; position: static; inset: auto; flex: none; width: calc(var(--gal-cfg-hit) * .72); height: calc(var(--gal-cfg-hit) * .72 / var(--cs-art-radio-ratio, 1));
+  background: var(--cs-art-radio) center / contain no-repeat; }
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio button:is(:hover, :focus-visible):not([aria-checked="true"])::before { background-image: var(--cs-art-radio-focus, var(--cs-art-radio)); }
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio button[aria-checked="true"] { background: none; color: var(--gal-ui-ink); }
+.fork-gal-stage[data-fk-cs] > .fork-gal-config .fork-gal-config-seg.is-radio button[aria-checked="true"]::before { background-image: var(--cs-art-radio-on); }
 .fork-gal-stage[data-fk-cs-art~="mark"] > .fork-gal-config[data-layout="compact"] { --gal-cfg-mark: calc(var(--gal-cfg-b) * 1.5); }
 .fork-gal-stage[data-fk-cs-art~="mark"] > .fork-gal-config[data-layout="compact"] .fork-gal-config-tab { justify-content: center; column-gap: calc(var(--gal-cfg-gap) / 3); }
 .fork-gal-stage[data-fk-cs-art~="mark"] > .fork-gal-config[data-layout="compact"] .fork-gal-config-tab b { letter-spacing: .04em; padding-left: 0; white-space: nowrap; }
@@ -6491,10 +6619,46 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-cs-control-segmented="stamps"] > .fork-gal-config .fork-gal-config-seg { flex-wrap: wrap; gap: 0; padding: 0; border-radius: 0; background: none; box-shadow: inset 0 0 0 2px var(--gal-ui-ink-2); }
 .fork-gal-stage[data-fk-cs-control-segmented="stamps"] > .fork-gal-config .fork-gal-config-seg button { border-radius: 0; font-weight: 700; letter-spacing: .18em; }
 .fork-gal-stage[data-fk-cs-control-segmented="stamps"] > .fork-gal-config .fork-gal-config-seg button[aria-checked="true"] { background: var(--gal-ui-ink); color: var(--gal-ui-surface-2); }
-.fork-gal-stage[data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-seg { padding: 0; background: none; }
-.fork-gal-stage[data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-seg button { border: 0 solid; border-image: var(--cs-art-segmented) var(--cs-art-segmented-slice) / var(--cs-art-segmented-edge) / var(--cs-art-segmented-outset, 0) var(--cs-art-segmented-repeat, stretch); border-radius: 0; background: none; }
-.fork-gal-stage[data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-seg button:hover { border-image-source: var(--cs-art-segmented-focus, var(--cs-art-segmented)); }
-.fork-gal-stage[data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-seg button[aria-checked="true"] { border-image-source: var(--cs-art-segmented-on, var(--cs-art-segmented)); background: none; color: var(--gal-ui-accent); }
+/* nav.align center: each tab's words centred on its plate (the original's tabs); a phone's tabs are centred already. */
+.fork-gal-stage[data-fk-cs-nav-align="center"] > .fork-gal-config .fork-gal-config-tab { justify-content: center; text-align: center; }
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg { padding: 0; background: none; }
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg button { border: 0 solid; border-image: var(--cs-art-segmented) var(--cs-art-segmented-slice) / var(--cs-art-segmented-edge) / var(--cs-art-segmented-outset, 0) var(--cs-art-segmented-repeat, stretch); border-radius: 0; background: none; box-shadow: none; }
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg button:hover { border-image-source: var(--cs-art-segmented-focus, var(--cs-art-segmented)); }
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg button[aria-checked="true"] { border-image-source: var(--cs-art-segmented-on, var(--cs-art-segmented)); background: none; color: var(--gal-ui-accent); }
+/* radio on a plate (look radio with segmented.plate): each option a pill holding its mark and word (an Off / On
+   pills), the chosen pill on its own plate; the words keep the page's ink. */
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg.is-radio button { padding: 0 1em 0 .35em; }
+.fork-gal-stage[data-fk-cs-art~="segmented"]:not([data-fk-cs-control-segmented="cycler"]) > .fork-gal-config .fork-gal-config-seg.is-radio button[aria-checked="true"] { color: var(--gal-ui-ink); }
+/* toggle radio (controls.toggle.look radio): 开 / 关 as round marks of the toggle's own (tmark), each on toggle.plate when drawn,
+   whatever the segmented look is (for example the multi-way rows cyclers, the toggles Off / On pills). */
+.fork-gal-stage[data-fk-cs-art~="tmark"] > .fork-gal-config .fork-gal-config-row[data-fk-control="toggle"] { --cs-art-radio: var(--cs-art-tmark); --cs-art-radio-on: var(--cs-art-tmark-on);
+  --cs-art-radio-focus: var(--cs-art-tmark-focus, var(--cs-art-tmark)); --cs-art-radio-ratio: var(--cs-art-tmark-ratio, 1); }
+.fork-gal-stage[data-fk-cs-control-toggle="radio"][data-fk-cs-art~="toggle"] > .fork-gal-config .fork-gal-config-row[data-fk-control="toggle"] .fork-gal-config-seg.is-radio button { padding: 0 1em 0 .35em;
+  border: 0 solid; border-image: var(--cs-art-toggle) var(--cs-art-toggle-slice) / var(--cs-art-toggle-edge) / var(--cs-art-toggle-outset, 0) var(--cs-art-toggle-repeat, stretch); border-radius: 0; background: none; box-shadow: none; }
+.fork-gal-stage[data-fk-cs-control-toggle="radio"][data-fk-cs-art~="toggle"] > .fork-gal-config .fork-gal-config-row[data-fk-control="toggle"] .fork-gal-config-seg.is-radio button:hover { border-image-source: var(--cs-art-toggle-focus, var(--cs-art-toggle)); }
+.fork-gal-stage[data-fk-cs-control-toggle="radio"][data-fk-cs-art~="toggle"] > .fork-gal-config .fork-gal-config-row[data-fk-control="toggle"] .fork-gal-config-seg.is-radio button[aria-checked="true"] { border-image-source: var(--cs-art-toggle-on, var(--cs-art-toggle)); color: var(--gal-ui-ink); }
+/* cycler art: steps (controls.segmented.steps) = the button either side of the value, always shown (the next one as drawn, the
+   previous mirrored; a press on one steps its way), and segmented.plate under look cycler = the value's field between them. */
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-cycler { flex: 1 1 auto; width: 100%; max-width: calc(var(--gal-cfg-b) * 18); }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-row[data-fk-control] > .fork-gal-config-control { justify-content: flex-start; }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-value-reset.is-select:has(> .fork-gal-config-cycler) { flex: 1 1 auto; }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-cycler-step { visibility: visible; width: calc(var(--gal-cfg-field) * var(--cs-art-steps-ratio, 1)); height: var(--gal-cfg-field);
+  border: 0; background: var(--cs-art-steps) center / 100% 100% no-repeat; cursor: pointer; }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-cycler-step[data-to="prev"] { transform: scaleX(-1); }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-cycler-step:hover { background-image: var(--cs-art-steps-focus, var(--cs-art-steps)); }
+.fork-gal-stage[data-fk-cs-art~="steps"] > .fork-gal-config .fork-gal-config-cycler[aria-disabled="true"] .fork-gal-config-cycler-step { filter: grayscale(1) brightness(.7); cursor: default; }
+.fork-gal-stage[data-fk-cs-control-segmented="cycler"][data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-cycler > b { display: grid; flex: 1 1 auto; place-items: center; box-sizing: border-box; min-height: var(--gal-cfg-field);
+  padding: .15em .8em; border: 0 solid; border-image: var(--cs-art-segmented) var(--cs-art-segmented-slice) / var(--cs-art-segmented-edge) / var(--cs-art-segmented-outset, 0) var(--cs-art-segmented-repeat, stretch); }
+.fork-gal-stage[data-fk-cs-control-segmented="cycler"][data-fk-cs-art~="segmented"] > .fork-gal-config .fork-gal-config-cycler:focus-visible > b { border-image-source: var(--cs-art-segmented-focus, var(--cs-art-segmented)); }
+/* slider endWords hidden: the rail without its end words (the originals' volume rails), the reading names the value; a phone's rail
+   takes the whole second line. readout: the reading in its own ink, on its own field when drawn. */
+.fork-gal-stage[data-fk-cs-slider-ends="hidden"] > .fork-gal-config .fork-gal-config-slider > .fork-gal-config-end { display: none; }
+.fork-gal-stage[data-fk-cs-slider-ends="hidden"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-slider { grid-template-columns: minmax(max(140px, calc(var(--gal-cfg-b) * 7)), 1fr) minmax(max-content, calc(var(--gal-cfg-b) * 5)); }
+.fork-gal-stage[data-fk-cs-slider-ends="hidden"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-slider > :is(.fork-gal-config-value, .fork-gal-config-value-reset) { justify-self: start; }
+.fork-gal-stage[data-fk-cs-slider-ends="hidden"] > .fork-gal-config[data-layout="compact"] .fork-gal-config-row[data-fk-control="slider"] { grid-template-areas: "label label value" "track track track"; }
+.fork-gal-stage[data-fk-cs-readout-paint] > .fork-gal-config :is(.fork-gal-config-slider .fork-gal-config-value, .fork-gal-mix-value) { color: var(--cs-readout-fg); }
+.fork-gal-stage[data-fk-cs-art~="readout"] > .fork-gal-config :is(.fork-gal-config-slider .fork-gal-config-value, .fork-gal-mix-value) { box-sizing: border-box; min-width: 3.4em; padding: .15em .8em; text-align: center;
+  border: 0 solid; border-image: var(--cs-art-readout) var(--cs-art-readout-slice) / var(--cs-art-readout-edge) / var(--cs-art-readout-outset, 0) var(--cs-art-readout-repeat, stretch); }
 /* toggle: lamp (a round lamp that lights) / word (开 · 关 in type, the live word inked). */
 .fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch-track { width: var(--gal-cfg-toggle-h); height: var(--gal-cfg-toggle-h); background: var(--gal-ui-track); }
 .fork-gal-stage[data-fk-cs-control-toggle="lamp"] > .fork-gal-config .fork-gal-config-switch-track > i { inset: calc(var(--gal-cfg-b) * .35); width: auto; height: auto; transform: none; background: var(--gal-ui-ink-disabled); box-shadow: none; }
@@ -6664,6 +6828,16 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   --cs-tab-pad-top: 11; --cs-tab-pad-bottom: 10; --cs-tab-pad-start: 26; --cs-tab-pad-end: 18; }
 .fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab.is-on { --cs-tab-pad-top: 9; --cs-tab-pad-bottom: 18; --cs-tab-pad-start: 33; --cs-tab-pad-end: 10; }
 .fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab b { padding-left: 0; line-height: 1; }
+/* painted pills in a top tab list: one strip across the page (ガルパ's オプション tabs) - the plates abut and share the row, the strip's
+   ends rounded, no rule under it; the words centred in their plates. */
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tabs { gap: 0; translate: none; margin: calc(var(--gal-cfg-gap) / 2) var(--gal-cfg-inset);
+  padding: 0; border: 0; border-radius: calc(var(--gal-cfg-hit) / 2); overflow: hidden; }
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab { flex: 1 1 0; justify-content: center; min-height: var(--gal-cfg-hit); border-radius: 0;
+  --cs-tab-pad-top: 6; --cs-tab-pad-bottom: 6; --cs-tab-pad-start: 12; --cs-tab-pad-end: 12; }
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"] > .fork-gal-config[data-layout="compact"] .fork-gal-config-tabs { gap: 0; }
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"] > .fork-gal-config .fork-gal-config-tab { border-radius: 0; }
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"] > .fork-gal-config .fork-gal-config-tab:first-child { clip-path: inset(0 round calc(var(--gal-cfg-hit) / 2) 0 0 calc(var(--gal-cfg-hit) / 2)); }
+.fork-gal-stage[data-fk-cs-tab-paint][data-fk-cs-nav="pills"] > .fork-gal-config .fork-gal-config-tab:last-child { clip-path: inset(0 round 0 calc(var(--gal-cfg-hit) / 2) calc(var(--gal-cfg-hit) / 2) 0); }
 /* nav.lead line: under a top tab list on wide frames, in the page's ink */
 .fork-gal-stage[data-fk-cs-lead][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-sheet { grid-template-rows: auto auto auto minmax(0, 1fr); }
 .fork-gal-stage[data-fk-cs-lead][data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-lead { display: block; margin: 0; padding: var(--gal-cfg-gap) var(--gal-cfg-inset) 0;
@@ -6677,6 +6851,23 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-cs-hints] > .fork-gal-config .fork-gal-config-hints > span:nth-child(2) { rotate: 2deg; }
   .fork-gal-stage[data-fk-cs-hints] > .fork-gal-config .fork-gal-config-hints kbd { font: inherit; font-family: var(--gal-ui-title-font, inherit); }
 }
+/* ---------- picker lists (controls.select.list; config-fields.cjs stagePopoverScope marks the portaled list data-fk-cs-list) ----------
+   The open font and skin lists in the surface's own drawing: list = the list's ground, option = each row (on = the chosen one,
+   focus = pointer and keys), lmark = the chosen mark in place of the ✓ (plain on every row, on the chosen one). Every rule names
+   the popover as the list rule does, so it outranks the font list's own rows (.fork-font-pop.is-stage.is-rows, later in this file). */
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="list"] { border: 0 solid; border-radius: 0; background: none; box-shadow: none;
+  border-image: var(--cs-art-list) var(--cs-art-list-slice) / var(--cs-art-list-edge) / var(--cs-art-list-outset, 0) var(--cs-art-list-repeat, stretch); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="list"] :is(.fork-font-list, .fork-gal-skin-list) { background: none; }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="option"] :is(.fork-font-option, .fork-gal-skin-option) { border: 0 solid; border-radius: 0; background: none; box-shadow: none;
+  border-image: var(--cs-art-option) var(--cs-art-option-slice) / var(--cs-art-option-edge) / var(--cs-art-option-outset, 0) var(--cs-art-option-repeat, stretch); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="option"] :is(.fork-font-option, .fork-gal-skin-option):is(:hover, :focus-visible) { background: none; border-image-source: var(--cs-art-option-focus, var(--cs-art-option)); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="option"] :is(.fork-font-option, .fork-gal-skin-option).is-on { background: none; box-shadow: none; border-image-source: var(--cs-art-option-on, var(--cs-art-option)); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="option"] .fork-font-option.is-follow { margin-bottom: calc(var(--gal-cfg-gap, 8px) / 2); box-shadow: none; }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="lmark"] :is(.fork-font-option-check, .fork-gal-skin-option-check) { width: 1.25em; height: 1.25em; background: var(--cs-art-lmark) center / contain no-repeat; }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="lmark"] :is(.fork-font-option, .fork-gal-skin-option):is(:hover, :focus-visible):not(.is-on) :is(.fork-font-option-check, .fork-gal-skin-option-check) { background-image: var(--cs-art-lmark-focus, var(--cs-art-lmark)); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="lmark"] :is(.fork-font-option, .fork-gal-skin-option).is-on :is(.fork-font-option-check, .fork-gal-skin-option-check) { background-image: var(--cs-art-lmark-on); }
+.fork-popover:is(.fork-font-pop.is-stage.is-rows, .fork-gal-skin-pop)[data-fk-cs-list~="lmark"] :is(.fork-font-option-check, .fork-gal-skin-option-check) > * { display: none; }
+/* ---------- end picker lists ---------- */
 /* ==== end stage skin: config surface ==== */
 /* The box's voice control drawn from art.voice at every width (the box art is drawn on a phone too), at the image's own size
    on the frame: the plate's size rule ([data-fk-skin-layout] ... .fork-gal-name .fork-gal-voice, 1.5 plate em) must not win -
@@ -6838,14 +7029,34 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)) { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; box-sizing: border-box;
     width: calc(var(--art-cd-btn-w) * var(--mu) * var(--bk, 1)); min-width: 0; height: calc(var(--art-cd-btn-h) * var(--mu) * var(--bk, 1)); min-height: 0; margin: 0; padding: 0 calc(var(--art-cd-btn-h) * var(--mu) * .3); border: 0 none; border-radius: 0;
     background: var(--art-cd-btn) 0 0 / 100% 100% no-repeat; box-shadow: none; color: var(--art-cd-btn-ink, var(--gal-ui-ink)); font: 600 calc(var(--art-cd-btn-font) * var(--mu) * var(--bk, 1)) / 1 var(--gal-skin-font-name, var(--gal-ui-font)); letter-spacing: .06em; }
-  /* the choices (a segmented pick) as smaller buttons on one row */
-  .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm .fork-gal-config-seg { --bk: .62; }
+  /* the choices (a segmented pick) as smaller buttons on one row (button.choices: their share of the actions' size) */
+  .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm .fork-gal-config-seg { --bk: var(--art-cd-choices, .62); }
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)):is(:hover, :focus-visible, [aria-checked="true"]):not(:disabled) {
     background-image: var(--art-cd-btn-focus); color: var(--art-cd-btn-focus-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm :is(.fork-gal-config-seg button, .fork-gal-regenerate-actions button:not(.stage-wait)):focus-visible { outline: calc(3 * var(--mu)) solid var(--art-cd-btn-lead, var(--gal-ui-accent)); outline-offset: calc(-10 * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button > span { display: block; }
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button:is(:hover, :focus-visible):not(:disabled) > span::first-letter { color: var(--art-cd-btn-lead, var(--gal-ui-accent)); }
   .fork-gal-stage[data-fk-skin-art-confirm]:not(.is-film) .fork-gal-confirm :disabled { filter: grayscale(1) brightness(.8); }
+  /* art confirm: card - the band as a centred dialog, nine-sliced round the content column and its sides; the head at its start
+     or centre. primary - the submit action on its own images and inks. */
+  .fork-gal-stage[data-fk-skin-art-confirm-card]:not(.is-film) .fork-gal-menu > .fork-gal-confirm { left: 50%; width: calc((var(--art-cd-width) + 2 * var(--art-cd-side)) * var(--mu)); max-width: calc(100% - 16px);
+    padding: calc(var(--art-cd-pt) * var(--mu)) calc(var(--art-cd-side) * var(--mu)) calc(var(--art-cd-pb) * var(--mu)); background: none; border: 0 solid;
+    border-image: var(--art-cd-band) var(--art-cd-st) var(--art-cd-sr) var(--art-cd-sb) var(--art-cd-sl) fill / calc(var(--art-cd-st) * var(--mu)) calc(var(--art-cd-sr) * var(--mu)) calc(var(--art-cd-sb) * var(--mu)) calc(var(--art-cd-sl) * var(--mu)) stretch;
+    transform: translate(-50%, -50%); }
+  .fork-gal-stage[data-fk-skin-art-confirm-card="start"]:not(.is-film) .fork-gal-confirm h2 { justify-content: flex-start; }
+  .fork-gal-stage[data-fk-skin-art-confirm-primary]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[type="submit"]:not(.stage-wait) { background-image: var(--art-cd-pri);
+    color: var(--art-cd-pri-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-primary]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[type="submit"]:not(.stage-wait):is(:hover, :focus-visible):not(:disabled) { background-image: var(--art-cd-pri-focus);
+    color: var(--art-cd-pri-focus-ink, var(--art-cd-pri-ink, var(--art-cd-btn-ink, var(--gal-ui-ink)))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-primary]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[type="submit"]:is(:hover, :focus-visible):not(:disabled) > span::first-letter { color: inherit; }
+  /* cancel: 取消 on its own images and inks (every width); label: each field label on its own plate, its words in the plate's ink. */
+  .fork-gal-stage[data-fk-skin-art-confirm-cancel]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[data-ui-sfx="cancel"]:not(.stage-wait) { background-image: var(--art-cd-can);
+    color: var(--art-cd-can-ink, var(--art-cd-btn-ink, var(--gal-ui-ink))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-cancel]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[data-ui-sfx="cancel"]:not(.stage-wait):is(:hover, :focus-visible) { background-image: var(--art-cd-can-focus);
+    color: var(--art-cd-can-focus-ink, var(--art-cd-can-ink, var(--art-cd-btn-ink, var(--gal-ui-ink)))); }
+  .fork-gal-stage[data-fk-skin-art-confirm-cancel]:not(.is-film) .fork-gal-confirm .fork-gal-regenerate-actions button[data-ui-sfx="cancel"]:is(:hover, :focus-visible) > span::first-letter { color: inherit; }
+  .fork-gal-stage[data-fk-skin-art-confirm-label]:not(.is-film) .fork-gal-confirm .fork-gal-confirm-label { box-sizing: border-box; display: block; padding: .15em .9em; color: var(--art-cd-lab-ink);
+    border: 0 solid; border-image: var(--art-cd-lab) var(--art-cd-lab-s) fill / calc(var(--art-cd-lab-t) * var(--mu, 1px)) calc(var(--art-cd-lab-r) * var(--mu, 1px)) calc(var(--art-cd-lab-b) * var(--mu, 1px)) calc(var(--art-cd-lab-l) * var(--mu, 1px)) stretch; }
 
   /* Backlog highlights: the current entry and the one under the pointer / focus behind the skin's own stain or strip. */
   /* The skin's one highlight (hover) behind the current entry and the hovered / focused one; the hover wins (as the shared rows). */

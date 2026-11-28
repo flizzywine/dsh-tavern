@@ -79,3 +79,19 @@ test('with the stage up but its session not yet holding authority the face waits
   assert.equal(listeners.size, 0)
   h.stop()
 })
+test('a game page face: the card figure as its bubble shows it, a name the cast does not know by the figure the lease lends it, one request per tick', async () => {
+  const pack = await syntheticPack(); pack.revision = 'r1'
+  const character = cardBubbleConfig({extensions:{dsh_tavern:cardExtension()}}, defaultAssetEngineSettings(), [pack]).characters[0]
+  const h = host({characters:[character]}), asked = []
+  const lentFace = {resource:true, kind:'media', ref:{packId:'lib', figureId:'mami'}, revision:'r1', hash:'h-mami', identity:'lib:figures:mami:h-mami', alias:'s_mami', crop:null}
+  h.context.setTimeout = setTimeout
+  h.context.rpc = async (method, args) => { asked.push([method, [...args.names]]); return {status:'ready', value:{lent:[{name:'巴麻美', alias:'s_mami'}], avatars:[{alias:'s_mami', outfitKey:'default', state:{id:'calm'}, avatarUrl:lentFace}]}} }
+  const [own, lent, none] = await Promise.all([character.name, '巴麻美', '路人'].map(name => h.context.gameFaceUrl('session', name)))
+  assert.equal(own, 'blob:cache:' + character.avatarMedia.default.identity)
+  assert.equal(lent, 'blob:cache:' + lentFace.identity)
+  assert.equal(none, null, 'a name with no figure has no face: the page shows its initial')
+  assert.deepEqual(asked, [['getStageLeasePresentation', ['巴麻美', '路人']]], 'only the names the card does not know, in one request')
+  assert.deepEqual(h.prepared.map(row => row.px), [96, 96])
+  assert.deepEqual([h.prepared[1].face.outfitKey, h.prepared[1].face.stateId, h.prepared[1].face.sessionId], ['default', 'calm', 'session'])
+  h.stop()
+})

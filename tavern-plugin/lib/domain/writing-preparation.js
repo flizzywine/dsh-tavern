@@ -1,6 +1,7 @@
 import { untilAborted } from './plugin-callback.js'
 import { writingMaterialText } from './writing-material-text.js'
 import { stripWritingSystemReminders } from './writing-system-reminders.js'
+import { pureWritingInjection } from './pure-writing-request.js'
 import { MAX_PLUGIN_TASK_TOOL_RESULT } from './plugin-task-execution.js'
 import receipts from './writing-material-receipts.cjs'
 
@@ -70,20 +71,23 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
     const done = new AbortController()
     const requestSignal = AbortSignal.any([done.signal, entry.lifetime.signal, AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])])
     const toolResults = []
+    const automatic = pureWritingInjection(frame, frame.source?.worldBook?.automaticContext)
+    const currentWorldbook = worldbookInContext(automatic ? [automatic] : [])
     const historicalWorldbook = worldbookInContext(context.messages)
-    const worldbookSeen = context.preparation ? new Set() : historicalWorldbook
+    const worldbookSeen = new Set(context.preparation ? currentWorldbook : [...historicalWorldbook, ...currentWorldbook])
     const worldbookHandoffs = new Map()
     const variablesSeen = new Set()
     const titleHints = stripWritingSystemReminders(frame.context?.worldbookTitleHints || '')
-    const queryContext = titleHints.trim() ? {
+    const queryContext = {
       ...context,
-      worldbookTitleHints: {
+      ...(automatic ? { automaticWorldbook: { ...automatic, id: frame.frameId + ':auto-worldbook' } } : {}),
+      ...(titleHints.trim() ? { worldbookTitleHints: {
         id: frame.frameId + ':worldbook-title-hints',
         role: 'user',
         content: [{ type: 'text', text: titleHints }],
         source: { kind: 'plugin:dsh-tavern-pure-writer', form: 'worldbook-title-hints' }
-      }
-    } : context
+      } } : {})
+    }
     let submitted
     let variableEvidence = false
     let variableFacts = ''
