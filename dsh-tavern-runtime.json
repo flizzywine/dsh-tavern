@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a94a563953b99405dc2c76096c3ade480e4dd835",
-  "releaseSequence": 2287,
+  "revision": "8bf64242caa44e54318b2d00c71cfe2987832bb8",
+  "releaseSequence": 2288,
   "version": "3.5.0",
   "files": [
     {
@@ -1251,8 +1251,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "18eff0f6f0a1aaf211aee8dbdc5cf821784db3ea5fc6797cb6ee55691b0eba8f",
-      "size": 6952571
+      "sha256": "f57aad40fff3c9b3d5156ae2306b7e7213aacb5ab163e0390d462a11d3996522",
+      "size": 6952965
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1666,8 +1666,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-opening-runtime.js",
-      "sha256": "9f931ce4a7c2ca4b7b08652827e171b9c5a3d4a0fb71156e4a6eedfd77f1b1cb",
-      "size": 5698
+      "sha256": "72aca06a3d143488103b4de7c0adf983207c94df820b5ef5671fcaa733d1bb19",
+      "size": 5720
     },
     {
       "path": "tavern-plugin/lib/domain/card-opening-scenes.js",
@@ -2551,8 +2551,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/live-card-update.js",
-      "sha256": "a7f1c6c217500ba56784fd371d3e8914af148ad7d974328767fd9f2782d1b952",
-      "size": 20122
+      "sha256": "d2f2f86f4680e7d569b9d840f1322d8f716a2fe0d8c341eb83e50586992ec7a3",
+      "size": 22374
     },
     {
       "path": "tavern-plugin/lib/domain/manual-ledger.js",
@@ -2786,8 +2786,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "63934b45a811b753f2f450658290aab33335356ae5cc841bce748d5472412149",
-      "size": 58382
+      "sha256": "3223a796d27803195c5a760cb9987b5c3ceb4cf294d6a70c4d1b4614abe09a2b",
+      "size": 65549
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -2796,8 +2796,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-check.js",
-      "sha256": "1e657b4723fce21206c5d7caf7148133721e42c37e3ebf1bdb9aa32decbdb224",
-      "size": 9599
+      "sha256": "aa7918e2208356f697dcd5e87f463bd74253aa46359aeee444757371a397b1c7",
+      "size": 10453
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-diagnostics.js",
@@ -2806,8 +2806,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-limits.js",
-      "sha256": "d299acfcf176dba63ca89769dfee7480dd94870115d137be11b0f1b828dd2bc8",
-      "size": 7247
+      "sha256": "efcfea72f0ada3b22f1592225d61d9b06ee731f3d15a91dd517ae971d89f04ab",
+      "size": 12103
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-npc-registration.js",
@@ -2831,8 +2831,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-engine.js",
-      "sha256": "541d6223e7c6465adacd949c414d1f6123677b75de475e6f883b34213ed1b39e",
-      "size": 19825
+      "sha256": "b9d358e0237d19dfd3866ec745f41442bc6d0f8d2adaf1b3fca49b46005a0324",
+      "size": 19894
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-reconciler.js",
@@ -2863,6 +2863,11 @@
       "path": "tavern-plugin/lib/domain/mvu-working-copy.js",
       "sha256": "b72d62339f79e3238a3498c5ed4bdf9f587c9959a61c2a457907ecdd4133ce8e",
       "size": 2397
+    },
+    {
+      "path": "tavern-plugin/lib/domain/mvu-write-gate.js",
+      "sha256": "0646ec8983af3e6a56ba367c69b7267f3bb01e484336dc16fe1ffa8c3576c479",
+      "size": 13004
     },
     {
       "path": "tavern-plugin/lib/domain/narrative-damper.js",
@@ -2911,8 +2916,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-preparation.js",
-      "sha256": "1d8fc9ddd592ff391f3117fa70dc5a228a7be502fd0305b40c3e3dd313555ae6",
-      "size": 26631
+      "sha256": "0cd8db795bef01bcefb865704ff74f5d99d0c3c0a5761d40487b3a1bc44b264f",
+      "size": 27465
     },
     {
       "path": "tavern-plugin/lib/domain/opening-setup.js",
@@ -3091,8 +3096,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-variables.js",
-      "sha256": "eefacdb2be6fd3a28608bbdc191280506ae2c34ed3b65f79a9b7ca1e50ba4092",
-      "size": 2357
+      "sha256": "43fdf3ae0bfb0d69c61eab01d0a1327e79c23e15e6a4d89a8619874fc2a096ce",
+      "size": 2681
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-worldbook.js",
@@ -3991,8 +3996,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-host-adapter.js",
-      "sha256": "1a4643b2bdf9adde47494164cb6d7ce3935cb4af8e153a8a32d9b6faf1fcab64",
-      "size": 62260
+      "sha256": "19e60029908faada7a5c93f3d95f177c787a4ee0d3aec47a46b6e5685b73e6c4",
+      "size": 66688
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-prompts.js",
@@ -4586,8 +4591,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "d7a0043fafacef69156130524d3d0149875959bde0bbe6e11d00c1b388a23529",
-      "size": 274955
+      "sha256": "e551acb0c28e63dc5f58f519ecbd146dd6cd400bd97f47c761eac6fd48e0a91b",
+      "size": 275895
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4641,8 +4646,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-tools.js",
-      "sha256": "c8fec1375c9a6d1a1148e0e8efeb747f2a0686c3fa8d2cf734a728a42f8075bd",
-      "size": 4990
+      "sha256": "343f3da15f229c30c5457097c80c2291a80e860abe23f766fa5b0c33a2951b7a",
+      "size": 6762
     },
     {
       "path": "tavern-plugin/lib/native-settings.js",
@@ -4741,8 +4746,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/template.js",
-      "sha256": "62da11dbb3daad08323f646d32d2d20b2285437387f9d32957cf787b5b46e9d9",
-      "size": 17124
+      "sha256": "923248dd53afdfdb2ad4dea7f9894cfe4fe263bab69f85aed5ed690d66e63820",
+      "size": 17784
     },
     {
       "path": "tavern-plugin/lib/rpc/transfer.js",
@@ -10470,9 +10475,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "fe8a194d002a0f3f80581f4ebf97ffad3ac533a8",
+    "commit": "f2c6bf7d224a1a3b8c9c21a293637b8a4a49d434",
     "path": "runtime.zip",
-    "sha256": "b4daee0124676be7ad4382c57f4610ab645f1814f228d925daf30b7b4312f7d8",
-    "size": 18403025
+    "sha256": "d7fcdfcfd81e4150fddc83ce0a7419ea1ef030e575e82d5eefa8610c5ac863c4",
+    "size": 18415351
   }
 }
