@@ -9,6 +9,7 @@
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
+const { execFileSync, spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
 const { inflateRawSync } = require('node:zlib')
 
@@ -63,9 +64,17 @@ async function fetchBytes(url, { stallMs = 30000, signal, headers, onData, fetch
   let stalled = false, timer
   const arm = () => { clearTimeout(timer); timer = setTimeout(() => { stalled = true; controller.abort() }, stallMs) }
   const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
-  arm()
-  try {
+  let abort
+  const canceled = new Promise((_, reject) => {
+    abort = () => reject(combined.reason)
+    combined.addEventListener('abort', abort, { once: true })
+  })
+  async function receive() {
     const response = await request(url, { signal: combined, headers, redirect: 'follow' })
+    if (combined.aborted) {
+      void response.body?.cancel().catch(() => {})
+      combined.throwIfAborted()
+    }
     if (!response.ok) {
       try { await response.body?.cancel() } catch {}
       throw failure('HTTP', `HTTP ${response.status}`, { status: response.status })
@@ -74,16 +83,25 @@ async function fetchBytes(url, { stallMs = 30000, signal, headers, onData, fetch
     const chunks = []
     let received = 0
     if (response.body) for await (const chunk of response.body) {
+      combined.throwIfAborted()
       arm()
       const bytes = Buffer.from(chunk)
       chunks.push(bytes); received += bytes.length
       onData?.(received, total)
     }
     return Buffer.concat(chunks)
+  }
+  try {
+    combined.throwIfAborted()
+    arm()
+    return await Promise.race([receive(), canceled])
   } catch (error) {
     if (stalled) throw failure('STALLED', `${duration(stallMs)}没有收到数据`, { cause: error })
     throw error
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+    combined.removeEventListener('abort', abort)
+  }
 }
 
 // Try `urls` in turn (cycling) until one returns bytes matching `sha256`/`size`.
@@ -296,12 +314,83 @@ function archiveUrls(rootUrl, archive) {
   return urls
 }
 
+async function probeArchives(metadata, rootUrl, githubUrl, { fetch: request = fetch, timeoutMs = 5000 } = {}) {
+  const controller = new AbortController()
+  const zipMagic = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+  async function transfersBytes(url, magic) {
+    const response = await request(url, { signal: controller.signal, headers: { Range: 'bytes=0-4095' } })
+    let reader
+    try {
+      if (!response.ok || !response.body) throw failure('HTTP', `HTTP ${response.status}`)
+      reader = response.body.getReader()
+      let prefix = Buffer.alloc(0)
+      while (prefix.length < magic.length) {
+        const { done, value } = await reader.read()
+        if (done) throw failure('ARCHIVE', '压缩包响应不完整')
+        prefix = Buffer.concat([prefix, value.subarray(0, magic.length - prefix.length)])
+      }
+      if (!prefix.equals(magic)) throw failure('ARCHIVE', '响应不是预期的压缩包')
+      return url
+    } finally {
+      void (reader ? reader.cancel() : response.body?.cancel())?.catch(() => {})
+    }
+  }
+  const githubMagic = /\/zip\/|\.zip$/i.test(new URL(githubUrl).pathname) ? zipMagic : Buffer.from([0x1f, 0x8b])
+  let fallback = 'git'
+  const github = transfersBytes(githubUrl, githubMagic).then(() => { fallback = 'github' }, () => {})
+  const archive = runtimeArchive(metadata)
+  const cdn = archive && Promise.any(archiveUrls(rootUrl, archive).map(url => transfersBytes(url, zipMagic))).catch(() => undefined)
+  let timer
+  const deadline = new Promise(resolve => { timer = setTimeout(() => resolve(fallback), timeoutMs) })
+  try {
+    const selected = Promise.resolve(cdn).then(url => url || github.then(() => fallback))
+    return await Promise.race([selected, deadline])
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
+  }
+}
+
+// Git's lazy blob fetch can outlive its parent subprocess and does not always
+// honor the outer Git command's HTTP timeout. Stop the whole tree before fallback.
+async function runGit(command, args, timeoutMs) {
+  const windows = process.platform === 'win32'
+  if (windows && /\.(?:bat|cmd)$/i.test(command)) {
+    const quote = value => "'" + value.replaceAll("'", "''") + "'"
+    const script = `& ${[command, ...args].map(quote).join(' ')}\nexit $LASTEXITCODE`
+    command = 'powershell.exe'
+    args = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
+  }
+  const child = spawn(command, args, { detached: !windows, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } })
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    if (!child.pid) return
+    if (windows) {
+      try { execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5000 }) }
+      catch { child.kill() }
+    } else {
+      try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') child.kill() }
+    }
+  }, timeoutMs)
+  try {
+    const status = await new Promise((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', code => resolve(code))
+    })
+    if (!timedOut) return status ?? 1
+    console.error(`Git 步骤超过 ${duration(timeoutMs)}，正在切换下载方式。`)
+    return 124
+  } finally { clearTimeout(timer) }
+}
+
 // Desktop bootstraps try incremental first, then retain their own source fallbacks.
 // Other installers can use auto to let this module also handle those fallbacks.
 async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false,
-  mode = 'full' } = {}) {
-  if (!['full', 'incremental', 'auto'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
+  mode = 'full', archiveUrl } = {}) {
+  if (!['full', 'incremental', 'auto', 'archive'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
   const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, targetCommit, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
@@ -315,7 +404,13 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
   const write = runtimeWriter(destination, metadata.executables)
   const options = { files, revision: metadata.revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write }
   try {
-    await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    if (mode === 'archive') {
+      const archive = runtimeArchive(metadata)
+      if (!archive || !archiveUrls(rootUrl, archive).includes(archiveUrl)) throw new Error('缺少可用的发布压缩包地址。')
+      await extractRuntimeArchive({ ...options, archive, archiveUrl, signal: budget })
+    } else {
+      await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    }
     budget.throwIfAborted()
   } catch (error) {
     if (budget.aborted) throw new Error(`下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
@@ -441,12 +536,13 @@ async function downloadRuntimeFiles({ files, revision, rootUrl, installed, concu
 }
 
 // One zip, verified as a whole and then file by file against the manifest, before anything is written.
-async function extractRuntimeArchive({ archive, files, rootUrl, stallMs, signal, fetch: request, status, write }) {
-  const urls = archiveUrls(rootUrl, archive)
+async function extractRuntimeArchive({ archive, files, rootUrl, archiveUrl, stallMs, signal, fetch: request, status, write }) {
+  const urls = archiveUrl ? [archiveUrl] : archiveUrls(rootUrl, archive)
   let reportedAt = 0
   const megabytes = bytes => (bytes / 1048576).toFixed(1)
   status(`下载代码压缩包（${hostOf(urls[0])}）：0/${megabytes(archive.size)} MB`)
   const { bytes, url } = await download(urls, { label: '代码压缩包', sha256: archive.sha256, size: archive.size, stallMs, signal, fetch: request,
+    ...(archiveUrl && { attempts: 1 }),
     onProgress: ({ host, received }) => {
       const now = Date.now()
       if (now - reportedAt < 5000) return
@@ -472,7 +568,7 @@ const INTERNET_SETTINGS = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\I
 const envValue = (env, name) => Object.entries(env).find(([key]) => key.toUpperCase() === name)?.[1]
 
 function readInternetSettings() {
-  const output = require('node:child_process').execFileSync('reg', ['query', INTERNET_SETTINGS], { encoding: 'utf8', windowsHide: true, timeout: 10000 })
+  const output = execFileSync('reg', ['query', INTERNET_SETTINGS], { encoding: 'utf8', windowsHide: true, timeout: 10000 })
   const values = {}
   for (const line of output.split(/\r?\n/)) {
     const match = /^\s+(\S+)\s+REG_\w+\s+(.*?)\s*$/.exec(line)
@@ -552,11 +648,18 @@ const seconds = (value, fallback) => (value === undefined ? fallback : Number(va
 //   node download.cjs manifest <metadata-url> <destination> [--min-version V]
 //   node download.cjs verify-runtime <manifest-file> <source-directory>
 //   node download.cjs restore-executables <manifest-file> <installed-directory>
-//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto]
+//   node download.cjs probe-archives <manifest-file> <root-url> <github-archive-url>
+//   node download.cjs run-git <timeout-ms> <git-command> [arguments...]
+//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto|archive] [--archive-url URL]
 //     (DSH_TAVERN_CDN_METADATA_URL set: that manifest only, no other jsDelivr nodes)
 //   node download.cjs proxy-env   prints KEY=VALUE lines to add (Windows system proxy)
 async function main(argv) {
   const [command, ...args] = argv
+  if (command === 'run-git') {
+    const [timeout, executable, ...gitArgs] = args
+    process.exitCode = await runGit(executable, gitArgs, Number(timeout))
+    return
+  }
   const { options, rest } = parseOptions(args)
   const status = message => console.log(`DSH_STATUS ${message}`)
   if (command === 'file') {
@@ -599,6 +702,12 @@ async function main(argv) {
     }
     return
   }
+  if (command === 'probe-archives') {
+    const [manifestFile, rootUrl, githubUrl] = rest
+    const metadata = JSON.parse(await fs.readFile(manifestFile, 'utf8'))
+    console.log(await probeArchives(metadata, rootUrl.replace(/\/+$/, ''), githubUrl))
+    return
+  }
   if (command === 'runtime') {
     const [metadataUrl, rootUrl, destination, installed] = rest
     if (!metadataUrl || !rootUrl || !destination) throw new Error('用法：download.cjs runtime <清单 URL> <CDN 根 URL> <目标目录> [已安装目录]')
@@ -606,7 +715,7 @@ async function main(argv) {
     const metadata = await downloadRuntime({ manifest, metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
       stallMs: seconds(options.stall, 30000), budgetMs: seconds(options.budget, 300000), status,
       targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT, minVersion: options['min-version'] || '',
-      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode })
+      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode, archiveUrl: options['archive-url'] })
     status(`下载代码完成：${metadata.revision.slice(0, 12)}`)
     return
   }
@@ -619,8 +728,13 @@ async function main(argv) {
   throw new Error(`未知命令：${command || '(空)'}`)
 }
 
-module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
+module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, probeArchives, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
 
 if (require.main === module) {
-  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 })
+  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 }).then(async () => {
+    // Allow normal socket shutdown, but do not wait indefinitely for an
+    // abandoned proxy tunnel after the standalone downloader has finished.
+    await Promise.all([process.stdout, process.stderr].map(stream => new Promise(resolve => stream.write('', resolve))))
+    setTimeout(() => process.exit(process.exitCode ?? 0), 1000).unref()
+  })
 }

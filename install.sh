@@ -920,9 +920,10 @@ update_log() {
 run_git() {
   git_step=$1
   shift
+  case "$git_step" in git.fetch|git.archive) git_timeout=60000 ;; *) git_timeout=10000 ;; esac
   git_started=$(node -p 'Date.now()')
   update_log installer.stage.started "$git_step" '' '' ''
-  if git "$@" >"${TEMP_DIR}/git.stdout" 2>"${TEMP_DIR}/git.stderr"; then git_code=0; else git_code=$?; fi
+  if node "${TEMP_DIR}/download.cjs" run-git "$git_timeout" git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=12 "$@" >"${TEMP_DIR}/git.stdout" 2>"${TEMP_DIR}/git.stderr"; then git_code=0; else git_code=$?; fi
   cat "${TEMP_DIR}/git.stdout"
   cat "${TEMP_DIR}/git.stderr" >&2
   cat "${TEMP_DIR}/git.stdout" "${TEMP_DIR}/git.stderr" >"${TEMP_DIR}/git.output"
@@ -947,6 +948,7 @@ cat >"${TEMP_DIR}/download.cjs" <<'DSH_DOWNLOAD_MODULE'
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
+const { execFileSync, spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
 const { inflateRawSync } = require('node:zlib')
 
@@ -1001,9 +1003,17 @@ async function fetchBytes(url, { stallMs = 30000, signal, headers, onData, fetch
   let stalled = false, timer
   const arm = () => { clearTimeout(timer); timer = setTimeout(() => { stalled = true; controller.abort() }, stallMs) }
   const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
-  arm()
-  try {
+  let abort
+  const canceled = new Promise((_, reject) => {
+    abort = () => reject(combined.reason)
+    combined.addEventListener('abort', abort, { once: true })
+  })
+  async function receive() {
     const response = await request(url, { signal: combined, headers, redirect: 'follow' })
+    if (combined.aborted) {
+      void response.body?.cancel().catch(() => {})
+      combined.throwIfAborted()
+    }
     if (!response.ok) {
       try { await response.body?.cancel() } catch {}
       throw failure('HTTP', `HTTP ${response.status}`, { status: response.status })
@@ -1012,16 +1022,25 @@ async function fetchBytes(url, { stallMs = 30000, signal, headers, onData, fetch
     const chunks = []
     let received = 0
     if (response.body) for await (const chunk of response.body) {
+      combined.throwIfAborted()
       arm()
       const bytes = Buffer.from(chunk)
       chunks.push(bytes); received += bytes.length
       onData?.(received, total)
     }
     return Buffer.concat(chunks)
+  }
+  try {
+    combined.throwIfAborted()
+    arm()
+    return await Promise.race([receive(), canceled])
   } catch (error) {
     if (stalled) throw failure('STALLED', `${duration(stallMs)}没有收到数据`, { cause: error })
     throw error
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+    combined.removeEventListener('abort', abort)
+  }
 }
 
 // Try `urls` in turn (cycling) until one returns bytes matching `sha256`/`size`.
@@ -1234,12 +1253,83 @@ function archiveUrls(rootUrl, archive) {
   return urls
 }
 
+async function probeArchives(metadata, rootUrl, githubUrl, { fetch: request = fetch, timeoutMs = 5000 } = {}) {
+  const controller = new AbortController()
+  const zipMagic = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+  async function transfersBytes(url, magic) {
+    const response = await request(url, { signal: controller.signal, headers: { Range: 'bytes=0-4095' } })
+    let reader
+    try {
+      if (!response.ok || !response.body) throw failure('HTTP', `HTTP ${response.status}`)
+      reader = response.body.getReader()
+      let prefix = Buffer.alloc(0)
+      while (prefix.length < magic.length) {
+        const { done, value } = await reader.read()
+        if (done) throw failure('ARCHIVE', '压缩包响应不完整')
+        prefix = Buffer.concat([prefix, value.subarray(0, magic.length - prefix.length)])
+      }
+      if (!prefix.equals(magic)) throw failure('ARCHIVE', '响应不是预期的压缩包')
+      return url
+    } finally {
+      void (reader ? reader.cancel() : response.body?.cancel())?.catch(() => {})
+    }
+  }
+  const githubMagic = /\/zip\/|\.zip$/i.test(new URL(githubUrl).pathname) ? zipMagic : Buffer.from([0x1f, 0x8b])
+  let fallback = 'git'
+  const github = transfersBytes(githubUrl, githubMagic).then(() => { fallback = 'github' }, () => {})
+  const archive = runtimeArchive(metadata)
+  const cdn = archive && Promise.any(archiveUrls(rootUrl, archive).map(url => transfersBytes(url, zipMagic))).catch(() => undefined)
+  let timer
+  const deadline = new Promise(resolve => { timer = setTimeout(() => resolve(fallback), timeoutMs) })
+  try {
+    const selected = Promise.resolve(cdn).then(url => url || github.then(() => fallback))
+    return await Promise.race([selected, deadline])
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
+  }
+}
+
+// Git's lazy blob fetch can outlive its parent subprocess and does not always
+// honor the outer Git command's HTTP timeout. Stop the whole tree before fallback.
+async function runGit(command, args, timeoutMs) {
+  const windows = process.platform === 'win32'
+  if (windows && /\.(?:bat|cmd)$/i.test(command)) {
+    const quote = value => "'" + value.replaceAll("'", "''") + "'"
+    const script = `& ${[command, ...args].map(quote).join(' ')}\nexit $LASTEXITCODE`
+    command = 'powershell.exe'
+    args = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
+  }
+  const child = spawn(command, args, { detached: !windows, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } })
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    if (!child.pid) return
+    if (windows) {
+      try { execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5000 }) }
+      catch { child.kill() }
+    } else {
+      try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') child.kill() }
+    }
+  }, timeoutMs)
+  try {
+    const status = await new Promise((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', code => resolve(code))
+    })
+    if (!timedOut) return status ?? 1
+    console.error(`Git 步骤超过 ${duration(timeoutMs)}，正在切换下载方式。`)
+    return 124
+  } finally { clearTimeout(timer) }
+}
+
 // Desktop bootstraps try incremental first, then retain their own source fallbacks.
 // Other installers can use auto to let this module also handle those fallbacks.
 async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false,
-  mode = 'full' } = {}) {
-  if (!['full', 'incremental', 'auto'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
+  mode = 'full', archiveUrl } = {}) {
+  if (!['full', 'incremental', 'auto', 'archive'].includes(mode)) throw new Error(`未知的运行文件下载模式：${mode}`)
   const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, targetCommit, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
@@ -1253,7 +1343,13 @@ async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootU
   const write = runtimeWriter(destination, metadata.executables)
   const options = { files, revision: metadata.revision, rootUrl, installed, concurrency, stallMs, attempts, status, fetch: request, write }
   try {
-    await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    if (mode === 'archive') {
+      const archive = runtimeArchive(metadata)
+      if (!archive || !archiveUrls(rootUrl, archive).includes(archiveUrl)) throw new Error('缺少可用的发布压缩包地址。')
+      await extractRuntimeArchive({ ...options, archive, archiveUrl, signal: budget })
+    } else {
+      await retrieveRuntimeFiles(options, { metadata, mode, budget })
+    }
     budget.throwIfAborted()
   } catch (error) {
     if (budget.aborted) throw new Error(`下载超过 ${duration(budgetMs)}，将切换备用方案`, { cause: error })
@@ -1379,12 +1475,13 @@ async function downloadRuntimeFiles({ files, revision, rootUrl, installed, concu
 }
 
 // One zip, verified as a whole and then file by file against the manifest, before anything is written.
-async function extractRuntimeArchive({ archive, files, rootUrl, stallMs, signal, fetch: request, status, write }) {
-  const urls = archiveUrls(rootUrl, archive)
+async function extractRuntimeArchive({ archive, files, rootUrl, archiveUrl, stallMs, signal, fetch: request, status, write }) {
+  const urls = archiveUrl ? [archiveUrl] : archiveUrls(rootUrl, archive)
   let reportedAt = 0
   const megabytes = bytes => (bytes / 1048576).toFixed(1)
   status(`下载代码压缩包（${hostOf(urls[0])}）：0/${megabytes(archive.size)} MB`)
   const { bytes, url } = await download(urls, { label: '代码压缩包', sha256: archive.sha256, size: archive.size, stallMs, signal, fetch: request,
+    ...(archiveUrl && { attempts: 1 }),
     onProgress: ({ host, received }) => {
       const now = Date.now()
       if (now - reportedAt < 5000) return
@@ -1410,7 +1507,7 @@ const INTERNET_SETTINGS = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\I
 const envValue = (env, name) => Object.entries(env).find(([key]) => key.toUpperCase() === name)?.[1]
 
 function readInternetSettings() {
-  const output = require('node:child_process').execFileSync('reg', ['query', INTERNET_SETTINGS], { encoding: 'utf8', windowsHide: true, timeout: 10000 })
+  const output = execFileSync('reg', ['query', INTERNET_SETTINGS], { encoding: 'utf8', windowsHide: true, timeout: 10000 })
   const values = {}
   for (const line of output.split(/\r?\n/)) {
     const match = /^\s+(\S+)\s+REG_\w+\s+(.*?)\s*$/.exec(line)
@@ -1490,11 +1587,18 @@ const seconds = (value, fallback) => (value === undefined ? fallback : Number(va
 //   node download.cjs manifest <metadata-url> <destination> [--min-version V]
 //   node download.cjs verify-runtime <manifest-file> <source-directory>
 //   node download.cjs restore-executables <manifest-file> <installed-directory>
-//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto]
+//   node download.cjs probe-archives <manifest-file> <root-url> <github-archive-url>
+//   node download.cjs run-git <timeout-ms> <git-command> [arguments...]
+//   node download.cjs runtime <metadata-url> <root-url> <destination> [<installed-dir>] [--stall S] [--budget S] [--min-version V] [--mode full|incremental|auto|archive] [--archive-url URL]
 //     (DSH_TAVERN_CDN_METADATA_URL set: that manifest only, no other jsDelivr nodes)
 //   node download.cjs proxy-env   prints KEY=VALUE lines to add (Windows system proxy)
 async function main(argv) {
   const [command, ...args] = argv
+  if (command === 'run-git') {
+    const [timeout, executable, ...gitArgs] = args
+    process.exitCode = await runGit(executable, gitArgs, Number(timeout))
+    return
+  }
   const { options, rest } = parseOptions(args)
   const status = message => console.log(`DSH_STATUS ${message}`)
   if (command === 'file') {
@@ -1537,6 +1641,12 @@ async function main(argv) {
     }
     return
   }
+  if (command === 'probe-archives') {
+    const [manifestFile, rootUrl, githubUrl] = rest
+    const metadata = JSON.parse(await fs.readFile(manifestFile, 'utf8'))
+    console.log(await probeArchives(metadata, rootUrl.replace(/\/+$/, ''), githubUrl))
+    return
+  }
   if (command === 'runtime') {
     const [metadataUrl, rootUrl, destination, installed] = rest
     if (!metadataUrl || !rootUrl || !destination) throw new Error('用法：download.cjs runtime <清单 URL> <CDN 根 URL> <目标目录> [已安装目录]')
@@ -1544,7 +1654,7 @@ async function main(argv) {
     const metadata = await downloadRuntime({ manifest, metadataUrl, rootUrl: rootUrl.replace(/\/+$/, ''), destination, installed,
       stallMs: seconds(options.stall, 30000), budgetMs: seconds(options.budget, 300000), status,
       targetCommit: process.env.DSH_TAVERN_TARGET_COMMIT, minVersion: options['min-version'] || '',
-      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode })
+      exactManifest: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL), mode: options.mode, archiveUrl: options['archive-url'] })
     status(`下载代码完成：${metadata.revision.slice(0, 12)}`)
     return
   }
@@ -1557,15 +1667,36 @@ async function main(argv) {
   throw new Error(`未知命令：${command || '(空)'}`)
 }
 
-module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
+module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, probeArchives, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
 
 if (require.main === module) {
-  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 })
+  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 }).then(async () => {
+    // Allow normal socket shutdown, but do not wait indefinitely for an
+    // abandoned proxy tunnel after the standalone downloader has finished.
+    await Promise.all([process.stdout, process.stderr].map(stream => new Promise(resolve => stream.write('', resolve))))
+    setTimeout(() => process.exit(process.exitCode ?? 0), 1000).unref()
+  })
 }
 DSH_DOWNLOAD_MODULE
 
 assert_installation_active() {
   node "${TEMP_DIR}/installation-state.cjs" check --home "$DSH_ROOT" --attempt "$DSH_TAVERN_INSTALL_ATTEMPT"
+}
+
+download_github_archive() {
+  echo "正在下载 GitHub 压缩包……"
+  update_log installer.stage.started source.github.archive '' '' ''
+  if { command -v curl >/dev/null 2>&1 \
+      && curl -fL --connect-timeout 12 --speed-limit 1 --speed-time 12 --max-time 900 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz.partial" \
+      && mv "${TEMP_DIR}/app.tar.gz.partial" "${TEMP_DIR}/app.tar.gz"; } 2>"${TEMP_DIR}/github-archive.stderr" \
+      || node "${TEMP_DIR}/download.cjs" file "${TEMP_DIR}/app.tar.gz" --stall 12 --deadline 900 --attempts 1 "${ARCHIVE_URL}" 2>>"${TEMP_DIR}/github-archive.stderr"; then
+    update_log installer.stage.succeeded source.github.archive 0 '' ''
+    return 0
+  fi
+  update_log installer.stage.failed source.github.archive 1 '' "${TEMP_DIR}/github-archive.stderr"
+  cat "${TEMP_DIR}/github-archive.stderr" >&2
+  echo "GitHub 压缩包下载失败，正在切换下载方式。" >&2
+  return 1
 }
 
 echo "正在确认已发布的酒馆版本……"
@@ -1590,7 +1721,28 @@ if [ -z "${DSH_TAVERN_ARCHIVE_URL:-}" ] && [ -f "${APP_DIR}/package.json" ]; the
     echo "运行文件增量更新未完成，正在切换完整下载……"
   fi
 fi
-if [ "${USED_CDN}" -eq 0 ] && command -v git >/dev/null 2>&1; then
+PREFER_ARCHIVE=0
+if [ "${USED_CDN}" -eq 0 ] && [ -z "${DSH_TAVERN_ARCHIVE_URL:-}${DSH_TAVERN_GIT_URL:-}" ]; then
+  echo "正在检测运行包下载地址……"
+  NETWORK_SOURCE=$(node "${TEMP_DIR}/download.cjs" probe-archives "${PUBLISHED_MANIFEST}" "${CDN_ROOT_URL}" "${ARCHIVE_URL}") || NETWORK_SOURCE=git
+  if [ "${NETWORK_SOURCE}" != git ]; then PREFER_ARCHIVE=1; fi
+  if [ "${NETWORK_SOURCE}" != git ] && [ "${NETWORK_SOURCE}" != github ]; then
+    update_log installer.stage.started source.cdn-archive '' '' ''
+    if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${TEMP_DIR}/cdn-archive-source" --manifest-file "${PUBLISHED_MANIFEST}" --mode archive --archive-url "${NETWORK_SOURCE}" --stall 12 2>"${TEMP_DIR}/cdn-archive.stderr"; then
+      update_log installer.stage.succeeded source.cdn-archive 0 '' ''
+      CDN_SOURCE=${TEMP_DIR}/cdn-archive-source
+      USED_CDN=1
+    else
+      update_log installer.stage.failed source.cdn-archive 1 '' "${TEMP_DIR}/cdn-archive.stderr"
+      assert_installation_active
+      echo "发布压缩包下载未完成，正在切换下载方式……"
+    fi
+  fi
+fi
+if [ "${USED_CDN}" -eq 0 ] && [ "${PREFER_ARCHIVE}" -eq 1 ] && download_github_archive; then
+  USED_ARCHIVE=1
+fi
+if [ "${USED_CDN}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ] && command -v git >/dev/null 2>&1; then
   echo "正在通过 Git 增量同步（不下载文档与图片）……"
   mkdir -p "$(dirname -- "${SOURCE_CACHE}")"
   if { [ -f "${SOURCE_CACHE}/HEAD" ] || run_git git.init init --bare "${SOURCE_CACHE}"; } \
@@ -1599,43 +1751,29 @@ if [ "${USED_CDN}" -eq 0 ] && command -v git >/dev/null 2>&1; then
     && run_git git.archive -c core.autocrlf=false -c core.eol=lf --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" "${TARGET_COMMIT}" -- ${RUNTIME_PATHS}; then
     USED_GIT=1
   else
-    echo "Git 增量更新失败，正在尝试 jsDelivr 备用源。" >&2
+    echo "Git 增量同步失败，正在切换下载方式。" >&2
   fi
-elif [ "${USED_CDN}" -eq 0 ]; then
+elif [ "${USED_CDN}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ]; then
   update_log installer.stage.failed git.unavailable 127 '' ''
   echo "未找到 Git，正在尝试备用源。" >&2
 fi
 
-if [ "${USED_CDN}" -eq 0 ] && [ "${USED_GIT}" -eq 0 ]; then
-  # GitHub 和 CDN 都使用先前选定的发布版本。
-  if command -v curl >/dev/null 2>&1; then
-    echo "正在下载精简运行压缩包（GitHub）……"
-    update_log installer.stage.started source.github.archive '' '' ''
-    # Fail only after 30 s without data; --max-time is a generous upper bound.
-    if curl -fL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 30 --max-time 900 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz"; then
-      USED_ARCHIVE=1
-      update_log installer.stage.succeeded source.github.archive 0 '' ''
-    else
-      update_log installer.stage.failed source.github.archive 1 '' ''
-      echo "GitHub 压缩包下载失败，改用 jsDelivr 备用源。" >&2
-    fi
-  else
-    echo "未找到 curl，改用 jsDelivr 备用源。" >&2
-  fi
+if [ "${USED_CDN}" -eq 0 ] && [ "${USED_GIT}" -eq 0 ] && [ "${PREFER_ARCHIVE}" -eq 0 ] && download_github_archive; then
+  USED_ARCHIVE=1
 fi
 
 if [ "${USED_CDN}" -eq 0 ] && [ "${USED_GIT}" -eq 0 ] && [ "${USED_ARCHIVE}" -eq 0 ]; then
   echo "正在通过 jsDelivr 备用源下载运行代码……"
   update_log installer.stage.started source.jsdelivr '' '' ''
   mkdir -p "${CDN_SOURCE}"
-  if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${CDN_SOURCE}" "${APP_DIR}" --manifest-file "${PUBLISHED_MANIFEST}" 2>"${TEMP_DIR}/cdn.stderr"
+  if node "${TEMP_DIR}/download.cjs" runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${CDN_SOURCE}" "${APP_DIR}" --manifest-file "${PUBLISHED_MANIFEST}" --stall 12 2>"${TEMP_DIR}/cdn.stderr"
   then
     update_log installer.stage.succeeded source.jsdelivr 0 '' ''
     USED_CDN=1
   else
     update_log installer.stage.failed source.jsdelivr 1 '' "${TEMP_DIR}/cdn.stderr"
     cat "${TEMP_DIR}/cdn.stderr" >&2
-    echo "jsDelivr 备用源不可用，将回退到精简运行压缩包。" >&2
+    echo "jsDelivr 备用源不可用。" >&2
   fi
 fi
 

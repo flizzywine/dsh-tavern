@@ -11,7 +11,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const { download, downloadFile, downloadRuntime, DownloadError } = require('../bin/download.cjs')
+const { download, downloadFile, downloadRuntime, probeArchives, DownloadError } = require('../bin/download.cjs')
 const moduleFile = fileURLToPath(new URL('../bin/download.cjs', import.meta.url))
 const execute = promisify(execFile)
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -54,6 +54,8 @@ test('HTTP and connection failures keep the attempt history and underlying cause
   const cause = new Error('connection reset')
   await assert.rejects(download(['https://example.invalid/a'], { retryDelayMs: 1, attempts: 2, fetch: async () => { throw cause } }),
     error => error.cause === cause && /connection reset/.test(error.message))
+  await assert.rejects(download(['https://example.invalid/stall'], { stallMs: 30, attempts: 1, fetch: () => new Promise(() => {}) }),
+    /没有收到数据/)
 })
 
 async function runtimeFixture(t, files, handler) {
@@ -273,6 +275,59 @@ function zipOf(entries) {
   end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16)
   return Buffer.concat([...locals, directory, end])
 }
+
+test('source selection checks real archive bytes and prefers the reachable CDN', async t => {
+  const file = 'bin/fixture.js'
+  const bytes = Buffer.from('published')
+  const zip = zipOf([[file, bytes]])
+  const commit = 'a'.repeat(40)
+  const metadata = { revision: 'b'.repeat(40), files: [{ path: file, size: bytes.length, sha256: sha(bytes) }],
+    archive: { commit, path: 'runtime.zip', size: zip.length, sha256: sha(zip) } }
+  const archivePath = `/repo@${commit}/runtime.zip`
+  let range
+  let archiveResponse = zip
+  const { base, hits } = await serve(t, {
+    [archivePath]: (req, res) => {
+      if (req.headers.range) { range = req.headers.range; res.writeHead(206); res.end(archiveResponse.subarray(0, 8)); return }
+      res.end(archiveResponse)
+    },
+    '/github.tar.gz': (req, res) => res.end(Buffer.from([0x1f, 0x8b, 0x08, 0])),
+    '/blocked.zip': hang,
+  })
+  const root = await mkdtemp(path.join(tmpdir(), 'archive-probe-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const rootUrl = `${base}/repo`
+  const archiveUrl = await probeArchives(metadata, rootUrl, `${base}/blocked.zip`)
+  assert.equal(archiveUrl, base + archivePath)
+  assert.equal(range, 'bytes=0-4095')
+  await downloadRuntime({ manifest: metadata, rootUrl, destination: root, mode: 'archive', archiveUrl })
+  assert.deepEqual(await readFile(path.join(root, file)), bytes)
+  assert.equal(hits.get(archivePath), 2)
+
+  archiveResponse = Buffer.from('<html>blocked</html>')
+  assert.equal(await probeArchives(metadata, rootUrl, `${base}/github.tar.gz`), 'github')
+  assert.equal(await probeArchives(metadata, rootUrl, `${base}/blocked.zip`, { timeoutMs: 500 }), 'git')
+  const proxyStalled = url => url === archiveUrl ? new Promise(() => {}) : fetch(url)
+  assert.equal(await probeArchives(metadata, rootUrl, `${base}/github.tar.gz`, { timeoutMs: 500, fetch: proxyStalled }), 'github')
+  await assert.rejects(downloadRuntime({ manifest: metadata, rootUrl, destination: root, mode: 'archive', archiveUrl }), /文件大小不符/)
+})
+
+test('installer Git deadline stops a stalled Git descendant before moving to fallback', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'git-deadline-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const node = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
+  const marker = path.join(root, 'late.txt')
+  const descendant = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'still running'), 2500)`
+  const git = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'inherit' }); console.log('git started'); setInterval(() => {}, 1000)`
+  await assert.rejects(execute(node, [moduleFile, 'run-git', '1000', node, '-e', git], { timeout: 10000 }), error => {
+    assert.equal(error.code, 124, error.stderr)
+    assert.match(error.stdout, /git started/)
+    assert.match(error.stderr, /Git 步骤超过 1 秒/)
+    return true
+  })
+  await new Promise(resolve => setTimeout(resolve, 2000))
+  await assert.rejects(readFile(marker), { code: 'ENOENT' })
+})
 
 test('运行时压缩包：只下一个文件，逐个核对后写出；压缩包坏了就退回逐个文件下载', async t => {
   const { unzipEntries } = require('../bin/download.cjs')

@@ -56,14 +56,14 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     const cdnStart = source.indexOf("      Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'")
     const cdn = source.slice(cdnStart, source.indexOf('      $UsedCdn = $true', cdnStart))
     assert.ok(cdn.length > 0, 'CDN download block must be exercised')
-    const archiveStart = source.lastIndexOf('  if (-not $UsedCdn -and -not $UsedGit) {', source.indexOf('    $PreviousProgressPreference ='))
-    const archive = source.slice(archiveStart, source.indexOf('  if (-not $UsedCdn -and -not $UsedGit -and -not $UsedArchive)', archiveStart))
+    const archiveStart = source.indexOf('  function Get-GitHubArchive {')
+    const archive = source.slice(archiveStart, source.indexOf('  Write-UpdateLog \'installer.started\' \'bootstrap\'', archiveStart))
     assert.ok(archiveStart >= 0 && archive.includes('Invoke-SourceDownload $ArchiveUrl'), 'archive download block must be exercised')
     const manifestStart = source.indexOf("  $PublishedManifest = Join-Path $TempDir 'published-runtime.json'")
     const manifest = source.slice(manifestStart, source.indexOf('  $UsedGit = $false', manifestStart))
     assert.match(manifest, /source\.manifest/)
     const incrementalStart = source.indexOf('  $UsedGit = $false', manifestStart)
-    const incremental = source.slice(incrementalStart, source.indexOf('  if (-not $UsedCdn -and $null -ne $GitCommand)', incrementalStart))
+    const incremental = source.slice(incrementalStart, source.indexOf('  $PreferArchive = $false', incrementalStart))
     assert.match(incremental, /source\.incremental/)
     await writeFile(path.join(directory, 'bad-curl.cmd'), '@exit /b 7\r\n')
     const probe = `
@@ -91,6 +91,7 @@ ${manifest}
 ${cdn}
 $ArchivePath = Join-Path $PSScriptRoot 'archive.zip'
 ${archive}
+$UsedArchive = Get-GitHubArchive
 if (-not $UsedArchive) { throw 'Archive fallback did not complete' }
 if ($TargetCommit -ne '${revision}') { throw 'Published revision not selected' }
 try {

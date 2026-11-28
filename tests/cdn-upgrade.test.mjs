@@ -55,11 +55,19 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
   manifest.files.push({ path: 'patches/../escape.txt', size: 0, sha256: 'a'.repeat(64) })
   const requests = []
   const integrityFile = 'config/dsh-compatibility.json'
+  const archiveCommit = 'e'.repeat(40)
+  const archivePath = `/source@${archiveCommit}/runtime.zip`
   let corruptFile = false
+  let publishedZip
   const server = http.createServer((req, res) => {
     const url = decodeURIComponent(req.url)
     requests.push(url)
     if (url === '/manifest') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(manifest)); return }
+    if (publishedZip && url === archivePath) {
+      if (req.headers.range) { res.writeHead(206); res.end(publishedZip.subarray(0, 4096)); return }
+      res.end(publishedZip)
+      return
+    }
     const file = url.startsWith(`/source@${revision}/`) ? url.slice(`/source@${revision}/`.length) : ''
     const bytes = files.get(file)
     if (bytes) { res.end(corruptFile && file === integrityFile ? 'corrupt runtime file' : bytes); return }
@@ -182,4 +190,15 @@ test('Desktop 覆盖升级仅安装发布清单的内容，CDN 损坏或 main �
   assert.deepEqual(requests, ['/manifest'])
   assert.deepEqual(await readFile(path.join(app, integrityFile)), files.get(integrityFile))
   assert.equal(JSON.parse(await readFile(path.join(app, '.dsh-tavern-release.json'), 'utf8')).commit, revision)
+
+  publishedZip = (await execute('git', ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-C', repo, 'archive', '--format=zip', revision], { encoding: 'buffer' })).stdout
+  manifest.archive = { commit: archiveCommit, path: 'runtime.zip', size: publishedZip.length, sha256: createHash('sha256').update(publishedZip).digest('hex') }
+  const freshApp = path.join(root, 'new app')
+  requests.length = 0
+  // The concurrent GitHub probe is confined to the fixture too.
+  await run({ DSH_TAVERN_ARCHIVE_URL: '', DSH_TAVERN_GIT_URL: '', DSH_TAVERN_APP_DIR: freshApp, DSH_TAVERN_TARGET_COMMIT: revision,
+    NODE_USE_ENV_PROXY: '1', HTTPS_PROXY: base, HTTP_PROXY: base, NO_PROXY: '127.0.0.1' })
+  assert.deepEqual(requests, ['/manifest', archivePath, archivePath])
+  assert.deepEqual(await readFile(path.join(freshApp, integrityFile)), files.get(integrityFile))
+  assert.equal(await readFile(path.join(freshApp, 'installed.txt'), 'utf8'), 'install --host desktop')
 })

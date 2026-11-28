@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,readFile,writeFile,mkdir,rm} from 'node:fs/promises'
+import {copyFile,mkdtemp,readFile,writeFile,mkdir,rm} from 'node:fs/promises'
 import {execFileSync, spawnSync} from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
@@ -11,6 +11,7 @@ test('独立安装的 Git 失败在回退前落盘，记录步骤、退出码和
  const root=await mkdtemp(path.join(os.tmpdir(),'installer-log-'))
  try{
   await mkdir(path.join(root,'bin'))
+  await copyFile(new URL('../bin/download.cjs', import.meta.url), path.join(root, 'download.cjs'))
   await writeFile(path.join(root,'bin/git'),'#!/bin/sh\nprintf "fatal: https://user:secret@example.com/repo?token=secret password=secret\\n" >&2\nexit 42\n',{mode:0o755})
   const block=source.slice(source.indexOf('# Standalone bootstrap'),source.indexOf('# Shared download module'))
   await writeFile(path.join(root,'probe.sh'),'set -eu\n'+block+'\nrun_git git.archive archive || true\n')
