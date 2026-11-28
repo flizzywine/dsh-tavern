@@ -1,27 +1,41 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
-const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const component = source.slice(source.indexOf('function UserPreferenceProfileTab('), source.indexOf('function GuideLibraryTab('))
-function render(hasConfirmed, consent = true, activeId = 'a', conversationOnly = true) {
-  const calls = [], warnings = []
-  const record = { profileId: 'b', name: '冒险', hasConfirmed, confirmed: hasConfirmed ? { injectionText: '快节奏' } : null,
-    defaultProfileId: 'a', profiles: [{ id: 'a', name: '日常', hasConfirmed: true, confirmedRevision: 4 }, { id: 'b', name: '冒险', hasConfirmed, confirmedRevision: 3 }] }
-  let index = 0
-  const React = { createElement: (type, props, ...children) => ({ type, props, children }), Fragment: 'fragment',
-    useState: initial => [[record, { enabled: true, profileId: activeId, revision: 3, content: '本局实际内容' }, false, '', false, false, false, true][index++] ?? initial, () => {}],
-    useRef: value => ({ current: value }), useEffect: () => {} }
-  const rpc = async (name, args) => { calls.push({ name, args }); return { userProfile: record } }
-  const window = { confirm: text => { warnings.push(text); return consent }, prompt: () => '新画像' }
-  const fn = new Function('React', 'rpc', 'window', 'usePersistentError', 'notifyTavernDataChanged', 'useTavernConfirm', 'HelpTip', component + ';return UserPreferenceProfileTab;')(React, rpc, window, () => ['', () => {}], () => {}, () => async text => { warnings.push(text); return consent }, 'HelpTip')
-  const tree = fn({ scope: { sessionId: 'game' }, conversationOnly, Field: 'InlineField' })
-  function nodes(value) { return value && typeof value === 'object' ? [value, ...(value.children || []).flat(Infinity).flatMap(nodes)] : [] }
-  return { tree, calls, warnings, nodes: nodes(tree), button: text => nodes(tree).find(node => node.type === 'button' && node.children.includes(text)) }
-}
+import { readFile } from 'node:fs/promises'
+import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
-test('updating a stale game uses its own profile even when browsing another one', async () => {
-  const ui = render(true)
-  assert.match(JSON.stringify(ui.tree), /这局仍使用修改前的内容/)
-  await ui.button('更新到当前游戏').props.onClick()
-  assert.equal(ui.calls[0].args.profileId, 'a')
+test('长期偏好页标记废弃，允许选看旧记录并导出已确认的内容', async t => {
+  const records = [
+    { id: 'a', name: '日常', hasConfirmed: true, confirmed: { injectionText: '旧日常正文' } },
+    { id: 'b', name: '冒险', hasConfirmed: false, draft: { summary: '旧冒险草案', rawAnswers: [{ question: '节奏？', answer: '快节奏' }] } },
+  ]
+  const profiles = records.map(({ id, name, hasConfirmed }) => ({ id, name, hasConfirmed }))
+  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: preset library', respond(method, args) {
+    if (method === 'getSystemPrompts' || method === 'getCardPersonas') return {}
+    if (method === 'getUserPreferenceProfile') {
+      const { id, ...record } = records.find(item => item.id === (args.profileId || 'a'))
+      return { userProfile: { ...record, profiles, profileId: id, defaultProfileId: 'a' } }
+    }
+    if (method === 'exportSettingsBundle') return { name: 'preferences.json', text: JSON.stringify({ userProfile: records[0].confirmed }) }
+  } })
+  const region = page.getByRole('region', { name: '长期偏好', exact: true })
+  await region.getByText(/功能已废弃/).waitFor()
+  assert.equal(await region.getByRole('button', { name: /默认|启用/ }).count(), 0)
+  await region.getByRole('button', { name: /详情/ }).click()
+  const archive = page.locator('.dsh-tavern-user-profile')
+  await archive.getByText(/功能已废弃/).waitFor()
+  await archive.getByText('旧日常正文', { exact: true }).waitFor()
+  assert.equal(await archive.getByRole('button', { name: /新建|修改|启用/ }).count(), 0)
+  const choice = archive.getByRole('combobox', { name: '查看长期偏好' })
+  await choice.selectOption('b')
+  await archive.getByText('旧冒险草案', { exact: true }).waitFor()
+  await archive.getByText('偏好维度和访谈记录', { exact: true }).click()
+  await archive.getByText(/快节奏/).waitFor()
+  const exportButton = archive.getByRole('button', { name: '导出', exact: true })
+  assert.equal(await exportButton.isDisabled(), true)
+  await choice.selectOption('a')
+  await archive.getByText('旧日常正文', { exact: true }).waitFor()
+  const [download] = await Promise.all([page.waitForEvent('download'), exportButton.click()])
+  assert.equal(JSON.parse(await readFile(await download.path(), 'utf8')).userProfile.injectionText, '旧日常正文')
+  assert.equal(calls.find(call => call.method === 'exportSettingsBundle').args.userProfileId, 'a')
+  assert.ok(!calls.some(({ method }) => /^(manage|update|set).*PreferenceProfile/.test(method)))
 })

@@ -85,10 +85,11 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   } })
   const name = page.getByLabel('玩家称呼', { exact: true })
   await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '你')
+  assert.equal(await page.getByText('长期偏好', { exact: true }).count(), 0)
+  assert.ok(!calls.some(({ method }) => method === 'getUserPreferenceProfile'))
   for (const [label, text] of [
     ['玩家称呼', '留空时使用「你」'],
     ['预设', '提示词和正则'],
-    ['长期偏好', '游玩和写作偏好'],
     ['候选项数量', '4 条行动和 1 条场景切换'],
   ]) {
     await page.getByRole('button', { name: label + '说明', exact: true }).hover()

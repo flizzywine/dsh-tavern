@@ -34,7 +34,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   const optedIn = applyTavernSettingsPatch(settingsDoc, { defaultPlaySettings: { backgroundTasks: { styleReference: true } } })
   assert.equal(presentTavernSettings(optedIn, {}).defaultPlaySettings.backgroundTasks.styleReference, undefined)
   let activePresetPath = ''
-  let defaultProfileId = ''
+  let defaultProfileId = 'previous-default'
   let pluginResetCalls = []
   let skillsInvalidated = 0
   const presets = new Map([
@@ -149,17 +149,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
       },
       stableContext: async id => id === 'p1' ? { profileId: 'p1', revision: 2, text: '[偏好正文]' } : null
     },
-    playCardSnapshots: {
-      ensure: async () => {},
-      preferenceReplacement: async (chat, enabled, profileId) => ({
-        userProfileEnabled: enabled,
-        userProfileId: enabled ? profileId : 'default',
-        userProfileRevision: enabled ? 2 : 0,
-        userProfileContextSnapshot: enabled ? '[偏好正文]' : '',
-        cardContextSnapshot: enabled ? '[偏好正文]\n\n[人物卡正文]' : '[人物卡正文]',
-        cardContextRevision: (chat.cardContextRevision || 0) + 1
-      })
-    },
     pluginApi: {
       gamePlugins: async () => ({
         settings: [
@@ -176,7 +165,8 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(saveRes.saved, true)
   assert.deepEqual(saveRes.warnings, [])
   assert.equal(activePresetPath, 'presets/reborn.json')
-  assert.equal(defaultProfileId, 'p1')
+  assert.equal(defaultProfileId, 'previous-default')
+  assert.equal(chatsBySession.get('s1').userProfileContextSnapshot, '[偏好正文]')
   const savedSettings = await readTavernSettings()
   assert.equal(savedSettings.defaultPlaySettings.playerName, '旅人')
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.posture, false)
@@ -200,8 +190,12 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   const restored = chatsBySession.get('s2')
   assert.equal(restored.macroState.userName, '旅人')
   assert.equal(restored.runtimePresetPath, 'presets/reborn.json')
-  assert.equal(restored.userProfileEnabled, true)
-  assert.equal(restored.userProfileId, 'p1')
+  assert.equal(restored.userProfileEnabled, false)
+  assert.equal(restored.userProfileId, 'default')
+  assert.equal(restored.userProfileContextSnapshot, '')
+  await assert.rejects(handlers.setConversationUserProfileEnabled({ sessionId: 's2', enabled: true }), /已废弃/)
+  await assert.rejects(handlers.manageUserPreferenceProfile({ action: 'default', profileId: 'p1' }), /已废弃/)
+  assert.equal(defaultProfileId, 'previous-default')
   assert.deepEqual(restored.backgroundModelSelection, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.equal(restored.backgroundTasks.posture, false)
   assert.equal(restored.backgroundTasks.styleReference, undefined)

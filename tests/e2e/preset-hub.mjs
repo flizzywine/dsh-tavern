@@ -2,8 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-// The 预设 tab: pick the preset, system prompt set and preference in one place,
-// export the checked ones as one file and import it back as new entries.
+// Export presets, system prompts and preference archives from the 预设 tab.
 export async function presetHubChecks({ page, step, output, report }) {
   const call = (method, args = {}) => page.evaluate(async ([method, args]) => {
     const value = await (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json()
@@ -56,16 +55,18 @@ export async function presetHubChecks({ page, step, output, report }) {
     for (const name of ['酒馆预设', '系统提示词', '长期偏好']) await hub.getByRole('region', { name, exact: true }).waitFor()
     await page.screenshot({ path: join(output, 'preset-hub.png'), fullPage: true })
   })
-  await step('在预设页选择三项，导出成一个文件', async () => {
+  await step('在预设页选择导出内容，包括长期偏好归档', async () => {
     await call('manageSystemPromptSet', { action: 'create', name: '快节奏' })
     await call('updateSystemPrompt', { name: 'story', text: 'E2E_FAST_STORY' })
-    await call('manageUserPreferenceProfile', { action: 'create', name: '验收偏好', content: 'E2E 偏好正文' })
+    await call('importSettingsBundle', { payload: { name: 'preferences.json', text: JSON.stringify({
+      spec: 'dsh-tavern.bundle', version: 1, userProfile: { name: '验收偏好', injectionText: 'E2E 偏好正文' },
+    }) } })
     await page.reload({ waitUntil: 'domcontentloaded' })
     await openHub()
     await pickInlineMenu(hub, '新游戏默认预设', 'E2E-A')
     await hub.getByRole('status').filter({ hasText: '新游戏默认预设已更新' }).waitFor()
-    await pickInlineMenu(hub, '新游戏默认长期偏好', '验收偏好')
-    await hub.getByRole('status').filter({ hasText: '新游戏默认长期偏好已更新' }).waitFor()
+    assert.equal(await inlineMenu(hub, '新游戏默认长期偏好').count(), 0)
+    await hub.getByRole('region', { name: '长期偏好' }).getByText(/功能已废弃/).waitFor()
     assert.equal(await inlineMenuValue(hub, '系统提示词方案'), '快节奏')
     // Unchecking an item leaves it out of the file.
     await hub.getByRole('button', { name: '导出…', exact: true }).click()
@@ -88,7 +89,7 @@ export async function presetHubChecks({ page, step, output, report }) {
     assert.equal(bundle.userProfile.injectionText, 'E2E 偏好正文')
     report.presetHubExport = { file: download.suggestedFilename(), parts: Object.keys(bundle).filter(key => ['preset', 'systemPrompts', 'userProfile'].includes(key)) }
   })
-  await step('导入同一个文件：三项都作为新方案加入并设为使用中，不覆盖原有内容', async () => {
+  await step('导入同一个文件：预设和提示词设为使用中，长期偏好归档', async () => {
     const file = join(output, report.presetHubExport.file)
     await hub.locator('input[type=file]').setInputFiles(file)
     await confirmDialog()
@@ -102,7 +103,7 @@ export async function presetHubChecks({ page, step, output, report }) {
     const profile = (await call('getUserPreferenceProfile')).userProfile
     const imported = profile.profiles.find(item => item.name === '验收偏好 (2)')
     assert.ok(imported, '长期偏好作为新条目加入')
-    assert.equal(profile.defaultProfileId, imported.id)
+    assert.equal(profile.defaultProfileId, '')
     assert.equal(await inlineMenuValue(hub, '系统提示词方案'), '快节奏 (2)')
     await page.screenshot({ path: join(output, 'preset-hub-imported.png'), fullPage: true })
   })

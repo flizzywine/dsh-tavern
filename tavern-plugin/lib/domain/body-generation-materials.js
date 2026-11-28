@@ -5,8 +5,7 @@ import playFeatures from '../../shared/play-features.cjs'
 export function publicBodyMaterials(materials) {
   const context = []
   for (const section of sessionStablePrefixSections(null, materials.cardContext || '')) {
-    const kind = section.name === 'tavern:user-preference' ? 'persona'
-      : section.name === 'tavern:constant-worldbook' ? 'worldbook' : 'character'
+    const kind = section.name === 'tavern:constant-worldbook' ? 'worldbook' : 'character'
     if (section.text) context.push({ id: section.name, kind, text: section.text, source: 'tavern' })
   }
   if (materials.worldbook?.context) context.push({ id: 'worldbook', kind: 'worldbook', text: materials.worldbook.context, source: 'tavern' })

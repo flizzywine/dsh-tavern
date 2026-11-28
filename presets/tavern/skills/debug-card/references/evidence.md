@@ -28,7 +28,6 @@
 | 世界书 | `tavern_read_lorebook`，path 可省略为当前卡绑定世界书；用 ref、query 或分页 | 路径可为 worldbooks/... 或内置世界书所在 cards/...；当前条目不证明当时已注入 |
 | 剧本 | `tavern_read_script`，工作台可指定 path，用 query、offset、limit 读取 | offset 是块号，不是字符位置；工作台最多读 6 块 |
 | 预设 | `tavern_read_preset`，path 必填为 presets/...，pointer 按需定位 | 读取编辑目标不会将其应用到 Agent；实际生效看 request |
-| 长期偏好 | `tavern_user_profile_read`，无参数 | 返回 Profile 的草案和确认版本，不代表该局保存的长期偏好快照；实际注入看 request |
 
 ## 按症状选层
 
@@ -40,7 +39,7 @@
 | 修改正则后显示不同 | display、saved-display、diagnostics；用 tavern_read_card_raw 查相关 raw 路径 | display 与 diagnostics 按当前卡计算，saved-display 是保存时快照；缺失快照也有回退 |
 | 状态栏空白、按钮无效 | display、iframe | iframe 是已采集的 DOM、控制台、网络和错误；没有采集记录不等于没有故障 |
 | MVU、姿势或候选项异常 | tavern、background，必要时 request | 区分任务未启用、未运行、调用失败和提交内容错误；前台成功不代表后台成功 |
-| 预设、长期偏好或模型设置未生效 | request，结合相关 Agent 日志 | 根据真实请求检查实际发送内容；请求为空或截断时不能推断未发送 |
+| 预设或模型设置未生效 | request，结合相关 Agent 日志 | 根据真实请求检查实际发送内容；请求为空或截断时不能推断未发送 |
 | 生成或结算慢 | foreground、background、tavern、request | 使用可得时间证据区分阶段与缓存；长连接存在本身不证明泄漏 |
 | 页面打开、切换慢，酒馆报错或功能失效 | `tavern_read_runtime_health`，再对照相关轮次 | 只有页面请求的服务端耗时和酒馆自己的警告报错；不含模型生成时间和浏览器渲染卡顿 |
 | 多轮连续性问题 | turns，再读相关轮；确需完整上下文才读 conversation | conversation 是 Session 层对话，不是全部原始模型请求 |

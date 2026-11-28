@@ -1628,11 +1628,6 @@ function clipReplayCore() {
 					appendMentions();
 					return;
 				}
-				if (task === "user-profile") {
-					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
-					appendMentions();
-					return;
-				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
 				const taskPrompt = String(result && result.text || "").trim();
 				const draft = String(input.state.getSnapshot().draft || "");

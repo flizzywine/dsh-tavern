@@ -29,11 +29,55 @@ import { appendSessionEvent } from './session-events.js'
 import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
 import { projectPriorWritingReferences, projectWithoutStyleReference } from './style-reference-request.js'
 import { STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
+import { canonicalTavernSkillName } from './tavern-skills.js'
 import systemPromptSections from './system-prompt-sections.cjs'
 
 const { buildSystemSectionSpans } = systemPromptSections
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
+const RETIRED_PREFERENCE_TOOLS = new Set(['tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm'])
+
+function isRetiredPreferenceCall(block) {
+  if (block?.type !== 'tool-call') return false
+  if (RETIRED_PREFERENCE_TOOLS.has(block.name)) return true
+  if (block.name !== 'skill') return false
+  let args = block.arguments
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { return false }
+  }
+  return canonicalTavernSkillName(args?.name) === 'user-profile'
+}
+
+export function projectRetiredPreferenceHistory(messages = []) {
+  const calls = new Set()
+  for (const message of messages) {
+    for (const block of Array.isArray(message.content) ? message.content : []) {
+      if (isRetiredPreferenceCall(block)) calls.add(block)
+    }
+  }
+  const callIds = new Set([...calls].map(block => block.id).filter(Boolean))
+  let changed = false
+  const projected = messages.flatMap(message => {
+    const { role, source, content } = message
+    if (source?.kind === 'dsh-user-profile' ||
+      (source?.kind === 'skill-invocation' && canonicalTavernSkillName(source.name) === 'user-profile') ||
+      (role === 'tool' && (callIds.has(message.toolCallId) || RETIRED_PREFERENCE_TOOLS.has(message.toolName)))) {
+      changed = true
+      return []
+    }
+    if (!Array.isArray(content)) return [message]
+    const hasCall = role === 'assistant' && content.some(block => calls.has(block))
+    const blocks = content.filter(block => !calls.has(block) &&
+      !(block?.type === 'tool-result' && (callIds.has(block.toolCallId) || RETIRED_PREFERENCE_TOOLS.has(block.toolName))) &&
+      !(hasCall && block?.type === 'reasoning'))
+    if (blocks.length === content.length) return [message]
+    changed = true
+    const { replayState, ...projectedSource } = source || {}
+    const next = { ...message, content: blocks, ...(source ? { source: projectedSource } : {}) }
+    return hasProviderContent(next) ? [next] : []
+  })
+  return changed ? projected : messages
+}
 const CARD_PERSONA_SCOPE = '起始任务和 Skill 规定任务步骤、交付物与必要格式。人物卡的设定与提示词用于理解和编辑目标。向用户提问、介绍选项和汇报时，始终沿用以下身份、称呼和语气。回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。'
 // The card Agent resends its system prompt on every tool step and reads live
 // files anyway; a large card's reference material would dominate each request.
@@ -465,7 +509,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const staged = stagedRequests.get(sessionId)
     if (!staged?.pureWriter) throw new Error('本轮写作上下文已失效')
     const { frame } = staged
-    const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(request.messages))
+    const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(projectRetiredPreferenceHistory(request.messages)))
     const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages, staged.writingSections)
     if (!staged.preparation) {
       const { provider, model, reasoningEffort } = request
@@ -501,16 +545,18 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (staged?.pureWriter) return null
     // Empty surface tombstones preserve append-only history, but are not messages
     // for the provider. Remove them before choosing a regeneration target.
-    const visibleMessages = (optionsValue.messages || []).filter(hasProviderContent)
+    const sourceMessages = optionsValue.messages || []
+    const priorMessages = projectRetiredPreferenceHistory(sourceMessages)
+    const visibleMessages = priorMessages.filter(hasProviderContent)
     if (staged === undefined) {
       // Card workbench turns are not staged, but they may still carry the empty
-      // stable-prefix placeholder (the user preference lives in the system prompt).
+      // stable-prefix placeholder.
       // Strict providers reject an empty user message with HTTP 400.
       const messages = visibleMessages.filter(message => !isNativeStablePrefix(message))
-      if (messages.length === (optionsValue.messages || []).length) return null
+      if (priorMessages === sourceMessages && messages.length === sourceMessages.length) return null
       return markRequestHandled(Object.assign({}, optionsValue, { messages }), PROJECTED)
     }
-    const regeneratedMessages = projectRegenerationRequestMessages(visibleMessages.length === optionsValue.messages?.length ? optionsValue.messages : visibleMessages)
+    const regeneratedMessages = projectRegenerationRequestMessages(visibleMessages.length === priorMessages.length ? priorMessages : visibleMessages)
     const currentMessages = staged.scope === 'foreground' ? projectPriorWritingReferences(regeneratedMessages) : regeneratedMessages
     const nativeMessages = currentMessages.some(isNativeStablePrefix) ? currentMessages.filter(message => !isNativeStablePrefix(message)) : currentMessages
     const nativeRequest = nativeMessages === optionsValue.messages
@@ -655,8 +701,8 @@ export function createNativePlayOrchestrationStrategy(options) {
     // Play rules arrive in the foreground frame. Still replace the inherited
     // sections explicitly so removing play-mode cannot restore DSH's persona.
     const cardEdit = mode === 'card' && input.chat?.cardEditContext?.version === 1
-    const fixed = input.fixedSystemSections || []
-    const sections = mode === 'card' && !cardEdit ? fixed.filter(section => section.name === 'tavern:user-preference') : fixed.slice()
+    const fixed = (input.fixedSystemSections || []).filter(section => section.name !== 'tavern:user-preference')
+    const sections = mode === 'card' && !cardEdit ? [] : fixed.slice()
     if (mode === 'card') {
       const text = typeof options.cardPersonaText === 'function' ? options.cardPersonaText().trim() : ''
       if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', CARD_PERSONA_SCOPE + '\n\n' + text) })

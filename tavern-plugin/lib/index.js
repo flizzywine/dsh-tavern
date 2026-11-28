@@ -48,7 +48,6 @@ import { createDamperSettings } from './domain/damper-settings.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { cardGoverns, cardOffer, modTools } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
-import { registerUserProfileTools } from './tools/user-profile.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerCardReadingTools } from './tools/card-reading.js'
 import { registerCardCoverTools } from './tools/card-cover.js'
@@ -1294,22 +1293,26 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => openingPreparation.dispose())
   function presentUserPreferenceProfile(value) {
-    const confirmed = value && value.hasConfirmed && value.confirmed ? value.confirmed : null
-    return {
-      defaultProfileId: value?.defaultProfileId || '', profileId: value?.profileId, name: value?.name, profiles: value?.profiles || [],
-      hasDraft: Boolean(value && value.hasDraft),
-      draftRevision: value && value.hasDraft ? Number(value.draft && value.draft.revision) || 0 : 0,
-      hasConfirmed: confirmed !== null,
-      confirmedRevision: confirmed === null ? 0 : Number(confirmed.profileRevision) || 0,
-      defaultEnabled: confirmed !== null && value.defaultEnabled === true,
-      confirmed: confirmed === null ? null : {
-        summary: str(confirmed.summary),
-        injectionText: str(confirmed.injectionText),
-        dimensions: Array.isArray(confirmed.dimensions) ? confirmed.dimensions : [],
-        rawAnswers: Array.isArray(confirmed.rawAnswers) ? confirmed.rawAnswers : [],
-        uncertainties: Array.isArray(confirmed.uncertainties) ? confirmed.uncertainties : [],
-        confirmedAt: Number(confirmed.confirmedAt) || 0
+    const confirmed = value?.confirmed || null
+    const draft = value?.draft || null
+    function presentEntry(entry) {
+      return entry && {
+        summary: str(entry.summary),
+        injectionText: str(entry.injectionText),
+        dimensions: Array.isArray(entry.dimensions) ? entry.dimensions : [],
+        rawAnswers: Array.isArray(entry.rawAnswers) ? entry.rawAnswers : [],
+        uncertainties: Array.isArray(entry.uncertainties) ? entry.uncertainties : [],
       }
+    }
+    return {
+      defaultProfileId: '', profileId: value?.profileId, name: value?.name, profiles: value?.profiles || [],
+      hasDraft: draft !== null,
+      draftRevision: Number(draft?.revision) || 0,
+      hasConfirmed: confirmed !== null,
+      confirmedRevision: Number(confirmed?.profileRevision) || 0,
+      defaultEnabled: false,
+      draft: presentEntry(draft),
+      confirmed: confirmed && { ...presentEntry(confirmed), confirmedAt: Number(confirmed.confirmedAt) || 0 },
     }
   }
   async function listTavernResources() {
@@ -1858,7 +1861,7 @@ export async function apply(ctx) {
     }, {source:'foreground.capabilities',touchUpdatedAt:false,assertCurrent:options?.assertCurrent})
   })
   ctx.effect(() => () => foregroundCapabilities.dispose(), 'dsh-tavern: foreground capabilities')
-  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, readLatestCard, writeChat, updateChat, userPreferenceProfile })
+  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, readLatestCard, writeChat, updateChat })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
   async function ensureNativeSystemPrefix(session, chat) {
     // Rebuilding the snapshot persists the complete Chat; a bounded history cannot.
@@ -1890,7 +1893,6 @@ export async function apply(ctx) {
     timeline: storyTimeline,
     snapshots: playCardSnapshots,
     pluginDataStore,
-    userPreferenceProfile,
     presets: runtimePresets,
     settings: readTavernSettings,
     emptyCardWorkspace,
@@ -3758,11 +3760,11 @@ export async function apply(ctx) {
     }),
     createSettingsHandlers({
       agentRegistry, autoChoices, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
-      llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
+      llm, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
       sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile,
       damperSettings: damperSettingsService, narrativeDamper, scoringCatalog, slotDeclarations, pluginApi,
       checkSlotSelection, modelSelectionChanged: () => presentationObservers.modelChanged(), modelSelection,
-      presetLibrary, runtimePresets, setPlayerName, readChatCard,
+      presetLibrary, runtimePresets, setPlayerName,
       get invalidateTavernSkills() { return invalidateTavernSkills },
       resolveCredentialValue: async (ref) => { const entry = await ctx.get('credentials')?.resolve?.(ref); return typeof entry?.value === 'string' ? entry.value : '' },
     }),
@@ -4070,7 +4072,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       writingPreparation: pluginApi.writingPreparation,
@@ -4247,12 +4249,6 @@ export async function apply(ctx) {
       recallHistoryForSession,
       tools,
     })
-    registerUserProfileTools({
-      chatForSession,
-      tools,
-      userPreferenceProfile,
-    })
-
     registerSkillTools({
       chatForSession,
       skillEnabledFor,

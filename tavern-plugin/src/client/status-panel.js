@@ -112,7 +112,6 @@ function StatusPanelView(p) {
                     h("summary", null, "调整文风"),
                     h("div", null,
                         h("button", { type: "button", onClick: function () { window.dispatchEvent(new CustomEvent("dsh-fork-focus-guide")); } }, "只改这一局", h("small", null, "写作指引")),
-                        h("button", { type: "button", onClick: function () { p.props.openStyleTab("dsh-tavern:presets", { section: "userProfile" }); } }, "以后都这样", h("small", null, "长期偏好")),
                         h("button", { type: "button", disabled: running, onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-adjust-card-style", { detail: { card: view.card } })); } }, "改这张卡", h("small", null, "卡片助手")),
                         h("button", { type: "button", onClick: function () { p.props.openStyleTab("dsh-tavern:presets", { section: "preset" }); } }, "换预设", h("small", null, "酒馆预设")))),
                 h(TavernDebugButton, { sessionId: p.props.sessionId, turn: p.latestDebugTurn, className: "fork-status-link", label: "交给调试 Agent" })))

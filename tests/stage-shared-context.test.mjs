@@ -38,7 +38,7 @@ for (const tool of [stageTool,legacyTool]) test('isolated director boundary acce
 test('actual shared-context builder freezes projected sections and never reads current sources for history', async () => {
   const source = fixture(), calls = []
   const chat = { ...source.chat, id: 'chat', sessionId: 'parent', _storageRevision: 4, timeline: { branchId: 'b', revision: 2 },
-    cardDefinitionSnapshot: source.card, cardContextSnapshot: 'STABLE CARD', cardContextSnapshotVersion: 7,
+    cardDefinitionSnapshot: source.card, cardContextSnapshot: '<user_preferences>\nARCHIVED PREFERENCE\n</user_preferences>\n\nSTABLE CARD', cardContextSnapshotVersion: 7,
     messages: [{ role: 'assistant', turn: 1, text: 'OLD BODY {{char}}' }, { role: 'user', turn: 2, text: 'PLAYER INPUT {{char}}' }, { role: 'assistant', turn: 2, text: 'CURRENT BODY' }] }
   const targetOf = (_chat, turn) => ({ key: 'key' + turn, turn })
   const prepare = createStageSharedContext({ planner: planner(), targetOf, readCard: async current => current.cardDefinitionSnapshot,
@@ -46,6 +46,8 @@ test('actual shared-context builder freezes projected sections and never reads c
     currentWorldbook: async () => { calls.push('worldbook'); return { context: 'BOOK', prefixContext: 'PREFIX BOOK', foregroundContext: 'ACTIVE BOOK' } },
     foregroundReads: async () => 'FOREGROUND READS', stateAtTarget: async () => undefined, worldbookAtTarget: async () => { assert.fail('missing historical state must stop first') } })
   const frozen = await prepare(chat, targetOf(chat, 2))
+  assert.equal(frozen.frozenBackground.stablePrefix, 'STABLE CARD')
+  assert.match(chat.cardContextSnapshot, /ARCHIVED PREFERENCE/)
   chat.guides[0].text = 'FUTURE GUIDE'; chat.cardDefinitionSnapshot.description = 'FUTURE CARD'
   assert.match(frozen.dynamicText, /GUIDE Soyo Player/)
   assert.match(frozen.systemPromptText, /CARD_SYSTEM Soyo/)

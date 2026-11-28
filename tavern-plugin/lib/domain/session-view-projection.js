@@ -220,7 +220,7 @@ export function createSessionViewProjection({
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
       userProfile: {
-        enabled: chat.userProfileEnabled === true,
+        enabled: false,
         revision: Math.max(0, Number(chat.userProfileRevision) || 0)
       },
       bypassPlan: null,

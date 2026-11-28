@@ -15,7 +15,7 @@ import {
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createSettingsHandlers(deps) {
   const { agentRegistry, autoChoices, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
-    llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
+    llm, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
     sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
   // 叙事阻尼器的设置实现只有一份（../domain/damper-settings.js）：内置插件面板也走它。
   // 按调用时构造：只测其他设置的调用方不必带上这组依赖，缺依赖也在真正调用时才报错。
@@ -24,43 +24,23 @@ export function createSettingsHandlers(deps) {
     readTavernSettings, updateTavernSettings, damper: deps.narrativeDamper, str
   }))
   let tavernSettingsPending = null
+  const retiredPreference = '长期偏好功能已废弃，历史内容仅供查看和导出'
   const handlers = {
     async getUserPreferenceProfile(args) {
-      const chat = args?.sessionId && args.globalDefaults !== true ? await chatHeaderForSession(args.sessionId, ['userProfileEnabled','userProfileContextSnapshot','userProfileId','userProfileRevision']) : null
-      return {
-        userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read()),
-        currentConversation: chat && groupOfMode(chat.mode) === 'play' ? {
-          enabled: chat.userProfileEnabled === true,
-          content: chat.userProfileEnabled === true ? str(chat.userProfileContextSnapshot) : '',
-          profileId: chat.userProfileId || 'default',
-          revision: Math.max(0, Number(chat.userProfileRevision) || 0)
-        } : null
-      }
+      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read(args?.profileId)), currentConversation: null }
     },
     async manageUserPreferenceProfile(args) {
-      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.manage(args)) }
+      if (args?.action !== 'select') throw new Error(retiredPreference)
+      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read(args.profileId)) }
     },
-    async updateUserPreferenceProfile(args) {
-      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.updateConfirmed(args)) }
+    async updateUserPreferenceProfile() {
+      throw new Error(retiredPreference)
     },
-    async setConversationUserProfileEnabled(args) {
-      const sessionId = str(args?.sessionId)
-      const chat = await chatForSession(sessionId)
-      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-      if (typeof args.enabled !== 'boolean') throw new Error('画像开关必须为布尔值')
-      if ((await sessionActivity(sessionId))?.busy || agentRegistry.get(sessionId)?.phase?.kind === 'running') throw new Error('请等待当前生成和后台任务完成后再切换画像')
-      const patch = await playCardSnapshots.preferenceReplacement(chat, args.enabled, args.profileId)
-      const saved = Object.keys(patch).length ? await updateChat(chat.id, current => {
-        if (current._storageRevision !== chat._storageRevision || Number(current.cardContextRevision || 0) !== Number(chat.cardContextRevision || 0) || current.cardContextSnapshot !== chat.cardContextSnapshot || current.userProfileEnabled !== chat.userProfileEnabled) throw new Error('当前游戏配置已变化，请刷新后重试')
-        return Object.assign(current, patch)
-      }, { source: 'user-profile.toggle-conversation' }) : chat
-      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read()), currentConversation: {
-        content: saved.userProfileEnabled === true ? str(saved.userProfileContextSnapshot) : '',
-        enabled: saved.userProfileEnabled === true, profileId: saved.userProfileId || 'default', revision: Math.max(0, Number(saved.userProfileRevision) || 0)
-      } }
+    async setConversationUserProfileEnabled() {
+      throw new Error(retiredPreference)
     },
-    async setUserPreferenceProfileDefaultEnabled(args) {
-      return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.setDefaultEnabled(args && args.enabled === true, args?.profileId)) }
+    async setUserPreferenceProfileDefaultEnabled() {
+      throw new Error(retiredPreference)
     },
     async getConversationBackgroundModel(args) {
       return conversationBackgroundSettings.read(args?.sessionId)
@@ -203,19 +183,6 @@ export function createSettingsHandlers(deps) {
           else warnings.push('本局预设源文件不可用，未更新默认预设')
         }
       }
-      if (userPreferenceProfile) {
-        if (chat.userProfileEnabled === true) {
-          const profileId = str(chat.userProfileId) || 'default'
-          const profileDoc = await userPreferenceProfile.read()
-          if (profileDoc.profiles?.some(item => item.id === profileId && item.hasConfirmed)) {
-            await userPreferenceProfile.manage({ action: 'default', profileId })
-          } else {
-            warnings.push('本局长期偏好不可用，未更新默认长期偏好')
-          }
-        } else {
-          await userPreferenceProfile.manage({ action: 'default', profileId: '' })
-        }
-      }
       const patch = {
         defaultPlaySettings: {
           playerName,
@@ -257,23 +224,6 @@ export function createSettingsHandlers(deps) {
         chat = await chatForSession(sessionId)
         if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
       }
-      let preferencePatch = {}
-      if (userPreferenceProfile && playCardSnapshots) {
-        const profileDoc = await userPreferenceProfile.read()
-        const defaultProfileId = str(profileDoc?.defaultProfileId)
-        const canEnableProfile = defaultProfileId !== '' && Boolean(profileDoc?.profiles?.some(item => item.id === defaultProfileId && item.hasConfirmed))
-        if (defaultProfileId !== '' && !canEnableProfile) warnings.push('默认长期偏好不可用，已切换为不使用长期偏好')
-        if (canEnableProfile || chat.userProfileEnabled === true) {
-          if (!str(chat.cardContextSnapshot) && typeof deps.readChatCard === 'function') {
-            const card = await deps.readChatCard(chat).catch(() => null)
-            if (card) {
-              await playCardSnapshots.ensure(chat, card)
-              chat = await chatForSession(sessionId)
-            }
-          }
-          preferencePatch = await playCardSnapshots.preferenceReplacement(chat, canEnableProfile, canEnableProfile ? defaultProfileId : undefined)
-        }
-      }
       await updateChat(chat.id, current => {
         if ((current.messages || []).length !== (chat.messages || []).length) throw new Error('当前游戏已变化，请刷新后重试')
         if (typeof deps.setPlayerName !== 'function') {
@@ -281,7 +231,6 @@ export function createSettingsHandlers(deps) {
         }
         current.runtimePresetSnapshot = presetSnapshot
         current.runtimePresetPath = str(presetSnapshot?.presetPath)
-        Object.assign(current, preferencePatch)
         current.backgroundConfigVersion = 1
         current.conversationFeaturesVersion = 1
         current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)

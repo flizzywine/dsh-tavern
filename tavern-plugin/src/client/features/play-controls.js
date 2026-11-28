@@ -105,7 +105,7 @@
                 notifyTavernDataChanged,
                 // the stage row opens 舞台设置, a tab of the same panel.
                 openTab: openSidebarTab,
-                packUi, UserPreferenceProfileTab, backgroundModelLabel
+                packUi, backgroundModelLabel
             });
 			function TavernConversationExportAction(props) {
                 // The header only needs session membership. Building a complete

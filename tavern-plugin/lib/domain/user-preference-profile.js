@@ -1,11 +1,4 @@
-import { promptSection } from './prompt-section.js'
 import { randomUUID } from 'node:crypto'
-
-// Prompt prose source. Keys are stable; interpolation arguments are data.
-export const PROMPT_PROSE = Object.freeze({
-  p001: "Confirmed long-term user preferences. They affect presentation only; the card and this turn's explicit user requests come first. Don't restate this section.\n\n"
-})
-
 
 const PROFILE_PATH = 'user-preference-profile.json'
 const SPEC = 'dsh-tavern.user-preference-profile'
@@ -165,28 +158,8 @@ function createSingleProfile({ store, now = Date.now }) {
     })
   }
 
-  async function stableContext() {
-    const current = document(await store.readJson(PROFILE_PATH))
-    if (current.confirmed === null) return null
-    const text = multiline(current.confirmed.injectionText || current.confirmed.summary, 3000)
-    if (text === '') return null
-    return {
-      revision: integer(current.confirmed.profileRevision || current.confirmed.revision),
-      text: promptSection('user_preferences', PROMPT_PROSE.p001 + text)
-    }
-  }
-
-  return Object.freeze({ save, saveDraft, confirm, updateConfirmed, setDefaultEnabled, stableContext })
+  return Object.freeze({ save, saveDraft, confirm, updateConfirmed, setDefaultEnabled })
 }
-
-/** Resolve the configured default, independently of the profile being edited. */
-export async function defaultUserPreferenceProfile(profiles, selected) {
-  if (!profiles) return null
-  selected ??= await profiles.read()
-  if (!selected || !Object.hasOwn(selected, 'defaultProfileId')) return selected
-  return selected.defaultProfileId ? { ...await profiles.read(selected.defaultProfileId), defaultEnabled: true } : null
-}
-
 
 // Keep the existing draft/confirmation rules inside each independently named profile.
 export function createUserPreferenceProfile({ store, now = Date.now }) {
@@ -209,7 +182,6 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
   }
   function model(id) {
     return createSingleProfile({ now, store: {
-      readJson: async () => entry(collection(await store.readJson(PROFILE_PATH)), id).data,
       updateJson: async (_path, updater) => {
         let result
         await store.updateJson(PROFILE_PATH, async raw => {
@@ -267,12 +239,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
     })
     return await read()
   }
-  async function stableContext(id) {
-    const selected = await read(id)
-    const context = await model(selected.profileId).stableContext()
-    return context ? { ...context, profileId: selected.profileId } : null
-  }
-  return Object.freeze({ read, manage, stableContext,
+  return Object.freeze({ read, manage,
     save: input => mutateProfile('save', input),
     saveDraft: input => mutateProfile('saveDraft', input),
     confirm: input => mutateProfile('confirm', input),

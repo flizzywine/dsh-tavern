@@ -30,8 +30,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
         const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
         React.useEffect(() => {
             let active = true;
-            Promise.all([rpc("listPresets"), rpc("getUserPreferenceProfile", { globalDefaults: true })]).then(([presets, profile]) => {
-                if (active) setData({ ...settings.defaultPlaySettings, presets: presets.presets || [], preset: presets.activePresetPath || "", profile: profile.userProfile });
+            rpc("listPresets").then(presets => {
+                if (active) setData({ ...settings.defaultPlaySettings, presets: presets.presets || [], preset: presets.activePresetPath || "" });
             }, err => { if (active) setMessage("读取失败：" + err.message); });
             return () => { active = false; };
         }, []);
@@ -40,10 +40,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             try {
                 const result = await rpc(method || "updateTavernSettings", args || { patch: { defaultPlaySettings: patch } });
                 if (method === "selectPreset") setData(current => ({ ...current, preset: args.path }));
-                else if (method === "manageUserPreferenceProfile") {
-                    const profile = await rpc("getUserPreferenceProfile", { globalDefaults: true });
-                    setData(current => ({ ...current, profile: profile.userProfile }));
-                } else setData(current => ({ ...current, ...result.settings.defaultPlaySettings }));
+                else setData(current => ({ ...current, ...result.settings.defaultPlaySettings }));
                 if (patch && Object.hasOwn(patch, "statusBarPlacement")) notifySettingsChanged();
                 setMessage("已保存");
             } catch (err) { setMessage("保存失败：" + err.message); }
@@ -67,9 +64,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     h(InlineField, { kind: "text", label: "默认玩家称呼", hideLabel: true, disabled, maxLength: 80, value: data?.playerName || "", placeholder: "你", onCommit: value => save({ playerName: value }) })),
                 menu("状态栏位置（所有对局）", data?.statusBarPlacement || "sidebar", [{ value: "sidebar", label: "侧边栏" }, { value: "body", label: "正文下方" }], value => save({ statusBarPlacement: value })),
                 menu("默认预设", data?.preset || "", [{ value: "", label: "不使用酒馆预设" }].concat((data?.presets || []).filter(item => item.valid && item.recognized).map(item => ({ value: item.path, label: item.title }))),
-                    value => save(null, "selectPreset", { path: value })),
-                menu("默认长期偏好", data?.profile.defaultProfileId || "", [{ value: "", label: "不启用" }].concat((data?.profile.profiles || []).filter(item => item.hasConfirmed).map(item => ({ value: item.id, label: item.name }))),
-                    value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
+                    value => save(null, "selectPreset", { path: value }))),
             h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
                 TAVERN_PLAY_FEATURES.postureSummary ? toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true) : null,
                 children,

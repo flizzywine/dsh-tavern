@@ -68,7 +68,7 @@ Better Sidebar 提供四个职责分离的库：
 - `skill` 与 `tavern_save_skill`：按需使用或创建 Tavern 专属 Skill。
 - `cordis_inspect_*`、`cordis_define`、`cordis_run`、`cordis_stop` 与 `cordis_undefine`：复用 DSH 创造模式，在当前进程中检查 Runtime，并创建、运行或移除临时插件和工具；只向卡片 Agent 开放。
 
-任务专用工具按 Skill 出现：Cordis 工具在加载 `advanced-capabilities` 或 `tavern-plugin` 后可见，`tavern_save_skill` 随建 Skill 类 Skill，长期偏好工具随 `user-profile`（`create-card` 可读），`tavern_read_play_chat` 随 `debug-card`。普通改卡不为这些 schema 每步付费，加载 Skill 时工具列表变化只造成一次缓存失效。
+任务专用工具按 Skill 提供。Cordis 工具在加载 `advanced-capabilities` 或 `tavern-plugin` 后可见，`tavern_save_skill` 随建 Skill 类 Skill 提供，`tavern_read_play_chat` 随 `debug-card` 提供。普通改卡不为这些 schema 每步付费，加载 Skill 时工具列表变化只造成一次缓存失效。
 
 目标预设只作为待编辑数据，不成为当前 Agent 的提示词，也不启用预设提示词或正则效果。游玩 Agent 和后台 Agent 不获得卡片工作区文件工具或 Skill。
 

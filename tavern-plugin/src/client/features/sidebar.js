@@ -1231,13 +1231,6 @@
 				return function () { window.removeEventListener("dsh-tavern-adjust-card-style", onAdjustCardStyle); };
 			});
 			React.useEffect(function () {
-				function onOpenUserProfileTask() {
-					newCardConversation(null, "user-profile", "建立长期偏好");
-				}
-				window.addEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask);
-				return function () { window.removeEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask); };
-			});
-			React.useEffect(function () {
 				function onDebugPlayChat(event) {
 					const detail = event && event.detail ? event.detail : {};
 					Promise.resolve().then(async function () {

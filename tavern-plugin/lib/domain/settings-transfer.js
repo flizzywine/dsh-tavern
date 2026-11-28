@@ -54,7 +54,6 @@ export function createSettingsTransfer({ importPreset, presetLibrary, readTavern
       const library = await userPreferenceProfile.read()
       const name = uniqueName(library.profiles.map(item => item.name), parts.userProfile.name || '导入的长期偏好')
       const created = await userPreferenceProfile.manage({ action: 'create', name, content: parts.userProfile.injectionText, summary: parts.userProfile.summary })
-      await userPreferenceProfile.manage({ action: 'default', profileId: created.profileId })
       imported.userProfile = { id: created.profileId, name }
     }
     if (Object.keys(imported).length === 0) throw new Error('没有选择要导入的内容')

@@ -10,7 +10,7 @@ import receipts from './writing-material-receipts.cjs'
 export const PURE_WRITING_REQUEST = 'pure-writing'
 export const WRITING_PREPARATION_REQUEST = 'writing-preparation'
 
-const KEEP_FIXED_SECTIONS = new Set(['tavern:user-preference', 'tavern:character-card', 'tavern:constant-worldbook'])
+const KEEP_FIXED_SECTIONS = new Set(['tavern:character-card', 'tavern:constant-worldbook'])
 const STORY_SECTIONS = new Set(['base', 'card', 'card-instruction', 'script', 'guide'])
 const { tavernIsWritingInjection, tavernWithoutPrivateWritingReceipts, tavernWritingReceiptSections } = receipts
 

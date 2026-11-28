@@ -9,8 +9,9 @@ import { isProducerSource } from './message-source.js'
 
 // A frozen snapshot keeps the envelope it was written with: today's tag, the English tag of
 // chats opened between 11-03 and 11-12, or the original Chinese heading. Writers use the first tag.
+const USER_PREFERENCE_SECTION = 'tavern:user-preference'
 const STABLE_SECTIONS = Object.freeze([
-  { name: 'tavern:user-preference', tags: ['user_preferences'], heading: '【用户已确认的长期偏好】' },
+  { name: USER_PREFERENCE_SECTION, tags: ['user_preferences'], heading: '【用户已确认的长期偏好】' },
   { name: 'tavern:character-card', tags: ['character_card_name', 'character_card'], heading: '【故事设定 · 人物卡】' },
   { name: 'tavern:card-system-prompt', tags: ['card_system'], heading: '【人物卡系统提示】' },
   { name: 'tavern:constant-worldbook', tags: ['lorebook_constant', 'constant_worldbook'], heading: '【常驻世界书】' }
@@ -117,6 +118,16 @@ function sourceSections(text) {
   return sections
 }
 
+/** Project historical snapshots for generation without changing their stored contents. */
+export function withoutLongTermPreference(value) {
+  const text = str(value)
+  if (!text.includes('<user_preferences>') && !text.includes('【用户已确认的长期偏好】')) return text
+  const body = text.replace(/(?:^|\n)<user_preferences>[\s\S]*?<\/user_preferences>(?=\r?\n|$)/g, '').trim()
+  return body.includes('【用户已确认的长期偏好】') || body.includes('<user_preferences>')
+    ? sourceSections(body.replaceAll('\r\n', '\n')).filter(section => section.name !== USER_PREFERENCE_SECTION).map(section => section.text).join('\n\n')
+    : body
+}
+
 /** Read the immutable snapshot from original events, even after its Surface node was compacted. */
 export function readSessionStablePrefix(session) {
   if (!session) return null
@@ -198,8 +209,13 @@ export async function ensureSessionStablePrefix(session, text, storage, revision
 /** Native system assembly is the only model-visible owner of fixed background. */
 export function sessionStablePrefixSections(session, openingText = '') {
   const prefix = readSessionStablePrefix(session)
+  const stored = prefix?.message?.source
+  const text = Array.isArray(stored?.sections) && stored.sections.length && typeof stored.fixedSystemText !== 'string'
+    ? sectionText({ source: { sections: stored.sections.filter(section => section?.name !== USER_PREFERENCE_SECTION) } })
+    : prefix?.text ?? openingText
+  const active = withoutLongTermPreference(text)
   // Imports prepare their events before a native Session is published.
-  const sections = prefix ? sourceSections(prefix.text) : openingText ? sourceSections(openingText) : []
+  const sections = active ? sourceSections(active) : []
   const directory = sessionVariableDirectorySection(session)
   return directory ? [...sections, directory] : sections
 }

@@ -8,7 +8,6 @@ import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeConfiguredBackgroundTasks, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
-import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
 import { createSessionOpeningChanges } from './session-opening.js'
 
@@ -190,14 +189,6 @@ export function createConversationInitialization(options) {
     // the book or the card takes effect in games that are already running.
     // Sessions created by the retired edit experiment keep their cardEditContext.
     if (chatMode === 'card' && card !== null) chat.cardReferenceContext = { version: 1 }
-    // The sidebar setting is the sole opt-in; opening previews and legacy clients cannot override it.
-    const selectedProfile = options.userPreferenceProfile
-      ? await options.userPreferenceProfile.read()
-      : null
-    const profile = await defaultUserPreferenceProfile(options.userPreferenceProfile, selectedProfile)
-    if (chat.mode === 'card') chat.userProfileManagementId = selectedProfile?.profileId || 'default'
-    chat.userProfileId = profile?.profileId || 'default'
-    chat.userProfileEnabled = profile?.hasConfirmed === true && profile.defaultEnabled === true
     chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && defaults.webSearchEnabled
     if (groupOfMode(chat.mode) === 'play') {
       chat.candidateTabs = defaults.candidateTabs

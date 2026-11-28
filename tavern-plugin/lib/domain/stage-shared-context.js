@@ -1,6 +1,7 @@
 // Frozen input preparation for the existing background runner. No task/session ownership.
 import { createHash } from 'node:crypto'
 import { projectAgentMessageText } from './runtime-content-projection.js'
+import { withoutLongTermPreference } from './session-stable-prefix.js'
 
 const clone = value => structuredClone(value)
 const text = value => typeof value === 'string' ? value : ''
@@ -62,7 +63,7 @@ export function createStageSharedContext({ planner, readCard, ensureStablePrefix
       macroState: value.macroState, variables: value.variables, openingWorldbookSnapshot: value.openingWorldbookSnapshot })
     const capturedDynamicSource = dynamicSource(snapshot)
     if (readOnly && (!text(snapshot.cardContextSnapshot).trim() || Number(snapshot.cardContextSnapshotVersion) < 7)) fail('STAGE_CONTEXT_PREVIEW_NOT_READY', '先恢复本局固定上下文后再预览；本次只读预览未创建或迁移存档。')
-    const stablePrefix = readOnly ? snapshot.cardContextSnapshot : await ensureStablePrefix(snapshot)
+    const stablePrefix = withoutLongTermPreference(readOnly ? snapshot.cardContextSnapshot : await ensureStablePrefix(snapshot))
     if (snapshot.timeline?.branchId !== branchId || snapshot.timeline?.revision !== revision || targetOf(snapshot, target.turn).key !== target.key
       || dynamicSource(snapshot) !== capturedDynamicSource) {
       fail('STAGE_CONTEXT_TARGET_STALE', '准备导演固定上下文时剧情已经变化。')

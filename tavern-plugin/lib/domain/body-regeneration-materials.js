@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { freezeJson } from './freeze-json.js'
 import { computeSceneTarget } from './scene-illustration.js'
-import { sessionStablePrefixSections } from './session-stable-prefix.js'
+import { sessionStablePrefixSections, withoutLongTermPreference } from './session-stable-prefix.js'
 import { cardSystemPromptText } from './card-system-prompt.js'
 import { frameUserInput } from './agent-input-frame.js'
 import { isWithdrawnEntryText } from './worldbook-virtual-state.js'
@@ -20,7 +20,7 @@ const fail = message => { throw Object.assign(new Error(message), { code: 'TAVER
 const cardFields = card => Object.fromEntries(CARD_FIELDS.map(key => [key, text(card?.[key])]))
 
 function effectiveCardContext(value, { worldbookPrefix, systemPromptText } = {}) {
-  if (typeof worldbookPrefix !== 'string' && typeof systemPromptText !== 'string') return text(value)
+  if (typeof worldbookPrefix !== 'string' && typeof systemPromptText !== 'string') return withoutLongTermPreference(value)
   // Use the host's own section boundaries. The opening card snapshot contains
   // old constants/system instructions; request assembly replaces those with
   // the prepared current values, which must be frozen here too.
@@ -52,7 +52,7 @@ export function captureBodyRegenerationSource({ chat, card, worldbookPrefix, sys
       card: cardFields(card),
       cardContext: effectiveCardContext(chat.cardContextSnapshot, { worldbookPrefix, systemPromptText }),
       ...(typeof worldbookPrefix === 'string' ? { worldbookPrefix } : {}),
-      persona: { name: text(chat.macroState?.userName) || '你', description: text(chat.userProfileContextSnapshot) },
+      persona: { name: text(chat.macroState?.userName) || '你', description: '' },
       worldbookEntries: virtualEntries(chat.worldBookVirtualState),
       generationState: { posture: text(chat.posture), variables: clone(chat.variables ?? null), messageVariables: tavernPromptMessageVariables(chat) ?? null }
     }
@@ -217,9 +217,9 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
       ? hash([chat.id, chat.timeline?.branchId, chat.timeline?.revision, turn, input.raw]) : computeSceneTarget(chat, turn).key, branchId: text(chat.timeline?.branchId),
       revision: Number(chat.timeline?.revision) || 0, operationId: text(operationId) },
     card: cardFields(originalCard),
-    cardContext: text(captured?.cardContext ?? beforeChat.cardContextSnapshot),
+    cardContext: withoutLongTermPreference(captured?.cardContext ?? beforeChat.cardContextSnapshot),
     persona: { name: text(captured?.persona?.name ?? beforeChat.macroState?.userName) || '你',
-      description: text(captured?.persona?.description ?? beforeChat.userProfileContextSnapshot) },
+      description: '' },
     worldbook: { context: worldText, refs, entries, ...(toolResults.length ? { toolResults } : {}) },
     writingRequirements: requirements,
     history,

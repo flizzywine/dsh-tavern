@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
+import { buildBodyRegenerationMaterials, captureBodyRegenerationSource, visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
+
+test('正文生成与旧轮重生成材料只保留玩家称呼和人物卡上下文', () => {
+  const card = { name: '人物卡' }
+  const stable = '<character_card>\n人物设置\n</character_card>'
+  const cardContextSnapshot = '<user_preferences>\n旧偏好\n</user_preferences>\n\n' + stable
+  const beforeChat = { id: 'x', sessionId: 'game', messages: [], cardContextSnapshot, userProfileContextSnapshot: '旧偏好',
+    cardDefinitionSnapshot: card, macroState: { userName: '玩家' } }
+  const capture = captureBodyRegenerationSource({ chat: beforeChat, card }).regenerationMaterials
+  assert.equal(capture.cardContext, stable)
+  assert.deepEqual(capture.persona, { name: '玩家', description: '' })
+  const archived = { ...capture, cardContext: cardContextSnapshot, persona: { name: '玩家', description: '旧偏好' } }
+  const frame = { kind: 'foreground', turn: 2, userInput: { sourceText: '继续' }, contributions: [], source: { regenerationMaterials: archived } }
+  const chat = { ...beforeChat, foregroundFrames: { frame } }
+  const dto = buildBodyRegenerationMaterials({ chat, beforeChat, turn: 2, kind: 'generate', targetInput: { raw: '继续' } })
+  assert.equal(dto.cardContext, stable)
+  assert.deepEqual(dto.persona, { name: '玩家', description: '' })
+  assert.equal(frame.source.regenerationMaterials.persona.description, '旧偏好')
+})
 
 test('canonical visible history excludes hidden work, discarded swipes and suppressed rounds without truncation', () => {
   const rows = [{ role: 'assistant', greeting: true, turn: 1, projectionText: '开场' },

@@ -51446,13 +51446,6 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				return function () { window.removeEventListener("dsh-tavern-adjust-card-style", onAdjustCardStyle); };
 			});
 			React.useEffect(function () {
-				function onOpenUserProfileTask() {
-					newCardConversation(null, "user-profile", "建立长期偏好");
-				}
-				window.addEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask);
-				return function () { window.removeEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask); };
-			});
-			React.useEffect(function () {
 				function onDebugPlayChat(event) {
 					const detail = event && event.detail ? event.detail : {};
 					Promise.resolve().then(async function () {
@@ -53450,8 +53443,8 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
                 React.useEffect(() => {
                     let active = true;
-                    Promise.all([rpc("listPresets"), rpc("getUserPreferenceProfile", { globalDefaults: true })]).then(([presets, profile]) => {
-                        if (active) setData({ ...settings.defaultPlaySettings, presets: presets.presets || [], preset: presets.activePresetPath || "", profile: profile.userProfile });
+                    rpc("listPresets").then(presets => {
+                        if (active) setData({ ...settings.defaultPlaySettings, presets: presets.presets || [], preset: presets.activePresetPath || "" });
                     }, err => { if (active) setMessage("读取失败：" + err.message); });
                     return () => { active = false; };
                 }, []);
@@ -53460,10 +53453,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                     try {
                         const result = await rpc(method || "updateTavernSettings", args || { patch: { defaultPlaySettings: patch } });
                         if (method === "selectPreset") setData(current => ({ ...current, preset: args.path }));
-                        else if (method === "manageUserPreferenceProfile") {
-                            const profile = await rpc("getUserPreferenceProfile", { globalDefaults: true });
-                            setData(current => ({ ...current, profile: profile.userProfile }));
-                        } else setData(current => ({ ...current, ...result.settings.defaultPlaySettings }));
+                        else setData(current => ({ ...current, ...result.settings.defaultPlaySettings }));
                         if (patch && Object.hasOwn(patch, "statusBarPlacement")) notifySettingsChanged();
                         setMessage("已保存");
                     } catch (err) { setMessage("保存失败：" + err.message); }
@@ -53487,9 +53477,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                             h(InlineField, { kind: "text", label: "默认玩家称呼", hideLabel: true, disabled, maxLength: 80, value: data?.playerName || "", placeholder: "你", onCommit: value => save({ playerName: value }) })),
                         menu("状态栏位置（所有对局）", data?.statusBarPlacement || "sidebar", [{ value: "sidebar", label: "侧边栏" }, { value: "body", label: "正文下方" }], value => save({ statusBarPlacement: value })),
                         menu("默认预设", data?.preset || "", [{ value: "", label: "不使用酒馆预设" }].concat((data?.presets || []).filter(item => item.valid && item.recognized).map(item => ({ value: item.path, label: item.title }))),
-                            value => save(null, "selectPreset", { path: value })),
-                        menu("默认长期偏好", data?.profile.defaultProfileId || "", [{ value: "", label: "不启用" }].concat((data?.profile.profiles || []).filter(item => item.hasConfirmed).map(item => ({ value: item.id, label: item.name }))),
-                            value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
+                            value => save(null, "selectPreset", { path: value }))),
                     h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
                         TAVERN_PLAY_FEATURES.postureSummary ? toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true) : null,
                         children,
@@ -54348,158 +54336,66 @@ function createTavernTextLayoutFeature() {
 const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 
 		function UserPreferenceProfileTab(props) {
-            const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const h = React.createElement;
-			const sessionId = props.scope && props.scope.sessionId || "";
+			const sessionId = props.scope?.sessionId || "";
+			const [profileId, setProfileId] = React.useState("");
 			const [record, setRecord] = React.useState(null);
-			const [currentConversation, setCurrentConversation] = React.useState(null);
-			const [editing, setEditing] = React.useState(false);
-			const [injectionText, setInjectionText] = React.useState("");
-			const [busy, setBusy] = React.useState(false);
-			const editingRef = React.useRef(editing);
-			editingRef.current = editing;
-			const refreshRef = React.useRef(null);
-			const [error, setError] = usePersistentError("长期偏好");
-            const [saveNotice, setSaveNotice] = React.useState("");
-            const [reveal, setReveal] = React.useState(false);
-			function applyResult(result) {
-				const next = result && result.userProfile || null;
-				setRecord(next);
-				if (result && Object.prototype.hasOwnProperty.call(result, "currentConversation")) setCurrentConversation(result.currentConversation || null);
-				if (!editingRef.current && next && next.confirmed) {
-					setInjectionText(String(next.confirmed.injectionText || ""));
-				}
-			}
+			const [exporting, setExporting] = React.useState(false);
+			const [error, setError] = React.useState("");
 			React.useEffect(function () {
 				const refresh = createUserProfileRefreshModule({
-					load: function () { return rpc("getUserPreferenceProfile", { sessionId: sessionId }, sessionId); },
-					onValue: applyResult,
+					load: function () { return rpc("getUserPreferenceProfile", { profileId: profileId || undefined }, sessionId); },
+					onValue: function (result) { setRecord(result.userProfile); },
 					onSuccess: function () { setError(""); },
 					onError: function (err) { setError(String(err && err.message || err)); }
 				});
-				refreshRef.current = refresh;
 				refresh.request();
-				function onData(event) { if (tavernDataChangeAffects(event, ["user-profile", "sessions"], "user-profile")) refresh.request(); }
+				function onData(event) { if (tavernDataChangeAffects(event, ["user-profile"], "user-profile")) refresh.request(); }
 				window.addEventListener("dsh-tavern-data-changed", onData);
-				return function () { refresh.dispose(); if (refreshRef.current === refresh) refreshRef.current = null; window.removeEventListener("dsh-tavern-data-changed", onData); };
-			}, [sessionId]);
-			async function manageProfile(action, profileId) {
-				if (busy || editing) return;
-				let name;
-				if (action === "select" || action === "default") name = undefined;
-				else {
-					name = await askTavernText({ title: action === "create" ? "新长期偏好名称" : "长期偏好名称", initialValue: action === "rename" ? record.name : "", maxLength: 80 });
-					if (!name) return;
-				}
-				setBusy(true); setError(""); setSaveNotice("");
-				if (refreshRef.current) refreshRef.current.invalidate();
-				try {
-					const result = await rpc("manageUserPreferenceProfile", { action: action, profileId: profileId, name: name }, sessionId);
-					if (refreshRef.current) refreshRef.current.invalidate();
-					applyResult(result);
-					notifyTavernDataChanged(["user-profile"], "user-profile");
-				} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
+				return function () { refresh.dispose(); window.removeEventListener("dsh-tavern-data-changed", onData); };
+			}, [sessionId, profileId]);
 			async function exportProfile() {
-				setBusy(true); setError(""); setSaveNotice("");
+				setExporting(true); setError("");
 				try { saveTavernExport(await rpc("exportSettingsBundle", { include: { userProfile: true }, userProfileId: record.profileId }, sessionId)); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setExporting(false); }
 			}
-			function openAgentTask() {
-				window.dispatchEvent(new CustomEvent("dsh-tavern-open-user-profile-task"));
+			function archiveSection(title, entry) {
+				if (!entry) return null;
+				const details = [
+					...(entry.dimensions || []).map(function (item) { return [item.label || item.id, item.conclusion, item.evidence].filter(Boolean).join("\n"); }),
+					...(entry.rawAnswers || []).map(function (item) { return [item.question, item.answer].filter(Boolean).join("\n"); }),
+					...(entry.uncertainties || [])
+				];
+				const text = [entry.summary, entry.injectionText !== entry.summary ? entry.injectionText : ""].filter(Boolean).join("\n\n");
+				return h("section", null,
+					h("h3", { className: "dsh-tavern-status-label" }, title),
+					text ? h("div", { className: "dsh-tavern-user-profile-text" }, text) : null,
+					details.length ? h("details", null, h("summary", null, "偏好维度和访谈记录"),
+						h("div", { className: "dsh-tavern-user-profile-text" }, details.join("\n\n"))) : null);
 			}
-			async function toggleCurrent(applySelected, profileId) {
-				if (!currentConversation || busy) return;
-				const enabled = applySelected === true;
-				setBusy(true); setError(""); setSaveNotice("");
-				if (refreshRef.current) refreshRef.current.invalidate();
-				try {
-					const write = rpc("setConversationUserProfileEnabled", { sessionId: sessionId, enabled: enabled, profileId: enabled ? (profileId || record.profileId) : undefined }, sessionId);
-					// 本局设置 counts this write in its page head (正在保存… / 已保存).
-					const result = await (props.track ? props.track(write) : write);
-					if (refreshRef.current) refreshRef.current.invalidate();
-					applyResult(result); setSaveNotice("已保存");
-					notifyTavernDataChanged(["user-profile", "sessions"], "user-profile");
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			function beginEdit() {
-				if (!record || !record.confirmed) return;
-				setInjectionText(String(record.confirmed.injectionText || ""));
-				setEditing(true);
-			}
-			async function saveEdit() {
-				if (!injectionText.trim() || busy) return;
-				if (!await askConfirm("保存长期偏好修改？已开始的游戏会保留原来的内容，直到你主动更新。")) return;
-				setBusy(true); setError(""); setSaveNotice("");
-				if (refreshRef.current) refreshRef.current.invalidate();
-				try {
-					const result = await rpc("updateUserPreferenceProfile", { profileId: record.profileId, expectedRevision: record.confirmedRevision, summary: record.confirmed.summary, injectionText: injectionText }, sessionId);
-					if (refreshRef.current) refreshRef.current.invalidate();
-					applyResult(result);
-					setEditing(false);
-					notifyTavernDataChanged(["user-profile"], "user-profile");
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			const profiles = record && record.profiles || [];
-			const active = currentConversation && currentConversation.enabled ? profiles.find(function (item) { return item.id === (currentConversation.profileId || "default"); }) : null;
-			const outdated = active && active.confirmedRevision > currentConversation.revision;
-			const header = h("div", { className: "dsh-tavern-status-head" },
-				h("div", { className: "dsh-tavern-status-title" }, "长期偏好"),
-				h("div", { className: "dsh-tavern-question-sub" }, tavernUserProfileRemovalNotice));
-			// 本局设置 › 玩法: one row of the page (props.Field is its InlineField) — the menu, 「查看」 the content this game
-			// uses below it, and the way to take a newer saved version.
-			if (props.conversationOnly) {
-				const current = currentConversation, on = Boolean(current && current.enabled), chosen = on ? current.profileId || "default" : "";
-				const options = [{ value: "", label: "不使用长期偏好" }]
-					.concat(on && !profiles.some(function (item) { return item.id === current.profileId && item.hasConfirmed; }) ? [{ value: chosen, label: "当前长期偏好（库中已不可用）" }] : [])
-					.concat(profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return { value: item.id, label: item.name }; }));
-				return h(React.Fragment, null,
-					h(props.Field, { kind: "menu", label: "长期偏好", controlLabel: "本局长期偏好", value: chosen, options: options, placeholder: current ? undefined : "正在读取…",
-						help: h(HelpTip, { label: "长期偏好说明" }, "选择已确认的游玩和写作偏好，作为本局生成时的参考。" + tavernUserProfileRemovalNotice),
-						disabled: !current || busy || editing, error: error, onCommit: function (value) { return toggleCurrent(Boolean(value), value); },
-						trail: on ? h("button", { type: "button", className: "ap-link dsh-session-reveal", "aria-expanded": reveal, onClick: function () { setReveal(!reveal); } }, reveal ? "收起" : "查看") : null }),
-					on && reveal ? h("div", { className: "dsh-session-profile-text" }, current.content || "暂无长期偏好内容") : null,
-					outdated ? h("p", { className: "ap-notice dsh-session-profile-update" }, h("span", null, "长期偏好已修改，这局仍使用修改前的内容。"),
-						h("button", { type: "button", className: "ap-hint-chip", disabled: busy || editing, onClick: function () { toggleCurrent(true, active.id); } }, "更新到当前游戏")) : null);
-			}
-			const controls = record ? h("div", { className: "dsh-tavern-profile-controls" },
-				h("section", { className: "dsh-tavern-profile-default" }, h("label", { htmlFor: "tavern-profile-default" }, "默认长期偏好"), h("select", { id: "tavern-profile-default", value: record.defaultProfileId || "", disabled: busy || editing, onChange: function (event) { manageProfile("default", event.target.value); } }, h("option", { value: "" }, "不启用"), profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })), h("small", null, "用于新开的游戏和卡片会话，已有会话保留原偏好。")),
-				h("section", { className: "dsh-tavern-profile-library" }, h("div", { className: "dsh-tavern-profile-section-title" }, "长期偏好库"), h("div", { className: "dsh-tavern-profile-library-bar" }, h("select", { "aria-label": "查看长期偏好", value: record.profileId, disabled: busy || editing, onChange: function (event) { manageProfile("select", event.target.value); } }, profiles.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })), h("button", { className: "dsh-tavern-btn", disabled: busy || editing, onClick: function () { manageProfile("create"); } }, "新建"), h("button", { className: "dsh-tavern-btn", disabled: busy || editing, onClick: function () { manageProfile("rename", record.profileId); } }, "重命名"), h("button", { className: "dsh-tavern-btn", disabled: busy || editing || !record.hasConfirmed, title: record.hasConfirmed ? "把这份长期偏好单独导出成一个文件" : "确认后才能导出", onClick: function () { void exportProfile(); } }, "导出")), h("small", null, "在这里查看和编辑，不会改变游戏使用的长期偏好。"))
-			) : null;
-			if (record === null) return h("div", { className: "dsh-tavern-user-profile" }, header, h("div", { className: "dsh-tavern-user-profile-body" }, error ? h("div", { className: "dsh-card-error" }, error) : h("div", { className: "dsh-tavern-status-empty" }, "正在读取长期偏好…")));
-			if (!record.hasConfirmed) return h("div", { className: "dsh-tavern-user-profile" }, header, controls,
-				h("div", { className: "dsh-tavern-user-profile-body" },
-					error ? h("div", { className: "dsh-card-error" }, error) : null,
-					h("div", { className: "dsh-tavern-status-empty" }, record.hasDraft ? "已有未确认草案，可交给卡片 Agent 继续核对。" : "通过分批访谈建立长期游玩与写作偏好。"),
-					h("div", { className: "dsh-tavern-user-profile-actions" }, h("button", { className: "dsh-tavern-script-primary", onClick: openAgentTask }, record.hasDraft ? "继续核对长期偏好" : "开始建立长期偏好"))
-			));
-			const confirmed = record.confirmed || {};
-			return h("div", { className: "dsh-tavern-user-profile" }, header, controls,
-				h("div", { className: "dsh-tavern-user-profile-body" },
-					error ? h("div", { className: "dsh-card-error" }, error) : null,
-					record.hasDraft ? h("div", { className: "dsh-tavern-extension-note" }, "有待确认的修改；当前仍使用已保存的长期偏好。") : null,
-					editing ? h("div", { className: "dsh-tavern-user-profile-editor" },
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "长期偏好内容"),
-						h("textarea", { value: injectionText, onChange: function (event) { setInjectionText(event.target.value); } }),
-						h("div", { className: "dsh-tavern-user-profile-meta" }, "保存到长期偏好库，不会自动改变正在玩的游戏。"),
-						h("div", { className: "dsh-tavern-user-profile-actions" },
-							h("button", { className: "dsh-tavern-script-primary", disabled: busy || !injectionText.trim(), onClick: saveEdit }, "保存并确认修改"),
-							h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setEditing(false); } }, "取消")
-						)
-					) : h(React.Fragment, null,
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "长期偏好内容"),
-						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.injectionText || "")),
-						h("div", { className: "dsh-tavern-user-profile-actions" },
-							h("button", { className: "dsh-tavern-script-primary", onClick: beginEdit }, "直接修改"),
-							h("button", { className: "dsh-tavern-btn", onClick: openAgentTask }, "交给卡片 Agent 调查/修改")
-						)
-					)
-			));
+			const loading = !record || Boolean(profileId && record.profileId !== profileId);
+			const profiles = record?.profiles || [];
+			return h("div", { className: "dsh-tavern-user-profile" },
+				h("div", { className: "dsh-tavern-status-head" },
+					h("div", { className: "dsh-tavern-status-title" }, "长期偏好"),
+					h("div", { className: "dsh-tavern-question-sub" }, tavernUserProfileRemovalNotice)),
+				record && profiles.length ? h("div", { className: "dsh-tavern-profile-controls" },
+					h("section", { className: "dsh-tavern-profile-library" },
+						h("div", { className: "dsh-tavern-profile-library-bar" },
+							h("select", { "aria-label": "查看长期偏好", value: profileId || record.profileId, disabled: exporting, onChange: function (event) { setProfileId(event.target.value); } },
+								profiles.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })),
+							h("button", { type: "button", className: "dsh-tavern-btn", disabled: loading || exporting || !record.hasConfirmed, onClick: exportProfile }, "导出")))) : null,
+				h("div", { className: "dsh-tavern-user-profile-body", "aria-busy": loading && !error },
+					error ? h("div", { className: "dsh-card-error", role: "alert" }, error) : null,
+					loading ? (error ? null : h("div", { className: "dsh-tavern-status-empty" }, "正在读取长期偏好…")) :
+						h(React.Fragment, null,
+							archiveSection("已确认内容", record.confirmed),
+							archiveSection("未确认草案", record.draft),
+							!record.confirmed && !record.draft ? h("div", { className: "dsh-tavern-status-empty" }, "暂无已保存的长期偏好。") : null)));
 		}
 
-		const tavernUserProfileRemovalNotice = "长期偏好将在未来版本中移除。请提前把需要保留的内容整理到全局世界书。";
+		const tavernUserProfileRemovalNotice = "长期偏好功能已废弃。历史内容仍可查看，已确认的偏好可导出。";
 
         function GuideLibraryTab(props) {
             const h = React.createElement;
@@ -56270,8 +56166,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			return Object.freeze({ register: register, Tab: ExternalPresetLibraryTab });
 			}
 			const presetLibraryFeature = createExternalPresetAndBypassPlanFeatureModule();
-		// One "预设" tab: the preset, system prompt set and long-term preference that
-		// shape how stories are told, each picked here and shared as one file.
+		// Presets, prompt sets, card personas and archived preferences share this tab.
 		function TavernPresetHubTab(props) {
 			const h = React.createElement;
 			const askConfirm = useTavernConfirm(props.scope && props.scope.sessionId);
@@ -56293,7 +56188,8 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					setSummary({
 						presets: (presets.presets || []).filter(function (item) { return item.valid === true && item.recognized === true; }), activePresetPath: presets.activePresetPath || "",
 						promptSets: prompts.promptSets || { activeId: "", sets: [] },
-						profiles: (profile.profiles || []).filter(function (item) { return item.hasConfirmed; }), defaultProfileId: profile.defaultProfileId || "",
+						profileExport: (profile.profiles || []).find(function (item) { return item.hasConfirmed && item.id === profile.profileId; }) ||
+							(profile.profiles || []).find(function (item) { return item.hasConfirmed; }),
 						personas: Array.isArray(personas.items) ? personas.items : [], activePersonaId: personas.activeId || ""
 					});
 					setError("");
@@ -56314,8 +56210,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			function selectPreset(path) { return run(async function () { await rpc("selectPreset", { path: path }, sessionId); return "新游戏默认预设已更新。"; }, ["presets"]); }
 			function selectPromptSet(id) { return run(async function () { await rpc("manageSystemPromptSet", { action: "select", id: id }); return "已切换系统提示词方案，将从下一次请求开始生效。"; }, ["system-prompts"]); }
 			function selectPersona(id) { return run(async function () { await rpc("manageCardPersona", { action: "select", id: id }); return id ? "已切换卡片工作台性格，将从下一次卡片 Agent 请求开始生效。" : "卡片工作台性格已切换为空白。"; }, ["card-personas"]); }
-			function selectProfile(id) { return run(async function () { await rpc("manageUserPreferenceProfile", { action: "default", profileId: id }, sessionId); return "新游戏默认长期偏好已更新。"; }, ["user-profile"]); }
-			const available = summary ? { preset: Boolean(summary.activePresetPath), systemPrompts: true, userProfile: Boolean(summary.defaultProfileId) } : {};
+			const available = summary ? { preset: Boolean(summary.activePresetPath), systemPrompts: true, userProfile: Boolean(summary.profileExport) } : {};
 			const parts = ["preset", "systemPrompts", "userProfile"];
 			const partNames = { preset: "酒馆预设", systemPrompts: "系统提示词", userProfile: "长期偏好" };
 			const chosen = exporting ? parts.filter(function (part) { return exporting[part] && available[part]; }) : [];
@@ -56323,7 +56218,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			function exportBundle() {
 				return run(async function () {
 					const include = {}; chosen.forEach(function (part) { include[part] = true; });
-					saveTavernExport(await rpc("exportSettingsBundle", { include: include }));
+					saveTavernExport(await rpc("exportSettingsBundle", { include: include, userProfileId: include.userProfile ? summary.profileExport.id : undefined }));
 					setExporting(null);
 					return "已导出 " + chosen.map(function (part) { return partNames[part]; }).join("、") + "。";
 				});
@@ -56332,7 +56227,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				if (!summary) return "";
 				if (part === "preset") { const item = summary.presets.find(function (preset) { return preset.path === summary.activePresetPath; }); return item ? item.title : "未选择"; }
 				if (part === "systemPrompts") { const item = summary.promptSets.sets.find(function (set) { return set.id === summary.promptSets.activeId; }); return item ? item.name : ""; }
-				const item = summary.profiles.find(function (profile) { return profile.id === summary.defaultProfileId; }); return item ? item.name : "未选择";
+				return summary.profileExport ? summary.profileExport.name : "";
 			}
 			const exportPanel = exporting ? h("section", { className: "dsh-tavern-preset-hub-export", "aria-label": "选择导出内容" },
 				h("b", null, "选择要导出的内容"),
@@ -56359,7 +56254,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					else if (value && Array.isArray(value.prompts)) parts.push("酒馆预设");
 				} catch (err) { setError("无法读取文件：" + String(err && err.message || err)); return; }
 				if (!parts.length) { setError("无法识别的文件：既不是 DSH Tavern 预设包，也不是酒馆预设或系统提示词文件"); return; }
-				if (!await askConfirm("将导入：" + parts.join("、") + "。每一项都作为新方案加入，并设为使用中；已有内容不会被覆盖。继续？")) return;
+				if (!await askConfirm("将新增导入 " + parts.join("、") + "。" + (parts.includes("长期偏好") ? "长期偏好仅存档。" : "") + "继续？")) return;
 				return run(async function () {
 					const result = await rpc("importSettingsBundle", { payload: payload });
 					const imported = result.imported || {}; const done = [];
@@ -56387,17 +56282,16 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			};
 			function row(part, title, hint, select) {
 				return h("section", { className: "dsh-tavern-preset-hub-row", "aria-label": title },
-					h("button", { type: "button", className: "dsh-tavern-preset-hub-head", disabled: busy, title: "查看、编辑和单独导出" + title, onClick: function () { setSection(part); } },
+					h("button", { type: "button", className: "dsh-tavern-preset-hub-head", disabled: busy, title: "查看" + title, onClick: function () { setSection(part); } },
 						h("span", { className: "dsh-tavern-preset-hub-icon", "aria-hidden": true }, h("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" }, h("path", { d: icons[part] }))),
 						h("span", { className: "dsh-tavern-preset-hub-titles" }, h("b", null, title), h("small", null, hint)),
 						h("span", { className: "dsh-tavern-preset-hub-open" }, "详情 ›")),
-					h("div", { className: "dsh-tavern-preset-hub-body" }, select));
+					select ? h("div", { className: "dsh-tavern-preset-hub-body" }, select) : null);
 			}
 			const s = summary;
 			return h("div", { className: "dsh-tavern-presets dsh-tavern-preset-hub" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "预设"),
-					h("div", { className: "dsh-tavern-question-sub" }, "前三项决定故事怎么讲，导出时可选择其中几项合成一个文件分享；卡片工作台性格决定卡片 Agent 的性格。"),
 					h("div", { className: "dsh-tavern-system-prompt-top-actions" },
 						h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入"),
 						h("button", { className: "dsh-tavern-btn primary", disabled: busy || exporting !== null, onClick: beginExport }, "导出…"),
@@ -56413,9 +56307,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					row("systemPrompts", "系统提示词", "对所有游戏生效",
 						h(InlineField, { kind: "menu", label: "系统提示词方案", hideLabel: true, value: s.promptSets.activeId, disabled: busy, onCommit: function (value) { void selectPromptSet(value); },
 							options: s.promptSets.sets.map(function (item) { return { value: item.id, label: item.name }; }) })),
-					row("userProfile", "长期偏好", tavernUserProfileRemovalNotice,
-						h(InlineField, { kind: "menu", label: "新游戏默认长期偏好", hideLabel: true, value: s.defaultProfileId, disabled: busy, onCommit: function (value) { void selectProfile(value); },
-							options: [{ value: "", label: "不启用" }].concat(s.profiles.map(function (item) { return { value: item.id, label: item.name }; })) })),
+					row("userProfile", "长期偏好", tavernUserProfileRemovalNotice),
 					row("cardPersonas", "卡片工作台性格", "卡片 Agent 使用；对所有卡片会话生效",
 						h(InlineField, { kind: "menu", label: "卡片工作台性格", hideLabel: true, value: s.activePersonaId, disabled: busy, onCommit: function (value) { void selectPersona(value); },
 							options: [{ value: "", label: "空白（默认）" }].concat(s.personas.map(function (item) { return { value: item.id, label: item.name }; })) }))));
@@ -65446,8 +65338,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 // sibling pieces are supplied explicitly rather than read from play-controls.
 function createConversationSettingsModule({
     React, rpc, useLiveTavernView, useTavernSessionMode, isPlayMode,
-    invalidateView, notifyTavernDataChanged, openTab, packUi,
-    UserPreferenceProfileTab, backgroundModelLabel
+    invalidateView, notifyTavernDataChanged, openTab, packUi, backgroundModelLabel
 }) {
     const h = React.createElement;
     const errorText = err => String(err && err.message || err);
@@ -65825,8 +65716,6 @@ function createConversationSettingsModule({
                 rows(
                     h(SessionPlayerName, { sessionId }),
                     h(SessionPreset, { sessionId }),
-                    h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
-                        track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
             h(SessionStageSection, { sessionId, config, stage }),
             h(SessionModelSection, { sessionId, config }),
@@ -65859,7 +65748,7 @@ function createConversationSettingsModule({
                 const result = await rpc("saveConversationSettingsAsDefaultTemplate", { sessionId: owner }, owner);
                 setTemplateNotice("已保存目前设置为默认模板" + warningsOf(result));
                 if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
-                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+                notifyTavernDataChanged(["presets", "sessions"], "conversation-settings");
             } catch (err) { setTemplateError(errorText(err)); }
             finally { setTemplateAction(""); }
         }
@@ -65872,7 +65761,7 @@ function createConversationSettingsModule({
                 tavernSettingsSessionReads.delete(owner);
                 setReloadKey(value => value + 1);
                 invalidateView(owner);
-                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+                notifyTavernDataChanged(["presets", "sessions"], "conversation-settings");
                 setTemplateNotice("已恢复默认模板" + warningsOf(result));
             } catch (err) { setTemplateError(errorText(err)); }
             finally { setTemplateAction(""); }
@@ -65889,7 +65778,7 @@ function createConversationSettingsModule({
         return page(h(React.Fragment, null,
             h("div", { className: "dsh-session-bar" },
                 h("span", { className: "dsh-session-scope" }, "只影响这一局，改动自动保存",
-                    help("本局设置", "已有对话和变量都会保留。切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。")),
+                    help("本局设置", "已有对话和变量都会保留。切换预设、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。")),
                 h("span", { className: "ap-save-state", role: "status", "data-state": saveState }, saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : ""),
                 template),
             templateError ? problemLine("操作失败：" + templateError)
@@ -67149,7 +67038,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 notifyTavernDataChanged,
                 // the stage row opens 舞台设置, a tab of the same panel.
                 openTab: openSidebarTab,
-                packUi, UserPreferenceProfileTab, backgroundModelLabel
+                packUi, backgroundModelLabel
             });
 			function TavernConversationExportAction(props) {
                 // The header only needs session membership. Building a complete
@@ -68092,7 +67981,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		                    h("summary", null, "调整文风"),
 		                    h("div", null,
 		                        h("button", { type: "button", onClick: function () { window.dispatchEvent(new CustomEvent("dsh-fork-focus-guide")); } }, "只改这一局", h("small", null, "写作指引")),
-		                        h("button", { type: "button", onClick: function () { p.props.openStyleTab("dsh-tavern:presets", { section: "userProfile" }); } }, "以后都这样", h("small", null, "长期偏好")),
 		                        h("button", { type: "button", disabled: running, onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-adjust-card-style", { detail: { card: view.card } })); } }, "改这张卡", h("small", null, "卡片助手")),
 		                        h("button", { type: "button", onClick: function () { p.props.openStyleTab("dsh-tavern:presets", { section: "preset" }); } }, "换预设", h("small", null, "酒馆预设")))),
 		                h(TavernDebugButton, { sessionId: p.props.sessionId, turn: p.latestDebugTurn, className: "fork-status-link", label: "交给调试 Agent" })))
@@ -75933,11 +75821,6 @@ function clipReplayCore() {
 				}
 				if (task === "create") {
 					input.setDraft("/create-card\n\n我想新建一张人物卡。\n\n我的初步想法：");
-					appendMentions();
-					return;
-				}
-				if (task === "user-profile") {
-					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
 					appendMentions();
 					return;
 				}

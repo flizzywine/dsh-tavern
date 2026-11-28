@@ -41,7 +41,7 @@ function harness() {
   return { ...api, presets, profile, active: () => activePreset, settings: () => settings }
 }
 
-test('导出的预设包在另一台机器导入后，三部分都作为新方案加入并设为使用中', async () => {
+test('导入预设包可启用预设和系统提示词，长期偏好作为归档保留', async () => {
   const from = harness()
   from.presets.set('文风.json', JSON.stringify({ prompts: [{ identifier: 'main', content: 'x' }] }))
   const created = await from.profile.manage({ action: 'create', name: '我的偏好', content: '少写心理描写' })
@@ -56,13 +56,15 @@ test('导出的预设包在另一台机器导入后，三部分都作为新方�
 
   const to = harness()
   to.presets.set('文风.json', '{"prompts":[]}')
-  await to.profile.manage({ action: 'create', name: '我的偏好', content: '本机已有偏好' })
+  const original = await to.profile.manage({ action: 'create', name: '我的偏好', content: '本机已有偏好' })
+  await to.profile.manage({ action: 'default', profileId: original.profileId })
   const result = await to.importSettingsBundle({ payload: { name: exported.name, text: exported.text } })
   assert.equal(result.imported.preset.path, '文风 (2).json', '同名预设不覆盖')
   assert.equal(to.active(), '文风 (2).json')
   assert.equal(to.settings().promptOverrides.story, 'fast story')
   assert.equal(result.imported.userProfile.name, '我的偏好 (2)')
   const library = await to.profile.read()
-  assert.equal(library.defaultProfileId, result.imported.userProfile.id)
+  assert.equal(library.defaultProfileId, original.profileId)
+  assert.equal((await to.profile.read(original.profileId)).confirmed.injectionText, '本机已有偏好')
   assert.equal((await to.profile.read(result.imported.userProfile.id)).confirmed.injectionText, '少写心理描写')
 })

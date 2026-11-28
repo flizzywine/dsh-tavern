@@ -43,6 +43,8 @@ test('前台写作 Skill 的默认开关在 Skill 库，沿用已保存的设置
   const settings = await openTavernSettings(t, { respond })
   await settings.page.getByRole('region', { name: '开局默认', exact: true }).waitFor()
   assert.equal(await settings.page.getByText('默认写作 Skill', { exact: true }).count(), 0)
+  assert.equal(await settings.page.getByText('默认长期偏好', { exact: true }).count(), 0)
+  assert.ok(!settings.calls.some(({ method }) => method === 'getUserPreferenceProfile'))
   assert.ok(!settings.calls.some(({ method }) => method === 'getDefaultWritingSkills'))
   const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: Skill library', respond })
   const toggle = (name, checked) => page.getByRole('switch', { name: name + '：新游戏默认开启', exact: true, checked }).and(page.locator(':enabled'))

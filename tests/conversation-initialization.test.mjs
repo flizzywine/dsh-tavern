@@ -71,19 +71,22 @@ async function profileFixture() {
   return profile
 }
 
-test('画像开关和确认版本只影响新局，不改写已创建的游戏', async () => {
+test('旧全局默认偏好不再用于新游戏，恢复旧游戏时保留原有偏好快照', async () => {
   const profile = await profileFixture()
   await profile.setDefaultEnabled(true)
   const h = initializationFixture({ userPreferenceProfile: profile })
   const first = await h.make().start(h.input)
   assert.equal(h.saved.get(first.id).messages.find(row => row.role === 'assistant').stagePageVersion, 2)
-  await profile.updateConfirmed({ expectedRevision: first.userProfileRevision, summary: '新偏好', injectionText: '改为快节奏冒险。' })
-  await profile.setDefaultEnabled(false)
+  assert.equal(first.userProfileEnabled, false)
+  assert.equal(first.userProfileContextSnapshot, '')
+  const archived = (await profile.read()).confirmed
+  Object.assign(h.saved.get(first.id), { userProfileEnabled: true, userProfileRevision: archived.profileRevision, userProfileContextSnapshot: archived.injectionText })
   const existing = await h.make().start(h.input)
   assert.equal(existing.userProfileEnabled, true)
-  assert.equal(existing.userProfileRevision, first.userProfileRevision)
-  assert.equal(existing.userProfileContextSnapshot, first.userProfileContextSnapshot)
+  assert.equal(existing.userProfileRevision, archived.profileRevision)
+  assert.equal(existing.userProfileContextSnapshot, archived.injectionText)
   assert.equal((await h.make().start({ ...h.input, sessionId: 'next' })).userProfileEnabled, false)
+  assert.deepEqual((await profile.read()).confirmed, archived)
 })
 
 test('新游戏复制全局 Skill 开关，本局调整和后续全局修改互不覆盖', async () => {

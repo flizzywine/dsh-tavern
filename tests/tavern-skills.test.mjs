@@ -17,6 +17,15 @@ async function harness(t) {
   return { root, user, builtin, skills: createTavernSkillModule({ directory: user, builtInDirectory: builtin }) }
 }
 
+test('运行时升级后残留的长期偏好 Skill 不会被列出或加载', async t => {
+  const { builtin, skills } = await harness(t)
+  await mkdir(path.join(builtin, 'user-profile'), { recursive: true })
+  await writeFile(path.join(builtin, 'user-profile', 'SKILL.md'), '---\nname: user-profile\n---\n旧访谈说明')
+  assert.deepEqual(await skills.list(), [])
+  assert.equal(await skills.read('user-profile'), null)
+  assert.equal(await skills.read('tavern-user-profile'), null)
+})
+
 test('工作台能读取并修改前台专用用户 Skill，无需更改分配', async t => {
   const { builtin, skills } = await harness(t)
   const name = 'dialogue'

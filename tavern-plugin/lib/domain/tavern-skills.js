@@ -119,6 +119,8 @@ export function createTavernSkillModule(options = {}) {
 
   async function read(name) {
     const normalized = normalizeTavernSkillName(canonicalTavernSkillName(name))
+    // An in-place runtime update may still have the old built-in file.
+    if (normalized === 'user-profile') return null
     for (const root of roots) {
       const source = { kind: root.kind, path: target(root.path, normalized) }
       try {
@@ -141,6 +143,7 @@ export function createTavernSkillModule(options = {}) {
 
   async function write(input = {}) {
     const name = normalizeTavernSkillName(canonicalTavernSkillName(input.name))
+    if (name === 'user-profile') throw new Error('长期偏好 Skill 已废弃')
     for (const root of roots.filter(item => item.kind !== 'user')) {
       if (await exists(target(root.path, name))) throw new Error((root.kind === 'plugin' ? '插件自带的' : '内置') + ' Skill 不可覆盖: ' + name)
     }

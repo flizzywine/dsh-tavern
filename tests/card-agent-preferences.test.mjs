@@ -7,10 +7,9 @@ import vm from 'node:vm'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-preference-profile.js'
 import { createPlayCardSnapshots } from '../tavern-plugin/lib/domain/play-card-snapshots.js'
-import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createNativePlayOrchestrationStrategy, projectRetiredPreferenceHistory } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
-import { registerUserProfileTools } from '../tavern-plugin/lib/tools/user-profile.js'
-import { readSessionStablePrefix, ensureSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { readSessionStablePrefix, ensureSessionStablePrefix, sessionStablePrefixSections, withoutLongTermPreference } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { ensureSessionVariableDirectory } from '../tavern-plugin/lib/domain/session-variable-directory.js'
 import { resourceWorkspaceContext } from '../tavern-plugin/lib/domain/workspace-resources.js'
 
@@ -22,28 +21,30 @@ async function profiles() {
   } })
   await profile.save({ content: '固定偏好：偏爱细腻的人物描写。' })
   await profile.setDefaultEnabled(true, 'default')
-  const editing = await profile.manage({ action: 'create', name: '正在编辑的另一份偏好', content: '正在编辑的内容' })
-  return { profile, editingId: editing.profileId }
+  return profile
 }
 
-test('读取、保存和确认工具使用管理目标，避免修改注入的默认偏好', async () => {
-  const { profile, editingId } = await profiles()
-  const tools = new Map()
-  registerUserProfileTools({ tools: { register(tool) { tools.set(tool.name, tool) } }, userPreferenceProfile: profile,
-    chatForSession: async () => ({ mode: 'card', userProfileId: 'default', userProfileManagementId: editingId }) })
-  const execution = { agent: { session: { id: 'card' } } }
-  const read = await tools.get('tavern_user_profile_read').execute({}, execution)
-  assert.match(read.confirmedJson, /正在编辑的内容/)
-  await tools.get('tavern_user_profile_save').execute({ content: '保存到管理条目' }, execution)
-  assert.match((await profile.read(editingId)).confirmed.injectionText, /保存到管理条目/)
-  const draft = await profile.saveDraft({ profileId: editingId, injectionText: '确认到管理条目' })
-  await tools.get('tavern_user_profile_confirm').execute({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' }, execution)
-  assert.match((await profile.read(editingId)).confirmed.injectionText, /确认到管理条目/)
-  assert.match((await profile.read('default')).confirmed.injectionText, /固定偏好/)
+test('归档的 Skill 和工具交换从模型历史中排除，普通内容仍保留', () => {
+  const history = [
+    { role: 'user', source: { kind: 'skill-invocation', name: 'tavern-user-profile' }, content: [{ type: 'text', text: '访谈指令' }] },
+    { role: 'assistant', source: { replayState: { old: true } }, content: [
+      { type: 'tool-call', id: 'preference', name: 'tavern_user_profile_read' },
+      { type: 'tool-call', id: 'old-skill', name: 'skill', arguments: '{"name":"user-profile"}' },
+      { type: 'tool-call', id: 'card', name: 'tavern_read_card' },
+    ] },
+    { role: 'tool', toolCallId: 'preference', content: [{ type: 'text', text: '旧偏好正文' }] },
+    { role: 'tool', toolCallId: 'old-skill', content: [{ type: 'text', text: '旧访谈指令' }] },
+    { role: 'tool', toolCallId: 'card', content: [{ type: 'text', text: '人物卡正文' }] },
+    { role: 'system', source: { kind: 'dsh-user-profile' }, content: [{ type: 'text', text: '早期存档偏好' }] },
+  ]
+  assert.deepEqual(projectRetiredPreferenceHistory(history), [
+    { ...history[1], source: {}, content: [history[1].content[2]] }, history[4],
+  ])
+  assert.match(JSON.stringify(history), /旧偏好正文/)
 })
 
-test('真实卡片 Agent 请求：建卡和偏好访谈沿用性格，工作区说明只提供回复语言默认值', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
-  const { profile } = await profiles()
+test('真实卡片 Agent 请求沿用性格和建卡 Skill，忽略已保存的偏好', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const profile = await profiles()
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { userPreferenceProfile: profile, assembleStablePrefix: false })
   t.after(() => h.dispose())
   const errors = []
@@ -53,10 +54,8 @@ test('真实卡片 Agent 请求：建卡和偏好访谈沿用性格，工作区�
   const toolSkill = await import(new URL('../../dsh-tool-skill/lib/index.js', bootUrl))
   await h.ctx.plugin(SkillRegistry).await()
   h.ctx.provide('workingDirectory', { ensure: async () => process.cwd() })
-  for (const [name, description] of [['create-card', '新建人物卡'], ['user-profile', '长期偏好访谈']]) {
-    const content = await readFile(new URL('../presets/tavern/skills/' + name + '/SKILL.md', import.meta.url), 'utf8')
-    h.ctx.skills.register({ name, description, content, source: 'runtime' })
-  }
+  const content = await readFile(new URL('../presets/tavern/skills/create-card/SKILL.md', import.meta.url), 'utf8')
+  h.ctx.skills.register({ name: 'create-card', description: '新建人物卡', content, source: 'runtime' })
   await h.ctx.plugin(toolSkill).await()
   let chat = await h.open().start({ ...h.input, mode: 'card', cardPath: '' })
   let append = '附加指令第一版'
@@ -79,7 +78,7 @@ test('真实卡片 Agent 请求：建卡和偏好访谈沿用性格，工作区�
   })
   for (const [value, input] of [
     ['附加指令第一版', '/create-card\n\n我想新建一张人物卡。'],
-    ['附加指令第二版', '/user-profile\n\n请帮我梳理长期游玩与写作偏好。'],
+    ['附加指令第二版', '继续整理人物设定'],
     ['', '继续']
   ]) {
     append = value
@@ -93,12 +92,8 @@ test('真实卡片 Agent 请求：建卡和偏好访谈沿用性格，工作区�
   assert.ok(skill, '宿主展开了 /create-card')
   assert.match(skill.content[0].text, /用当前工作台性格的口吻提问并撰写选项说明/)
   assert.match(skill.content[0].text, /桌宠按此格式生成按钮/)
-  const interview = h.requests[1].messages.find(message => message.source?.kind === 'skill-invocation' && message.source.name === 'user-profile')
-  assert.ok(interview, '宿主展开了 /user-profile')
-  assert.match(interview.content[0].text, /沿用工作台性格的称呼和口吻/)
-  assert.match(interview.content[0].text, /用户明确表示可以保存/)
   for (const [index, request] of h.requests.entries()) {
-    assert.equal(request.system.split('固定偏好').length - 1, 1)
+    assert.doesNotMatch(request.system, /固定偏好/)
     assert.match(request.system, /回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。/)
     assert.ok(request.system.includes(persona + '\n</card_agent_persona>'))
     assert.match(request.system, /If neither the user nor the workbench persona specifies a reply language/)
@@ -122,7 +117,7 @@ test('旧版改卡会话沿用原前缀并追加当前工作台性格，空白�
   const assemble = () => strategy.assembleSystemPrompt({}, {
     sessionId: 'legacy-card',
     chat: { mode: 'card', cardEditContext: { version: 1 } },
-    fixedSystemSections: fixed
+    fixedSystemSections: [{ name: 'tavern:user-preference', text: '存档偏好' }, ...fixed]
   })
   const { sections } = await assemble()
   assert.deepEqual(sections.slice(0, -1), fixed)
@@ -131,4 +126,19 @@ test('旧版改卡会话沿用原前缀并追加当前工作台性格，空白�
 
   persona = ''
   assert.deepEqual((await assemble()).sections, fixed)
+})
+
+test('游玩和后台共用的固定背景排除旧偏好区段，保留存档文本和人物卡', async () => {
+  const card = '<character_card>\n角色资料\n</character_card>'
+  const xml = '<user_preferences>\n存档偏好正文\n</user_preferences>\n\n' + card
+  const legacy = '【用户已确认的长期偏好】\r\n存档偏好正文\r\n\r\n【故事设定 · 人物卡】\r\n角色资料'
+  assert.equal(withoutLongTermPreference(xml), card)
+  assert.equal(withoutLongTermPreference(legacy), '【故事设定 · 人物卡】\n角色资料')
+  assert.deepEqual(sessionStablePrefixSections(null, xml), [{ name: 'tavern:character-card', text: card }])
+  const chat = { id: 'old', mode: 'story', cardContextSnapshotVersion: 7, cardContextSnapshot: xml, userProfileContextSnapshot: '存档偏好正文' }
+  const snapshots = createPlayCardSnapshots({ writeChat: async () => assert.fail('读取存档时不应写入') })
+  assert.equal(snapshots.settled(chat), card)
+  assert.equal(await snapshots.ensure(chat), card)
+  assert.equal(chat.cardContextSnapshot, xml)
+  assert.equal(chat.userProfileContextSnapshot, '存档偏好正文')
 })

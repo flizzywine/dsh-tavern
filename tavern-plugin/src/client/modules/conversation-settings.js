@@ -4,8 +4,7 @@
 // sibling pieces are supplied explicitly rather than read from play-controls.
 function createConversationSettingsModule({
     React, rpc, useLiveTavernView, useTavernSessionMode, isPlayMode,
-    invalidateView, notifyTavernDataChanged, openTab, packUi,
-    UserPreferenceProfileTab, backgroundModelLabel
+    invalidateView, notifyTavernDataChanged, openTab, packUi, backgroundModelLabel
 }) {
     const h = React.createElement;
     const errorText = err => String(err && err.message || err);
@@ -383,8 +382,6 @@ function createConversationSettingsModule({
                 rows(
                     h(SessionPlayerName, { sessionId }),
                     h(SessionPreset, { sessionId }),
-                    h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
-                        track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
             h(SessionStageSection, { sessionId, config, stage }),
             h(SessionModelSection, { sessionId, config }),
@@ -417,7 +414,7 @@ function createConversationSettingsModule({
                 const result = await rpc("saveConversationSettingsAsDefaultTemplate", { sessionId: owner }, owner);
                 setTemplateNotice("已保存目前设置为默认模板" + warningsOf(result));
                 if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
-                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+                notifyTavernDataChanged(["presets", "sessions"], "conversation-settings");
             } catch (err) { setTemplateError(errorText(err)); }
             finally { setTemplateAction(""); }
         }
@@ -430,7 +427,7 @@ function createConversationSettingsModule({
                 tavernSettingsSessionReads.delete(owner);
                 setReloadKey(value => value + 1);
                 invalidateView(owner);
-                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+                notifyTavernDataChanged(["presets", "sessions"], "conversation-settings");
                 setTemplateNotice("已恢复默认模板" + warningsOf(result));
             } catch (err) { setTemplateError(errorText(err)); }
             finally { setTemplateAction(""); }
@@ -447,7 +444,7 @@ function createConversationSettingsModule({
         return page(h(React.Fragment, null,
             h("div", { className: "dsh-session-bar" },
                 h("span", { className: "dsh-session-scope" }, "只影响这一局，改动自动保存",
-                    help("本局设置", "已有对话和变量都会保留。切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。")),
+                    help("本局设置", "已有对话和变量都会保留。切换预设、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。")),
                 h("span", { className: "ap-save-state", role: "status", "data-state": saveState }, saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : ""),
                 template),
             templateError ? problemLine("操作失败：" + templateError)
