@@ -46,7 +46,7 @@ import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper, readDamperStateSnapshot } from './domain/narrative-damper.js'
 import { createDamperSettings } from './domain/damper-settings.js'
 import { registerGameplayTools } from './tools/gameplay.js'
-import { cardGoverns, cardOffer, modTools } from './mod-tools.js'
+import { cardGoverns, cardOffer, cardVariableRules, cardWriteGate, modTools } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerCardReadingTools } from './tools/card-reading.js'
@@ -1289,7 +1289,8 @@ export async function apply(ctx) {
   }
   const { openingPreparation, getCardOpenings } = createCardOpeningRuntime({
     readCard, worldBooks, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
-    helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime
+    helperGenerationPreset, callModel, readTavernSettings, requestPerformance, performanceDiagnostics, fullTemplateRuntime,
+    writeGate: cardWriteGate
   })
   ctx.effect(() => () => openingPreparation.dispose())
   function presentUserPreferenceProfile(value) {
@@ -1501,6 +1502,10 @@ export async function apply(ctx) {
   // template runtime cannot find that Session on disk yet. The import service holds
   // the draft here while frames are built and releases it on success or failure.
   const importDrafts = new Map()
+  // The write gate of a chat's card (lib/mod-tools.js cardWriteGate): its $meta.limits and the mods' rule constraints.
+  async function mvuWriteGateFor(chat) {
+    return chat?.mvu?.enabled === true ? cardWriteGate(await readChatCard(chat)) : null
+  }
   const tavernScriptHostAdapter = createTavernScriptHostAdapter({
     replyRegexScripts,
     presetRegexScripts,
@@ -1574,6 +1579,8 @@ export async function apply(ctx) {
       return session ? prepareTemplateHistory(session, before, after) : after
     },
     readCard: readChatCard,
+    // Every host write of MVU variables (page scripts, the variable panel, setChatMessages) passes the card's write gate.
+    variableGate: mvuWriteGateFor,
     readLibraryCard: readCard,
     modelFor: chat => modelSelection(chat.sessionId)?.model || '',
     worldBooks,
@@ -1639,7 +1646,9 @@ export async function apply(ctx) {
   }
   const liveCardUpdate = createLiveCardUpdate({readGlobals:readPromptTemplateGlobalVariables,
     // Games without their own copy still preview against the book they play with.
-    readWorldBook: (chat, card) => worldBooks.bound(chat.cardPath, card, chat)})
+    readWorldBook: (chat, card) => worldBooks.bound(chat.cardPath, card, chat),
+    // the migrated snapshots pass the card's write gate as migration (its limits and its rules)
+    writeGate: cardWriteGate})
   ctx.effect(() => () => liveCardUpdate.dispose())
   const cardUpdates = createPlayCardUpdate({
     chats: { header: chatHeaderForSession, forSession: chatForSession, update: updateChat },
@@ -2375,7 +2384,8 @@ export async function apply(ctx) {
     activity: state => backgroundTasks.activity(state),
     generating: sessionId => agentRegistry.get(sessionId)?.phase?.kind === 'running',
     currentKey: (sessionId, turn) => pluginTurns.currentKey(sessionId, turn),
-    patch: patchChat
+    patch: patchChat,
+    gate: async sessionId => mvuWriteGateFor(await chatHeaderForSession(sessionId, ['mode', 'cardPath', 'cardDefinitionSnapshot', 'mvu']))
   })
   // A plugin's one-off task: a fresh background Session, never the resident one settlement uses.
   // A member with a prefix of its own (`system`): that prefix, and the prompt as the task's one
@@ -3104,6 +3114,8 @@ export async function apply(ctx) {
     postureSummaryEnabled: playFeatures.postureSummary,
     narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
     // What the reply's mod tools settled for its variables (their settlement(results) in tools.js), over the given turns.
+    // The rules' constraints on the card's variables (its tools' variables hook), for the settlement's write check and prompt.
+    variableConstraints: card => cardVariableRules(card).constraints,
     turnToolResults: async (chat, turns) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, turns),
     // The mod tools its background model may also use to backfill (their backfill in tools.js), for the card this game plays
     // with: each with this reply's results so far and run/settle over them.

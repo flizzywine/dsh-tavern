@@ -1,7 +1,10 @@
+import { admitMvuWrite } from './mvu-write-gate.js'
+
 // Writes to a plugin turn stay bound to its text version and the owning task.
 // The activity and row must come from the same storage revision; the final CAS
 // rejects a task stop or a new foreground turn that changes it before commit.
-export function createPluginVariableWriter({ readState, readSlice, activity, generating, currentKey, patch }) {
+// gate(sessionId) is the card's write gate (mvu-write-gate.js): a plugin writes as plugin, refused the rule-owned paths.
+export function createPluginVariableWriter({ readState, readSlice, activity, generating, currentKey, patch, gate = async () => null }) {
   const stale = () => Object.assign(new Error('这一轮或插件任务已经变化，请重新读取后再试'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
   function writable(state, taskOperation) {
     const operationId = taskOperation?.()
@@ -25,7 +28,8 @@ export function createPluginVariableWriter({ readState, readSlice, activity, gen
       if (!row || row.role !== 'assistant' || Number(row.turn || (row.greeting ? 1 : 0)) !== material.turn
         || await currentKey(sessionId, material.turn) !== material.key) throw stale()
       const next = Array.isArray(row.variables) ? row.variables.slice() : []
-      next[Math.max(0, Number(row.swipeId) || 0)] = variables
+      const swipe = Math.max(0, Number(row.swipeId) || 0)
+      next[swipe] = admitMvuWrite(await gate(sessionId), { source: 'plugin', before: next[swipe], after: variables }).variables
       writable(state, taskOperation)
       const saved = await patch(selected.chat.id, selected.chat._storageRevision,
         [{ op: 'set', path: ['messages', material.index, 'variables'], value: JSON.parse(JSON.stringify(next)) }], { source: 'plugin.variables' })

@@ -12,7 +12,7 @@ import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
-import { describeMvuLimits, mvuLimitViolations } from './mvu-limits.js'
+import { createMvuWriteGate, operationPointers, pathsOverlap, pointerSegments, variablesPointer } from './mvu-write-gate.js'
 import { clampMvuSubmissionOperationsWithReport } from './narrative-damper.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
@@ -57,8 +57,8 @@ export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
   description: [
     '提交本轮正文确认的变量变化，以返回的实际执行校验结果为准。变量通过本工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
     '所有写入值使用 valueJson 提交 JSON 编码字符串，不使用 value；对象必须编码完整对象，数字不能用布尔值代替。',
-    '最多提交三次。若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后重试，不要原样反复提交。',
-    'rolledBack=true 表示整批修改未保存，可以基于原快照重新提交完整更新；提交空 operations 等于放弃这些变化，所以先修好失败项再提交。',
+    '最多提交三次。若 ok=false 且 segmented=true：kept 里的改动已经留下，不要再交；只重交 rejected 里改好的几条（对照 current、allowed、reason），放弃它们就提交空 operations。',
+    '若 ok=false、retryable=true 且没有 segmented：整批修改未保存，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后重试；这时提交空 operations 等于放弃这些变化，所以先修好失败项再提交。不要原样反复提交。',
     '返回 ok=true 或 retryable=false 后停止调用本工具，不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
   ].join('\n'),
   parameters: Object.freeze({
@@ -183,6 +183,27 @@ function rejectedOperations(operations, failures, after) {
   }))
 }
 
+// A rejection the background can fix piecewise: every failure lies in one of its own segments. Failures in the rule
+// tools' segment or outside every operation (the card's scripts) fail the batch as before.
+function segmentedRejection(audit) {
+  const failing = (audit.segments || []).filter(segment => segment.failures.length)
+  if (!failing.length || failing.some(segment => segment.id === 'side' || segment.id === 'rules') || audit.failures.some(failure => !failure.segment)) return null
+  return { kept: audit.segments.filter(segment => segment.id !== 'side' && segment.id !== 'rules' && !segment.failures.length).flatMap(segment => segment.operations), rejected: failing }
+}
+
+// What goes back for each rejected operation: what it sent, the value now, what is allowed and why; nothing else of the state.
+function rejectionRows(segments, baseline) {
+  return segments.flatMap(segment => segment.operations.map(operation => {
+    const failure = segment.failures.find(item => item.operation === operation.op && item.path === operation.path)
+      || segment.failures.find(item => operationPointers(operation).some(pointer => pathsOverlap(item.path, pointer)))
+    const current = valueAtPointer(baseline, variablesPointer(operation.path))
+    return { path: operation.path, op: operation.op, ...(Object.hasOwn(operation, 'value') ? { submitted: clone(operation.value) } : {}),
+      ...(current.exists ? { current: clone(current.value) } : {}), ...(failure?.allowed ? { allowed: failure.allowed } : {}),
+      reason: failure ? failure.message : '同一段里的另一条改动没通过，这一条和它一起退回',
+      ...(failure?.existingKeys ? { existingKeys: failure.existingKeys } : {}) }
+  })).slice(0, 40)
+}
+
 function pointerSegment(value) {
   return str(value).replaceAll('~', '~0').replaceAll('/', '~1')
 }
@@ -212,18 +233,6 @@ function diffValues(before, after, path = '', result = []) {
     after: displayValue(after)
   })
   return result
-}
-
-function pointerSegments(pointer) {
-  return str(pointer).split('/').slice(1).map(function (segment) {
-    return segment.replaceAll('~1', '/').replaceAll('~0', '~')
-  })
-}
-
-function variablesPointer(pointer) {
-  const segments = pointerSegments(pointer)
-  if (segments[0] === 'stat_data') return '/' + segments.map(pointerSegment).join('/')
-  return '/stat_data/' + segments.map(pointerSegment).join('/')
 }
 
 function valueAtPointer(value, pointer) {
@@ -259,19 +268,6 @@ export function resolveSubmissionPaths(submission, variables) {
     return { ...operation, path: resolveVariablePointer(operation.path, variables),
       ...(operation.from === undefined ? {} : { from: resolveVariablePointer(operation.from, variables) }) }
   }) }
-}
-
-function pathsOverlap(left, right) {
-  return left === right || left.startsWith(right + '/') || right.startsWith(left + '/')
-}
-
-function operationPointers(operation) {
-  if (operation.op === 'move') return [variablesPointer(operation.from), variablesPointer(operation.path)]
-  const target = variablesPointer(operation.path)
-  if ((operation.op === 'insert' || operation.op === 'add') && target.endsWith('/-')) {
-    return [target.slice(0, -2)]
-  }
-  return [target]
 }
 
 function operationNeedsMutation(operation, before) {
@@ -318,11 +314,14 @@ function shenghaoEventCommits(before, after, operation, target) {
 
 /** Attribute final state changes to submitted operations and expose silent runtime rejection
  * and values outside the card's declared limits. */
-function auditMvuSettlement(before, after, operations, limits, target) {
+// `operations` are the background's, `ruleOperations` the rule tools' (written ahead of them, one segment). The gate's
+// segments say which of the background's operations failed; a failure outside them (the card's own scripts) fails the batch.
+function auditMvuSettlement(before, after, operations, gate, target, ruleOperations = []) {
   const allChanges = diffValues(before, after)
   const claimed = new Set()
-  const failures = []
-  for (const operation of operations) {
+  const checked = gate.check({ source: 'settlement', before, after, operations, ruleOperations })
+  const failures = [...checked.failures]
+  for (const operation of [...ruleOperations, ...operations]) {
     const eventCommits = shenghaoEventCommits(before, after, operation, target)
     const pointers = [...operationPointers(operation), ...eventCommits]
     const matches = []
@@ -333,23 +332,34 @@ function auditMvuSettlement(before, after, operations, limits, target) {
       }
     }
     if (matches.length === 0 && eventCommits.length === 0 && operationNeedsMutation(operation, before)) {
-      failures.push({
-        operation: operation.op,
-        path: operation.path,
-        message: '提交后该路径没有变化；请对照当前变量结构、提交值与运行时诊断修正操作'
-      })
+      const segment = checked.segments.find(item => item.operations.includes(operation))
+      const failure = { operation: operation.op, path: operation.path, rule: 'no-effect',
+        message: '提交后该路径没有变化：路径不存在，或卡的脚本拒收了它。路径写错就照 existingKeys 改正后重交；路径和值都对却被拒收，说明卡不接受这次改动，原样重交不会有用，不交它即可',
+        ...siblingKeys(before, operation.path), ...(segment ? { segment: segment.id } : {}) }
+      failures.push(failure)
+      segment?.failures.push(failure)
     }
-  }
-  for (const violation of mvuLimitViolations(object(before).stat_data, object(after).stat_data, limits)) {
-    // Name the submitted operation that wrote it, so the retry sees its own value back.
-    const operation = operations.find(item => operationPointers(item).some(pointer => pathsOverlap(violation.path, pointer)))
-    failures.push({ operation: operation ? operation.op : '', path: operation ? operation.path : violation.path, message: violation.message })
   }
   return {
     changes: allChanges.filter(function (_change, index) { return claimed.has(index) }),
     sideEffects: allChanges.filter(function (_change, index) { return !claimed.has(index) }),
-    failures
+    failures, segments: checked.segments, warnings: checked.side.warnings
   }
+}
+
+// A path with a name that does not exist: the names the level where it breaks has, so a misspelt key is fixed, not guessed.
+function siblingKeys(variables, path) {
+  const segments = pointerSegments(variablesPointer(path))
+  let node = variables
+  for (const segment of segments) {
+    if (node === null || typeof node !== 'object' || Array.isArray(node)) return {}
+    if (!Object.hasOwn(node, segment)) {
+      const keys = Object.keys(node).filter(key => key !== '$meta')
+      return keys.length ? { existingKeys: keys.slice(0, 20) } : {}
+    }
+    node = node[segment]
+  }
+  return {}
 }
 
 function assertPointer(value, label) {
@@ -406,7 +416,8 @@ function normalizeOperation(raw, index) {
       // Models often send a text value bare (得意 for "得意"). Text that starts like neither JSON
       // nor a number can only mean that text; a broken object, list or number still goes back.
       const bare = operation.valueJson.trim()
-      if (error instanceof RangeError || !bare || /^[[{"\d+\-.]/.test(bare)) {
+      // A bare 51/100 is no JSON and no number: it can only be the text of a "current/cap" meter.
+      if (error instanceof RangeError || !bare || (/^[[{"\d+\-.]/.test(bare) && !/^-?\d+\/-?\d+$/.test(bare))) {
         // Name the path and the cause so the retry fixes this operation, not guesses. A broken object or list says
         // where it broke (11-25: three retries sent the same extra closing brace after a quote-only hint).
         const at = /position (\d+)/.exec(String(error?.message))?.[1]
@@ -605,7 +616,9 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       storyDigest: str(input.storyDigest)
     },
     foregroundOutput: { storyText },
-    authoritativeState: { currentVariables, variableSchema, variableLimits: Array.isArray(input.variableLimits) ? clone(input.variableLimits) : [] },
+    authoritativeState: { currentVariables, variableSchema, variableLimits: Array.isArray(input.variableLimits) ? clone(input.variableLimits) : [],
+      // The write gate's words for the prompt (the card's limits and the rules' constraints), from the same gate that checks.
+      variableRules: createMvuWriteGate({ limits: Array.isArray(input.variableLimits) ? input.variableLimits : [], constraints: input.variableConstraints || null }).describe() },
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
@@ -648,7 +661,7 @@ export function projectMvuBackgroundRequest(frame) {
     turnContext: promptSection('variable_state', [
       PROMPT_PROSE.p001,
       JSON.stringify(state.variableSchema || {}),
-      ...(state.variableLimits?.length ? [promptSection('variable_limits', ['写入后超出范围的整批不保存，会退回重交。', describeMvuLimits(state.variableLimits)].join('\n'))] : []),
+      ...(state.variableRules ? [promptSection('variable_limits', ['写入后不在范围内的那几条会退回重交，其余照常留下；写明自动收回的由程序按边界收回。', state.variableRules].join('\n'))] : []),
       ...(updateRules.length === 0 ? [] : [PROMPT_PROSE.p002, updateRules.join('\n\n')]),
       PROMPT_PROSE.p003,
       JSON.stringify(promptVariables(withToolOperations(state.currentVariables, toolOperationsOf(rules.toolResults || [])))),
@@ -690,7 +703,15 @@ export function createMvuSettlementModule(options = {}) {
     return createMvuBackgroundTaskFrame(input)
   }
 
-  async function applySubmission(input, frame, submission, diagnosticId, backfill = {}) {
+  function gateOf(input, frame) {
+    return createMvuWriteGate({ limits: frame.authoritativeState.variableLimits, ownedPaths: frame.taskRules.ownedPaths, constraints: input.variableConstraints || null })
+  }
+
+  // `kept`: the background's operations an earlier attempt of this settlement already passed (segmented validation). They run
+  // again with this submission from the same baseline, so the result equals saving them first; an operation of this
+  // submission that touches a kept path is ignored (a kept delta sent twice would add twice).
+  async function applySubmission(input, frame, submission, diagnosticId, backfill = {}, kept = []) {
+    const gate = gateOf(input, frame)
     const rows = toolRowsWith(input, frame.taskRules.toolResults, backfill)
     submission = resolveSubmissionPaths(submission, input.currentVariables)
     // The tools' values are the host's to write: the background's operations on those paths are dropped (its copy of
@@ -714,9 +735,15 @@ export function createMvuSettlementModule(options = {}) {
       submission = clampedResult.submission
       damper = clampedResult.report
     }
+    // The host computes the numbers: a delta on a "current/cap" meter becomes its replace, a clamp limit brings a value in.
+    const prepared = gate.prepare(submission.operations, withToolOperations(input.currentVariables, own))
+    const keptPointers = kept.flatMap(operationPointers)
+    const ignored = prepared.operations.filter(operation => operationPointers(operation).some(pointer => keptPointers.some(item => pathsOverlap(pointer, item))))
+    submission = { ...submission, operations: [...kept, ...prepared.operations.filter(operation => !ignored.includes(operation))] }
     // The durable copy holds the background's share only: a redelivery adds the tools' operations again, from the same records.
     if (input.onSubmission) await input.onSubmission(clone(Object.keys(backfill).length ? { ...submission, toolBackfill: backfill } : submission))
-    if (own.length) submission = { ...submission, operations: [...own, ...submission.operations] }
+    const background = submission.operations
+    if (own.length) submission = { ...submission, operations: [...own, ...background] }
     const applied = await options.runtime.settleMvuUpdate({
       compactResult: true,
       durable: Boolean(input.onSubmission), signal: input.signal,
@@ -728,19 +755,22 @@ export function createMvuSettlementModule(options = {}) {
       // Card constraints must see the same setup/Helper facts as the model, including durable retries.
       storyText: [...frame.taskRules.helperContext, frame.foregroundOutput.storyText].filter(Boolean).join('\n\n'),
       command: formatMvuUpdateCommand(submission),
-      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations, frame.authoritativeState.variableLimits, input)
+      validate: ({ before, after }) => auditMvuSettlement(before, after, background, gate, input, own)
     })
     if (applied.deferred === true || applied.stale === true) return { applied, damper }
     const projected = applied.context?.messages?.[input.messageId]
     const after = clone(applied.variables || projected?.variables || {})
-    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations, frame.authoritativeState.variableLimits, input)
+    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, background, gate, input, own)
     const rolledBack = applied.rejected === true
     const changes = rolledBack ? [] : audit.changes
     const sideEffects = rolledBack ? [] : audit.sideEffects
     const status = audit.failures.length > 0
       ? (changes.length > 0 ? 'partial' : 'error')
       : (changes.length > 0 ? 'updated' : 'unchanged')
-    return { applied, after, audit, rolledBack, changes, sideEffects, status, effect: applied.effect, damper }
+    if (audit.warnings?.length) {
+      try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, messageId: input.messageId, swipeId: input.swipeId, stage: 'script-writes-out-of-limits', warnings: audit.warnings }) } catch { /* Diagnostics must not change settlement behaviour. */ }
+    }
+    return { applied, after, audit, rolledBack, changes, sideEffects, status, effect: applied.effect, damper, background, ignored, clamped: prepared.clamped }
   }
 
   function pendingReceipt(applied, diagnosticId, damper = null) {
@@ -854,40 +884,53 @@ export function createMvuSettlementModule(options = {}) {
         if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
         submission = resolveMvuSubmissionMacros(normalizeMvuToolSubmission(call.arguments), input)
         assertMvuValueKinds(submission.operations, input.currentVariables)
-        if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
+        if (feedback && !feedback.segmented && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
-        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(withToolOperations(input.currentVariables, toolOperationsOf(toolRowsWith(input, frame.taskRules.toolResults, backfill)))), attemptsRemaining: maxAttempts - attempt }
+        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message,
+          ...(feedback?.segmented ? { segmented: true, kept: feedback.kept, rejected: feedback.rejected, note: feedback.note } : { currentVariables: promptVariables(withToolOperations(input.currentVariables, toolOperationsOf(toolRowsWith(input, frame.taskRules.toolResults, backfill)))) }),
+          attemptsRemaining: maxAttempts - attempt }
         result = { variables: clone(input.currentVariables), receipt: { version: 1, status: 'error',
           summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
         return JSON.stringify(feedback)
       }
-      await record('submitted', { operations: submission.operations })
+      // An empty submission after a segmented rejection gives the rejected operations up: the kept ones are saved.
+      if (feedback?.segmented && submission.operations.length === 0) return JSON.stringify(await submit(submission, { final: true }))
+      return JSON.stringify(await submit(submission))
+    }
+    // Segmented validation (mvu-write-gate.js): the background's operations that passed are kept, the
+    // segments that failed go back with their reasons; once the attempts run out (or the background gives them up) the kept
+    // operations are saved alone and the rest is dropped with a diagnostic, not the whole reply.
+    let kept = []
+    let rejectedRows = []
+    async function submit(submission, { final = false } = {}) {
+      if (final) diagnosticId = frame.frameId + ':kept'
+      await record(final ? 'submitted-kept' : 'submitted', { operations: submission.operations, kept: kept.length })
       let applied
       try {
         const waitMs = retryNotBefore - Date.now()
         if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs))
-        applied = await applySubmission(input, frame, submission, diagnosticId, backfill)
+        applied = await applySubmission(input, frame, submission, diagnosticId, backfill, kept)
       } catch (error) {
         // A timeout or disk error may have an uncertain outcome; do not replay a delta.
         await record('failed', { error: str(error.message || error) })
         feedback = { ok: false, retryable: false, error: str(error.message || error), note: '执行或保存结果无法确认，停止自动重试以避免重复更新。' }
         result = { submission, receipt: { version: 1, status: 'error', summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
-        return JSON.stringify(feedback)
+        return feedback
       }
       if (applied.applied.deferred === true) {
         await record('deferred')
         const receipt = pendingReceipt(applied.applied, diagnosticId, applied.damper)
         feedback = { ok: false, retryable: false, deferred: true, deferredReason: receipt.deferredReason, error: receipt.summary }
-        result = { variables: clone(input.currentVariables), submission,
+        result = { variables: clone(input.currentVariables), submission: { operations: applied.background || submission.operations },
           receipt }
-        return JSON.stringify(feedback)
+        return feedback
       }
       if (applied.applied.stale === true) {
         await record('stale')
         feedback = { ok: false, retryable: false, error: '变量结算目标已经变化，迟到结果未写入。' }
         result = { receipt: { version: 1, status: 'stale', summary: feedback.error, changes: [], sideEffects: [], failures: [], ...(applied.damper ? { damper: applied.damper } : {}) } }
-        return JSON.stringify(feedback)
+        return feedback
       }
       const after = applied.after
       const audit = applied.audit
@@ -896,25 +939,45 @@ export function createMvuSettlementModule(options = {}) {
       const changes = applied.changes
       const sideEffects = applied.sideEffects
       const status = applied.status
+      const saved = { operations: applied.background }
+      // Rejected operations this submission did not send again are given up: the receipt names them.
+      const dropped = audit.failures.length ? [] : rejectedRows.filter(row => !submission.operations.some(operation => operation.path === row.path)).map(row => ({ path: row.path, op: row.op, reason: row.reason }))
+      if (dropped.length) await record('segments-dropped', { dropped })
       result = {
-        variables: after, submission, effect: applied.effect,
-        receipt: { version: 1, status, summary: '', diagnosticId,
+        variables: after, submission: saved, effect: applied.effect,
+        receipt: { version: 1, status, summary: dropped.length ? dropped.length + ' 条变量改动没通过检查，已丢弃；其余已保存。' : '', diagnosticId,
           runtimeDiagnostics: applied.applied.diagnostics || [], changes, sideEffects, failures: audit.failures,
+          ...(dropped.length ? { dropped } : {}),
+          ...(applied.clamped.length ? { clamped: applied.clamped } : {}),
           ...(applied.damper ? { damper: applied.damper } : {}) }
       }
       if (input.onPrepared && audit.failures.length === 0) await input.onPrepared(clone({ ...result, posture: posture?.posture }))
-      feedback = {
+      const segments = !final && rolledBack && applied.applied.retryable === true ? segmentedRejection(audit) : null
+      if (segments) {
+        kept = segments.kept
+        rejectedRows = rejectionRows(segments.rejected, withToolOperations(input.currentVariables, toolOperationsOf(toolRowsWith(input, frame.taskRules.toolResults, backfill))))
+        feedback = {
+          ok: false, retryable: attempt < maxAttempts, rolledBack: true, segmented: true,
+          kept: [...new Set(kept.map(operation => operation.path))],
+          ...(applied.ignored.length ? { ignored: [...new Set(applied.ignored.map(operation => operation.path))] } : {}),
+          rejected: rejectedRows,
+          runtimeDiagnostics: applied.applied.diagnostics || [],
+          note: 'kept 里的改动已经留下，不要再交（再交会被忽略）；只重交 rejected 里改好的几条，放弃它们就交空数组 operations: []。',
+          attemptsRemaining: maxAttempts - attempt
+        }
+      } else feedback = {
         ok: audit.failures.length === 0,
-        retryable: rolledBack && applied.applied.retryable === true && attempt < maxAttempts,
+        retryable: !final && rolledBack && applied.applied.retryable === true && attempt < maxAttempts,
         rolledBack, status, changes, failures: audit.failures,
+        ...(applied.ignored.length ? { ignored: [...new Set(applied.ignored.map(operation => operation.path))] } : {}),
+        ...(dropped.length ? { dropped } : {}),
         runtimeDiagnostics: applied.applied.diagnostics || [],
-        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验：请对照 rejectedOperations 的提交值与执行后值检查人物卡约束，修正后提交完整 operations。原样重试会得到同样的结果。', rejectedOperations: rejectedOperations(submission.operations, audit.failures, after), ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
+        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验：请对照 rejectedOperations 的提交值与执行后值检查人物卡约束，修正后提交完整 operations。原样重试会得到同样的结果。', rejectedOperations: rejectedOperations(applied.background, audit.failures, after), ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
         attemptsRemaining: maxAttempts - attempt
       }
-      await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.applied.diagnostics || [] })
-      return JSON.stringify(feedback)
-    }
-    let run = {}
+      await record('result', { status, rolledBack, retryable: feedback.retryable, segmented: Boolean(segments), variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.applied.diagnostics || [] })
+      return feedback
+    }    let run = {}
     try {
       run = await options.model.run({
         task: 'settlement', operationId: input.operationId, backgroundTasks: tasks, persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
@@ -945,6 +1008,8 @@ export function createMvuSettlementModule(options = {}) {
       }
     }
     await toolTail
+    // The attempts ran out, or the background stopped, with segments still rejected: save what passed, drop the rest.
+    if (feedback?.segmented && !feedback.ok) await submit({ operations: [] }, { final: true })
     if (!result) {
       const error = new Error(feedback?.error || '后台 Agent 未调用 mvu_submit_update')
       error.traceSessionId = traceSessionId
