@@ -606,9 +606,11 @@ test('a failed cloud check expires, so a service that came back stops reading �
 // bug:fish-preview-fails: the cloud's /model answers any key, so 测试连接 reported 可用 for a key Fish rejects.
 test('Fish cloud connection test asks an endpoint that checks the key', async () => {
   const {createFishAudioAdapter} = await import('../src/providers/fish-audio.js')
-  const calls = [], fetch = async (url, options) => { calls.push({url, auth:options.headers.Authorization}); return new Response('{}', {status:options.headers.Authorization === 'Bearer good' ? 200 : 401}) }
+  // bug:voice-cloud-switch: Fish's wallet answered 503 billing_maintenance to every key while speech worked, so the check
+  // must not depend on billing.
+  const calls = [], fetch = async (url, options) => { calls.push({url, auth:options.headers.Authorization}); return url.includes('/wallet/') ? new Response('{"code":"billing_maintenance"}', {status:503}) : new Response('{}', {status:options.headers.Authorization === 'Bearer good' ? 200 : 401}) }
   const adapter = createFishAudioAdapter({fetch}), provider = {config:{url:'https://api.fish.audio'}}
   await adapter.probe(provider, {key:'good'})
   await assert.rejects(adapter.probe(provider, {key:'wrong'}), {code:'FISH_AUTH_FAILED'})
-  assert.deepEqual(calls.map(c => c.url), ['https://api.fish.audio/wallet/self/api-credit', 'https://api.fish.audio/wallet/self/api-credit'])
+  assert.deepEqual(calls.map(c => c.url), ['https://api.fish.audio/model?self=true&page_size=1', 'https://api.fish.audio/model?self=true&page_size=1'])
 })
