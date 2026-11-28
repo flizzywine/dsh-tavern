@@ -445,7 +445,7 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
 })
 
 test('插件正文生成提示要求按需补齐本轮世界书原文再交接', async () => {
-  const names = ['read_lorebook', 'grep_lorebook', 'tavern_generate_body']
+  const names = ['query_lorebook', 'tavern_generate_body']
   const strategy = createNativePlayOrchestrationStrategy({
     modeFor: async () => 'story', resolvePreset: async () => null,
     visibleTools: async () => names, controlledToolNames: new Set(names)

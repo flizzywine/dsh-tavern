@@ -34,7 +34,11 @@ test('does not expose other turns, hidden results, errors, arbitrary reads or un
   f.lookup('worldbook_grep', {}, '有效查询')
   f.lookup('list_lorebook', {}, '薛姨妈')
   f.lookup('read_lorebook', { keyword: '薛姨妈' }, '条目正文')
+  f.lookup('query_lorebook', { action: 'read', query: '新条目' }, '新条目正文')
+  f.lookup('query_lorebook', { action: 'search', query: '别名' }, '新搜索结果')
+  f.lookup('query_lorebook', { action: 'list' }, '新目录')
   f.append('tool/result', { turn: 2, message: { role: 'tool', toolCallId: 'unmatched', content: [{ type: 'text', text: 'private-orphan' }] } })
   f.append('turn/end', { turn: 2 }); f.lookup('worldbook_grep', {}, 'private-after-turn')
-  assert.deepEqual(f.read(), [{ tool: 'grep_lorebook', text: '有效查询' }, { tool: 'list_lorebook', text: '薛姨妈' }, { tool: 'read_lorebook', text: '条目正文' }])
+  assert.deepEqual(f.read(), [{ tool: 'grep_lorebook', text: '有效查询' }, { tool: 'list_lorebook', text: '薛姨妈' }, { tool: 'read_lorebook', text: '条目正文' },
+    { tool: 'query_lorebook', text: '新条目正文' }, { tool: 'query_lorebook', text: '新搜索结果' }, { tool: 'query_lorebook', text: '新目录' }])
 })

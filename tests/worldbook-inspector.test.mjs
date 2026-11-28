@@ -23,6 +23,8 @@ test('关键词直读在排查面板按命中的条目记数', async () => {
     event.data.message.content[0].text = JSON.stringify(data)
     return event
   }
+  const unified = result('new')
+  unified.data.meta.worldbookRead = { id: 'entry-id', title: '薛姨妈' }
   const rpc = createWorldbookInspectorHandlers({
     agentRegistry: { get: () => agent }, chatForSession: async () => ({ sessionId: 'one' }),
     worldbookSkillProvider: { inspect: async () => ({ files: [{ title: '薛姨妈', lookupId: 'entry-id' }] }) },
@@ -30,12 +32,18 @@ test('关键词直读在排查面板按命中的条目记数', async () => {
       call('legacy', 'worldbook_list', {}), result('legacy'),
       call('a', 'read_lorebook', { keyword: '薛姨妈' }), finish('a', { status: 'found', id: 'entry-id', title: '薛姨妈', text: '设定正文' }),
       call('b', 'read_lorebook', { keyword: '薛' }), finish('b', { status: 'multiple', total: 2 }),
+      call('new', 'query_lorebook', { action: 'read', query: 'entry-id' }), unified,
+      call('new-search', 'query_lorebook', { action: 'search', query: '关键字' }), result('new-search'),
+      call('new-list', 'query_lorebook', { action: 'list' }), result('new-list'),
     ] }),
   })
   const page = await rpc.inspectWorldbookSkills({ sessionId: 'one' })
-  assert.equal(page.counts.entries, 1)
-  assert.equal(page.catalog.files[0].readCount, 1)
-  assert.equal(page.records[1].title, '薛姨妈')
-  assert.equal(page.records[1].result, '设定正文')
-  assert.equal(page.records[2].kind, 'list_lorebook')
+  assert.equal(page.counts.entries, 2)
+  assert.equal(page.catalog.files[0].readCount, 2)
+  assert.deepEqual(page.records.slice(0, 3).map(record => [record.kind, record.action]), [
+    ['query_lorebook', 'list'], ['query_lorebook', 'search'], ['query_lorebook', 'read']
+  ])
+  assert.equal(page.records[2].title, '薛姨妈')
+  assert.equal(page.records.find(record => record.id === 'a').result, '设定正文')
+  assert.equal(page.records.at(-1).kind, 'list_lorebook')
 })

@@ -1,9 +1,9 @@
 import { sessionEvents } from './session-events.js'
 import { turnStartIndex } from './session-turn-input.js'
 import { toolResultsOf } from './tool-result-message.js'
-import { GREP_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from './foreground-tools.js'
+import { GREP_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, QUERY_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from './foreground-tools.js'
 
-const WORLD_BOOK_TOOLS = new Set([READ_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL, 'worldbook_search'])
+const WORLD_BOOK_TOOLS = new Set([QUERY_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL, 'worldbook_search'])
 
 /** Copy only completed worldbook lookups from this turn's active surface.
  * Native read is shared with other features: its successful call must point at

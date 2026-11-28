@@ -1,4 +1,4 @@
-import { GREP_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from '../domain/foreground-tools.js'
+import { lorebookQueryAction, lorebookToolName } from '../domain/foreground-tools.js'
 import { readLorebookReceipt } from '../domain/worldbook-files.js'
 
 // Only native tool events are evidence of loading/reading, never prose adoption.
@@ -10,18 +10,18 @@ export function worldbookReadHistory(events, directory, skillNames = [], inlineE
       let args
       try { args = typeof d.arguments === 'string' ? JSON.parse(d.arguments) : d.arguments } catch { continue }
       const name = lorebookToolName(d.name)
-      const navigation = [LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL].includes(name)
-      const direct = name === READ_LOREBOOK_TOOL
-      const target = direct ? args?.keyword : navigation ? (args?.query || '世界书文件列表') : d.name === 'skill' ? args?.name : d.name === 'read' ? args?.file_path : null
+      const action = lorebookQueryAction(name, args)
+      const target = action === 'read' ? (args?.query ?? args?.keyword) : action === 'search' ? (args?.query || '世界书搜索') : action === 'list' ? '世界书文件列表'
+        : d.name === 'skill' ? args?.name : d.name === 'read' ? args?.file_path : null
       const normalized = typeof target === 'string' ? target.replaceAll('\\', '/') : ''
       const physical = directory && normalized.startsWith(directory.replaceAll('\\', '/') + '/')
-      if (typeof target !== 'string' || !(direct || navigation || d.name === 'skill' || target.startsWith('/__tavern_worldbook__/') || physical)) continue
-      calls.set(d.callId, { id: d.callId, seq: event.seq, turn: d.turn, step: d.step, kind: name, target, reference: (physical && !normalized.includes('/references/') || /\/(?:entries|references)\//.test(normalized)) && !normalized.endsWith('/references/资料目录.md'), offset: args.offset, limit: args.limit, status: 'pending' })
+      if (typeof target !== 'string' || !(action || d.name === 'skill' || target.startsWith('/__tavern_worldbook__/') || physical)) continue
+      calls.set(d.callId, { id: d.callId, seq: event.seq, turn: d.turn, step: d.step, kind: name, action, target, reference: (physical && !normalized.includes('/references/') || /\/(?:entries|references)\//.test(normalized)) && !normalized.endsWith('/references/资料目录.md'), offset: args?.offset, limit: args?.limit, status: 'pending' })
     } else if (event.type === 'tool/result' && calls.has(d.message?.toolCallId)) {
       const item = calls.get(d.message.toolCallId)
       item.status = d.message.isError ? 'error' : 'success'
       item.result = (d.message.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
-      if (item.kind === READ_LOREBOOK_TOOL && item.status === 'success') {
+      if (item.action === 'read' && item.status === 'success') {
         const result = readLorebookReceipt(item.result, d.meta)
         if (result) {
           item.lookupId = result.id
@@ -80,7 +80,7 @@ export function createWorldbookInspectorHandlers({ agentRegistry, chatForSession
       return { catalog, historyLoaded: evidence.loaded, total: records.length, offset,
         counts: { skills: records.filter(r => r.kind === 'skill' && r.status === 'success').length,
           inlineEntries: records.filter(r => r.status === 'success').reduce((n, r) => n + (r.inlineRefs?.length || 0), 0),
-          entries: records.filter(r => r.reference && r.status === 'success' && ['read', READ_LOREBOOK_TOOL].includes(r.kind)).length,
+          entries: records.filter(r => r.reference && r.status === 'success' && (r.kind === 'read' || r.action === 'read')).length,
           errors: records.filter(r => r.status === 'error').length },
         records: records.slice(offset, offset + 40) }
     },

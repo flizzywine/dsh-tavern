@@ -15,21 +15,21 @@ function session(messages) {
 
 test('主动查阅提示只用于有检索工具的前台续写', () => {
   const instruction = sections => sections.find(section => section.name === 'tavern:worldbook-skills')?.text
-  assert.match(instruction(withVirtualWorldbook([], '')), /优先用 read_lorebook.*续写前先判断/)
-  assert.match(instruction(withVirtualWorldbook([], '')), /grep_lorebook.*用空格分隔多个短词，命中任一个即可.*list_lorebook/)
-  assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep'])), /玩家没提条目名/)
-  assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep', 'worldbook_list'])), /read_lorebook/)
-  assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'worldbook_grep', 'worldbook_list'])), undefined)
-  assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'grep_lorebook', 'list_lorebook'])), undefined)
-  assert.match(instruction(withVirtualWorldbook([], '')), /需要正文时用 read_lorebook 按标题读取/)
-  assert.doesNotMatch(instruction(withVirtualWorldbook([], '', ['read_lorebook'])), /\bread\b|行号|路径/)
+  const play = instruction(withVirtualWorldbook([], ''))
+  assert.match(play, /优先用 query_lorebook 的 action="read".*续写前先判断/)
+  assert.match(play, /action="search".*命中任一个即可.*action="list"/)
+  assert.doesNotMatch(play, /read_lorebook|grep_lorebook|list_lorebook/)
+  for (const name of ['query_lorebook', 'read_lorebook', 'grep_lorebook', 'list_lorebook', 'worldbook_grep', 'worldbook_list']) {
+    assert.equal(instruction(withVirtualWorldbook([], '', [name])), undefined)
+  }
   assert.doesNotMatch(instruction(withWorldbookFileInstructions([])), /续写前先判断/)
+  assert.match(instruction(withWorldbookFileInstructions([])), /read_lorebook.*grep_lorebook.*list_lorebook/)
 })
 
 test('system assembly excludes dynamic recovery and stays byte-identical across dynamic updates', async () => {
   const { registerTurnLifecycleHooks } = await import('../tavern-plugin/lib/hooks/turn-lifecycle.js')
   // Exercise the actual host binding without starting a renderer or a model.
-  const source = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8').replaceAll('\r\n', '\n')
   const registration = source.match(/^  registerTurnLifecycleHooks\(\{\n([\s\S]*?)^  \}\)/m)?.[1]
   const binding = registration?.match(/^    nativeWorldBookTemplateContext(?:: (.+))?,$/m)
   assert.ok(binding, 'the host binds the lifecycle worldbook projection')

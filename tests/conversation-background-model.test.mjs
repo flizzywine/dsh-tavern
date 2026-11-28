@@ -1,5 +1,6 @@
 import { createConversationBackgroundSettings } from '../tavern-plugin/lib/domain/conversation-background-settings.js'
 import { projectChatBackgroundConfig } from '../tavern-plugin/lib/domain/chat-session-state.js'
+import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -69,4 +70,24 @@ test('前台目录随本局联网开关更新，只列出宿主提供的网页�
   registered.add('web_fetch')
   assert.deepEqual(relevantTools(await settings.read('game')), ['web_search', 'web_fetch', 'plugin_search', 'plugin_local'])
   assert.deepEqual(relevantTools(await settings.save({ sessionId: 'game', webSearchEnabled: false })), ['plugin_local'])
+})
+
+test('自由和剧本游玩只开放一个世界书工具，旧存档的关闭状态沿用', async () => {
+  let chat = { id: 'game', mode: 'story', disabledForegroundTools: ['worldbook_grep', 'read_lorebook'] }
+  const settings = createConversationBackgroundSettings({
+    readConfig: async () => chat, readChat: async () => chat, isPlayMode: mode => ['story', 'script'].includes(mode),
+    updateChat: async (_id, mutation) => chat = mutation(chat), modelCatalog: async () => []
+  })
+  const turns = createTurnOrchestrator({ store: { chatForSession: async () => chat }, frameBuilder: { build() {} } })
+  const worldbookTools = names => names.filter(name => /lorebook|worldbook|^read$/.test(name))
+  const savedConfig = await settings.read('game')
+  assert.deepEqual(savedConfig.disabledForegroundTools, ['query_lorebook'])
+  assert.deepEqual(worldbookTools(await turns.visibleTools('game')), [])
+  assert.deepEqual(savedConfig.foregroundTools.filter(tool => worldbookTools([tool.name]).length).map(tool => [tool.name, tool.label]),
+    [['query_lorebook', '查询世界书']])
+  await settings.save({ sessionId: 'game', disabledForegroundTools: [] })
+  for (const mode of ['story', 'script']) {
+    chat.mode = mode
+    assert.deepEqual(worldbookTools(await turns.callableTools('game')), ['query_lorebook'])
+  }
 })
