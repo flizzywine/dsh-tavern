@@ -53,6 +53,18 @@ export function classifyWorldbookEntry(entry = {}) {
   return { kind, channel, dynamic, constant, dependencies, nativeFallback, occasion: nativeFallback ? 'request' : 'dependency' }
 }
 
+/** A constant whose only template syntax is {{char}}/{{user}}: names are fixed for a game (they change only when the
+ * player or card is renamed), so the play book carries it with the current names as an ordinary static constant. */
+export function isIdentityOnlyConstant(entry = {}) {
+  const type = classifyWorldbookEntry(entry)
+  return type.kind === 'dynamic-constant' && !type.nativeFallback && type.dependencies.every(dependency => dependency.scope === 'identity')
+}
+
+/** The entry with {{char}}/{{user}} replaced by this game's names, the way the macro engine reads them. */
+export function withIdentityNames(entry, { user, char }) {
+  return { ...entry, content: String(entry.content).replace(/\{\{\s*(char|user)\s*\}\}/gi, (_, name) => name.toLowerCase() === 'char' ? char : user) }
+}
+
 /** Optional static knowledge is searchable; runtime rules retain native delivery. */
 export function isStaticWorldbookSkillEntry(entry = {}) {
   return entry.enabled !== false && String(entry.content || '').trim() !== '' && classifyWorldbookEntry(entry).kind === 'static-skill'
