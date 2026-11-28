@@ -69,6 +69,7 @@ const ANIMATION_VALUES = Object.freeze([
   'urushi',
   'bauhaus',
   'murano',
+  'monogatari',
   'bounce',
   'prism',
   'inferno',
@@ -78,6 +79,8 @@ const ANIMATION_VALUES = Object.freeze([
   'compact',
   'none'
 ])
+const MONOGATARI_ACTOR_VALUES = Object.freeze(['auto', 'hitagi', 'shinobu', 'hanekawa', 'mayoi', 'dual', 'dual2'])
+const MONOGATARI_INTRO_VALUES = Object.freeze(['full', 'fast'])
 const TONE_VALUES = Object.freeze(Object.keys(TONE_BIAS_BONUS))
 const REVEAL_TIMING_VALUES = Object.freeze(['immediate', 'stream-end'])
 const GLOBAL_GAME_ID = '__fate_dice_global__'
@@ -103,6 +106,9 @@ export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
   toneBias: 'balanced',
   allowHidden: true,
   animation: 'atelier',
+  monogatariActor: 'auto',
+  monogatariIntroMode: 'full',
+  monogatariMediaBase: '',
   /* 失败 / 大失败时暂停正文发送，等玩家选择是否用命运点逆命重投或孤注一掷 */
   preSendPause: false,
   preSendScope: 'both',
@@ -227,6 +233,15 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
   if (source.rule !== undefined) next.rule = normalizeRule(source.rule)
   if (source.sensitivity !== undefined && SENSITIVITY_VALUES.includes(source.sensitivity)) next.sensitivity = source.sensitivity
   if (source.animation !== undefined && ANIMATION_VALUES.includes(source.animation)) next.animation = source.animation
+  if (source.monogatariActor !== undefined && MONOGATARI_ACTOR_VALUES.includes(source.monogatariActor)) {
+    next.monogatariActor = source.monogatariActor
+  }
+  if (source.monogatariIntroMode !== undefined && MONOGATARI_INTRO_VALUES.includes(source.monogatariIntroMode)) {
+    next.monogatariIntroMode = source.monogatariIntroMode
+  }
+  if (source.monogatariMediaBase !== undefined) {
+    next.monogatariMediaBase = String(source.monogatariMediaBase || '').trim().slice(0, 320)
+  }
   if (source.toneBias !== undefined && TONE_VALUES.includes(source.toneBias)) next.toneBias = source.toneBias
   if (source.revealTiming !== undefined && REVEAL_TIMING_VALUES.includes(source.revealTiming)) next.revealTiming = source.revealTiming
   if (source.preSendScope !== undefined) next.preSendScope = source.preSendScope

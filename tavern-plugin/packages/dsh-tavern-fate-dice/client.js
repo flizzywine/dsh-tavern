@@ -78,6 +78,7 @@ const FD_ANIMATION_OPTIONS = [
   { value: 'urushi', label: '典藏 · 京都黑漆（镜面大漆螺钿与金泥莳绘）' },
   { value: 'bauhaus', label: '典藏 · 包豪斯白瓷（哑光氧化锆与博朗信号橙）' },
   { value: 'murano', label: '典藏 · 深海星仪（威尼斯折射海琉璃与银星盘）' },
+  { value: 'monogatari', label: '典藏 · 物语怪异（新房切卡 · 四主角外置实拍演出）' },
   { value: 'bounce', label: '幻想 · 星穹秘法（智能切换）' },
   { value: 'prism', label: '幻想 · 时停棱镜（碎星圣晶 · 子弹时间）' },
   { value: 'inferno', label: '幻想 · 焚天熔炉（玄武熔铁 · 烈焰光柱）' },
@@ -145,6 +146,21 @@ const FD_MULTI_CHECK_MODE_DETAILS = {
   }
 }
 
+const FD_MONOGATARI_ACTOR_OPTIONS = [
+  { value: 'auto', label: '自动联动（四主角轮换）' },
+  { value: 'hitagi', label: '戦場ヶ原ひたぎ（重石蟹 · 文具风暴）' },
+  { value: 'shinobu', label: '忍野忍（怪異の王 · 妖刀心渡）' },
+  { value: 'hanekawa', label: 'ブラック羽川（障り猫 · 銀爪疾斬）' },
+  { value: 'mayoi', label: '八九寺真宵（迷い牛 · 路標迷宮）' },
+  { value: 'dual', label: '双人同框：战场原 × 忍野忍' },
+  { value: 'dual2', label: '双人同框：黑羽川 × 八九寺' }
+]
+
+const FD_MONOGATARI_INTRO_OPTIONS = [
+  { value: 'full', label: '完整剧场（前置 6s 主角动画 · 点击可跳过）' },
+  { value: 'fast', label: '快节奏切卡（仅全屏字卡与标尺 · 零等待）' }
+]
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -158,6 +174,9 @@ const FD_DEFAULT_SETTINGS = {
   contestEnabled: true,
   revealTiming: 'immediate',
   animation: 'atelier',
+  monogatariActor: 'auto',
+  monogatariIntroMode: 'full',
+  monogatariMediaBase: '',
   preSendPause: false,
   preSendScope: 'both',
   preSendWait: 18,
@@ -3465,6 +3484,805 @@ function FdCollapse(props) {
   )
 }
 
+/* ===== src/client/monogatari.js ===== */
+/* ------------------------------------------------------------------ *
+ * monogatari.js —— 《化物语》SHAFT 剧场切卡、四主角导演与外置按需加载缓存引擎
+ * 零内嵌视频/图片，所有 4 主角 WebM/JPG 均按需从 flizzywine/dsh-tavern@media-assets
+ * 拉取并持久化到浏览器 Cache Storage，未选此皮肤时 0 KB 流量开销。
+ * ------------------------------------------------------------------ */
+
+const FD_MONO_DEFAULT_BASES = Object.freeze([
+  'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@media-assets/fate-dice/monogatari',
+  'https://raw.githubusercontent.com/flizzywine/dsh-tavern/media-assets/fate-dice/monogatari'
+])
+const FD_MONO_CACHE_NAME = 'dsh-fate-dice-monogatari-v1'
+const FD_MONO_SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Songti SC", "Noto Serif SC", "Georgia", serif'
+const FD_MONO_CODE = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+const FD_MONO_ALL_ACTORS = Object.freeze(['hitagi', 'shinobu', 'hanekawa', 'mayoi'])
+
+const FD_MONO_ACTOR_META = Object.freeze({
+  hitagi:   { code: 'HITAGI',   title: 'HITAGI SENJOGAHARA // CRAB',   border: '#d91e2a', label: '#d2a8ff', barBg: 'rgba(13, 10, 20, 0.96)', alignLeft: false },
+  shinobu:  { code: 'SHINOBU',  title: 'KISS-SHOT // SHINOBU OSHINO',  border: '#f2b63d', label: '#f2b63d', barBg: 'rgba(14, 7, 10, 0.96)',  alignLeft: true  },
+  hanekawa: { code: 'HANEKAWA', title: 'BLACK HANEKAWA // SAWARI NEKO', border: '#b074ff', label: '#e2c6ff', barBg: 'rgba(14, 9, 24, 0.96)',  alignLeft: false },
+  mayoi:    { code: 'MAYOI',    title: 'MAYOI HACHIKUJI // LOST SNAIL', border: '#f5c518', label: '#f5c518', barBg: 'rgba(16, 14, 10, 0.96)', alignLeft: true  }
+})
+
+const FD_MONO_SCRIPTS = Object.freeze({
+  hitagi: {
+    throw:    { bg: '#0b0a0e', fg: '#f4f1ea', accent: '#8e55d6', koma: '黒コマ', head: '文房具、準備完了。', sub: '戦場ヶ原ひたぎ · 投擲' },
+    fate:     { bg: '#f4f1ea', fg: '#0c0b10', accent: '#8e55d6', koma: '白コマ', head: '重さを、書き換えるわ。', sub: '重石蟹 · 逆転' },
+    push:     { bg: '#c91826', fg: '#0c0b10', accent: '#f4f1ea', koma: '赤コマ', head: '暴言を吐くわよ？', sub: '危険 · 孤注一擲' },
+    critical: { bg: '#c91826', fg: '#f4f1ea', accent: '#f5cb5c', koma: '赤コマ', head: '奇蹟 · 当然の結果ね。', sub: '戦場ヶ原ひたぎ · 大成功' },
+    success:  { bg: '#f4f1ea', fg: '#0c0b10', accent: '#8e55d6', koma: '白コマ', head: '成立 · 悪くないわ。', sub: '戦場ヶ原ひたぎ · 成功' },
+    costly:   { bg: '#0c0b10', fg: '#f4f1ea', accent: '#d91e2a', koma: '黒コマ', head: '代償 · 重石蟹の対価', sub: '戦場ヶ原ひたぎ · 辛勝' },
+    failure:  { bg: '#0c0b10', fg: '#d8d6dc', accent: '#8e55d6', koma: '黒コマ', head: '不成立 · 失望したわ。', sub: '戦場ヶ原ひたぎ · 失敗' },
+    fumble1:  { bg: '#08070a', fg: '#f4f1ea', accent: '#d91e2a', koma: '黒コマ', head: '黒', sub: 'SYSTEM // FAULT' },
+    fumble2:  { bg: '#c91826', fg: '#0b0a0e', accent: '#f4f1ea', koma: '赤コマ', head: '破綻 · ……絶望ね。', sub: '戦場ヶ原ひたぎ · 大失敗' }
+  },
+  shinobu: {
+    throw:    { bg: '#c91826', fg: '#0b0a0e', accent: '#f2b63d', koma: '赤コマ', head: '影より出でよ。', sub: '忍野忍 · 怪異の王' },
+    fate:     { bg: '#f4f1ea', fg: '#0c0b10', accent: '#d91e2a', koma: '白コマ', head: '天命、書き換えじゃ。', sub: 'キスショット · 逆転' },
+    push:     { bg: '#c91826', fg: '#f4f1ea', accent: '#f2b63d', koma: '赤コマ', head: '血を賭けよ、お前様。', sub: '妖刀心渡 · 一擲' },
+    critical: { bg: '#c91826', fg: '#f4f1ea', accent: '#f2b63d', koma: '赤コマ', head: '奇蹟 · かっかっか！', sub: '忍野忍 · 大成功' },
+    success:  { bg: '#0c0b10', fg: '#f2b63d', accent: '#d91e2a', koma: '金コマ', head: '成立 · 運が良いのう。', sub: '忍野忍 · 成功' },
+    costly:   { bg: '#0c0b10', fg: '#f4f1ea', accent: '#f2b63d', koma: '黒コマ', head: '代償 · 少し血が足りん。', sub: '忍野忍 · 辛勝' },
+    failure:  { bg: '#0c0b10', fg: '#d4d0c8', accent: '#f2b63d', koma: '黒コマ', head: '不成立 · ふんっ、つまらん。', sub: '忍野忍 · 失敗' },
+    fumble1:  { bg: '#08070a', fg: '#f2b63d', accent: '#d91e2a', koma: '黒コマ', head: '怪異', sub: 'SHADOW // BREACH' },
+    fumble2:  { bg: '#c91826', fg: '#0b0a0e', accent: '#f2b63d', koma: '赤コマ', head: '破綻 · 愚か者め。', sub: '忍野忍 · 大失敗' }
+  },
+  hanekawa: {
+    throw:    { bg: '#0c0916', fg: '#f2eef8', accent: '#b074ff', koma: '黒コマ', head: 'にゃははっ、いくよ？', sub: 'ブラック羽川 · 障り猫' },
+    fate:     { bg: '#f4f1ea', fg: '#120a1f', accent: '#9855f5', koma: '白コマ', head: '知ってることだけ、書き換えるにゃ。', sub: '障り猫 · 逆転' },
+    push:     { bg: '#200b2e', fg: '#f8f4ff', accent: '#e02446', koma: '紫コマ', head: 'ご主人様、覚悟はいい？', sub: '銀爪疾斬 · 一擲' },
+    critical: { bg: '#160b24', fg: '#f8f4ff', accent: '#f2c14e', koma: '紫コマ', head: '奇蹟 · にゃははっ、完璧！', sub: 'ブラック羽川 · 大成功' },
+    success:  { bg: '#f4f1ea', fg: '#130b20', accent: '#9855f5', koma: '白コマ', head: '成立 · 知ってることだけ。', sub: 'ブラック羽川 · 成功' },
+    costly:   { bg: '#0c0916', fg: '#f2eef8', accent: '#b074ff', koma: '黒コマ', head: '代償 · ちょっと爪が甘いかにゃ。', sub: 'ブラック羽川 · 辛勝' },
+    failure:  { bg: '#0b0a0f', fg: '#d6d2df', accent: '#9855f5', koma: '黒コマ', head: '不成立 · それは知らないにゃ。', sub: 'ブラック羽川 · 失敗' },
+    fumble1:  { bg: '#09070e', fg: '#e5d4ff', accent: '#b074ff', koma: '黒コマ', head: '障猫', sub: 'STRESS // OVERFLOW' },
+    fumble2:  { bg: '#c91826', fg: '#f8f4ff', accent: '#b074ff', koma: '赤コマ', head: '破綻 · ストレス溜まるにゃあ。', sub: 'ブラック羽川 · 大失敗' }
+  },
+  mayoi: {
+    throw:    { bg: '#f5c518', fg: '#0c0b10', accent: '#d91e2a', koma: '黄コマ', head: 'いきますよ、阿良々木さん！', sub: '八九寺真宵 · 迷い牛' },
+    fate:     { bg: '#f4f1ea', fg: '#0c0b10', accent: '#2cb67d', koma: '白コマ', head: '道を変えちゃいますよ！', sub: '迷い牛 · 逆転' },
+    push:     { bg: '#d91e2a', fg: '#f5c518', accent: '#0c0b10', koma: '赤コマ', head: 'わざとだ！全力突撃！', sub: '路標迷宮 · 一擲' },
+    critical: { bg: '#f5c518', fg: '#0c0b10', accent: '#d91e2a', koma: '黄コマ', head: '奇蹟 · 迷わず大成功です！', sub: '八九寺真宵 · 大成功' },
+    success:  { bg: '#f4f1ea', fg: '#0c0b10', accent: '#2cb67d', koma: '白コマ', head: '成立 · ちゃんと着きました！', sub: '八九寺真宵 · 成功' },
+    costly:   { bg: '#0c0b10', fg: '#f5c518', accent: '#2cb67d', koma: '黒コマ', head: '代償 · ちょっと寄り道しました。', sub: '八九寺真宵 · 辛勝' },
+    failure:  { bg: '#0c0b10', fg: '#f4f1ea', accent: '#f5c518', koma: '黒コマ', head: '不成立 · 失礼、噛みました！', sub: '八九寺真宵 · 失敗' },
+    fumble1:  { bg: '#08070a', fg: '#f5c518', accent: '#d91e2a', koma: '黒コマ', head: '迷子', sub: 'ROUTE // LOST' },
+    fumble2:  { bg: '#c91826', fg: '#f5c518', accent: '#0b0a0e', koma: '赤コマ', head: '破綻 · かみまみた！！', sub: '八九寺真宵 · 大失敗' }
+  }
+})
+
+const FD_MONO_IMPACT_KANJI = Object.freeze(['落', '響', '撞', '反', '砕', '刻'])
+
+/* 全局共享外置按需加载与 Cache Storage 持久化缓存（跨舞台复用，每角色仅拉取一次） */
+const FD_MONO_PREFS = {
+  actor: 'auto',
+  introMode: 'full',
+  mediaBase: ''
+}
+
+function fdSyncMonogatariPrefs(settings) {
+  if (!settings || typeof settings !== 'object') return
+  if (typeof settings.monogatariActor === 'string' && ['auto', 'hitagi', 'shinobu', 'hanekawa', 'mayoi', 'dual', 'dual2'].includes(settings.monogatariActor)) {
+    FD_MONO_PREFS.actor = settings.monogatariActor
+  }
+  if (settings.monogatariIntroMode === 'fast' || settings.monogatariIntroMode === 'full') {
+    FD_MONO_PREFS.introMode = settings.monogatariIntroMode
+  }
+  if (typeof settings.monogatariMediaBase === 'string') {
+    const trimmed = settings.monogatariMediaBase.trim().replace(/\/+$/, '')
+    if (trimmed !== FD_MONO_PREFS.mediaBase) {
+      FD_MONO_PREFS.mediaBase = trimmed
+      FD_MONO_MEDIA_POOL.resetForBaseChange()
+    }
+  }
+}
+
+const FD_MONO_MEDIA_POOL = (() => {
+  const images = Object.create(null)
+  const videos = Object.create(null)
+  const inflight = Object.create(null)
+
+  function candidateBases() {
+    const list = []
+    if (FD_MONO_PREFS.mediaBase) list.push(FD_MONO_PREFS.mediaBase)
+    for (const b of FD_MONO_DEFAULT_BASES) {
+      if (!list.includes(b)) list.push(b)
+    }
+    return list
+  }
+
+  async function fetchWithCache(relPath, mimeHint) {
+    if (typeof fetch !== 'function') return null
+    const bases = candidateBases()
+    const cacheKeyUrl = `${bases[0]}/${relPath}`
+    let cache = null
+    try {
+      if (typeof caches !== 'undefined' && caches && typeof caches.open === 'function') {
+        cache = await caches.open(FD_MONO_CACHE_NAME)
+        const hit = await cache.match(cacheKeyUrl)
+        if (hit && hit.ok) {
+          const blob = await hit.blob()
+          if (blob && blob.size > 0) return URL.createObjectURL(blob)
+        }
+      }
+    } catch {}
+
+    for (const base of bases) {
+      const url = `${base}/${relPath}`
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' })
+        if (!res || !res.ok) continue
+        if (cache) {
+          try { await cache.put(cacheKeyUrl, res.clone()) } catch {}
+        }
+        const blob = await res.blob()
+        if (blob && blob.size > 0) {
+          return URL.createObjectURL(mimeHint ? new Blob([blob], { type: mimeHint }) : blob)
+        }
+      } catch {}
+    }
+    return null
+  }
+
+  function ensureActorImage(actor) {
+    if (typeof Image === 'undefined' || !FD_MONO_ALL_ACTORS.includes(actor)) return null
+    if (images[actor]) return images[actor]
+    const key = `img:${actor}`
+    if (!inflight[key]) {
+      inflight[key] = fetchWithCache(`${actor}-keyframe.jpg`, 'image/jpeg').then(blobUrl => {
+        if (!blobUrl) return null
+        const img = new Image()
+        img.src = blobUrl
+        images[actor] = img
+        return img
+      }).finally(() => { delete inflight[key] })
+    }
+    return null
+  }
+
+  function ensureActorVideo(actor) {
+    if (typeof document === 'undefined' || !FD_MONO_ALL_ACTORS.includes(actor)) return null
+    if (videos[actor]) return videos[actor]
+    const key = `vid:${actor}`
+    if (!inflight[key]) {
+      inflight[key] = fetchWithCache(`${actor}-cutin.webm`, 'video/webm').then(blobUrl => {
+        if (!blobUrl) return null
+        const vid = document.createElement('video')
+        vid.muted = true
+        vid.playsInline = true
+        vid.preload = 'auto'
+        vid.loop = true
+        vid.src = blobUrl
+        try { vid.load() } catch {}
+        videos[actor] = vid
+        return vid
+      }).finally(() => { delete inflight[key] })
+    }
+    return null
+  }
+
+  function warmActor(actorMode) {
+    const targets = actorMode === 'dual'
+      ? ['hitagi', 'shinobu']
+      : (actorMode === 'dual2'
+        ? ['hanekawa', 'mayoi']
+        : (FD_MONO_ALL_ACTORS.includes(actorMode) ? [actorMode] : FD_MONO_ALL_ACTORS))
+    for (const a of targets) {
+      ensureActorImage(a)
+      if (FD_MONO_PREFS.introMode !== 'fast') ensureActorVideo(a)
+    }
+  }
+
+  function resetForBaseChange() {
+    for (const a of FD_MONO_ALL_ACTORS) {
+      delete images[a]
+      delete videos[a]
+    }
+  }
+
+  return {
+    getImage: a => images[a] || null,
+    getVideo: a => videos[a] || null,
+    ensureActorImage,
+    ensureActorVideo,
+    warmActor,
+    resetForBaseChange
+  }
+})()
+
+function fdMonoClamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v) }
+function fdMonoEaseOut(t) { const x = fdMonoClamp01(t); return 1 - Math.pow(1 - x, 3) }
+
+class FdMonogatariDirector {
+  constructor() {
+    this.actor = 'hitagi'
+    this.episodeNo = 1
+    this.komaQueue = []
+    this.komaTimer = 0
+    this.activeKoma = null
+    this.introHolding = false
+    this.cutInAge = 99
+    this.cutInDur = 6.0
+    this.cutInActor = 'hitagi'
+    this.cutInCaption = ''
+    this.slashAge = 99
+    this.slashKind = 'kokorowatari'
+    this.stapleAge = 99
+    this.revealRipAge = 99
+    this.impactPops = []
+    this.fxFlash = 0
+    this.fxMono = 0
+    this.camRollRad = 0
+  }
+
+  _pickActor(mode, tier) {
+    const pref = FD_MONO_PREFS.actor || 'auto'
+    if (pref !== 'auto') return pref
+    if (tier === 'critical') return Math.random() < 0.6 ? 'shinobu' : 'hanekawa'
+    if (mode === 'fate' || mode === 'push') return Math.random() < 0.55 ? 'shinobu' : 'hanekawa'
+    if (tier === 'failure') return Math.random() < 0.55 ? 'mayoi' : 'hitagi'
+    if (tier === 'fumble') return FD_MONO_ALL_ACTORS[Math.floor(Math.random() * FD_MONO_ALL_ACTORS.length)]
+    return FD_MONO_ALL_ACTORS[this.episodeNo % FD_MONO_ALL_ACTORS.length]
+  }
+
+  _scriptFor(actor, key) {
+    const table = FD_MONO_SCRIPTS[actor] || FD_MONO_SCRIPTS.hitagi
+    return table[key] || table.success
+  }
+
+  _restartActorVideos(actorMode) {
+    const targets = actorMode === 'dual'
+      ? ['hitagi', 'shinobu']
+      : (actorMode === 'dual2' ? ['hanekawa', 'mayoi'] : [actorMode])
+    for (const a of targets) {
+      FD_MONO_MEDIA_POOL.ensureActorImage(a)
+      const vid = FD_MONO_MEDIA_POOL.ensureActorVideo(a) || FD_MONO_MEDIA_POOL.getVideo(a)
+      if (!vid) continue
+      try {
+        vid.currentTime = 0
+        const p = vid.play()
+        if (p && typeof p.catch === 'function') p.catch(() => {})
+      } catch {}
+    }
+  }
+
+  onThrow({ mode, tier, silentStatic, compactMode }) {
+    this.episodeNo = (this.episodeNo % 99) + 1
+    this.actor = this._pickActor(mode, tier)
+    this.impactPops.length = 0
+    this.komaQueue.length = 0
+    this.activeKoma = null
+    this.introHolding = false
+    this.cutInAge = 99
+    this.slashAge = 99
+    this.stapleAge = 99
+    this.revealRipAge = 99
+    this.fxFlash = 0
+    this.fxMono = 0
+
+    // 触发按需外置资源预热（不阻塞投骰）
+    FD_MONO_MEDIA_POOL.warmActor(this.actor)
+    if (silentStatic) return
+
+    const openKey = mode === 'fate' ? 'fate' : (mode === 'push' ? 'push' : 'throw')
+    const leadActor = this.actor === 'dual' ? 'hitagi' : (this.actor === 'dual2' ? 'hanekawa' : this.actor)
+    const card = this._scriptFor(leadActor, openKey)
+    this._enqueueKoma({ ...card, duration: 0.40, ep: this.episodeNo })
+    this.fxFlash = 0.42
+
+    // 完整模式且非迷你胶囊时：前置播放主角四镜头高燃动画（绝不提前剧透结果，点击舞台可跳过）
+    if (!compactMode && FD_MONO_PREFS.introMode !== 'fast') {
+      this.introHolding = true
+      this.cutInActor = this.actor
+      this.cutInAge = 0
+      const primaryVid = FD_MONO_MEDIA_POOL.getVideo(leadActor)
+      const hasVid = Boolean(primaryVid && primaryVid.readyState >= 2 && Number.isFinite(primaryVid.duration) && primaryVid.duration > 2.0)
+      this.cutInDur = hasVid ? Math.min(6.5, primaryVid.duration) : 2.2
+      this.cutInCaption = card.head
+      this._restartActorVideos(this.actor)
+    }
+  }
+
+  isHoldingRoll() {
+    if (!this.introHolding) return false
+    if (this.activeKoma || this.cutInAge < this.cutInDur) return true
+    this.introHolding = false
+    return false
+  }
+
+  skipIntro() {
+    if (!this.introHolding) return false
+    this.introHolding = false
+    this.komaQueue.length = 0
+    this.activeKoma = null
+    this.cutInAge = this.cutInDur + 1
+    this.fxFlash = 0.48
+    return true
+  }
+
+  onBounce({ x, y, z, strength, isHeavyFirst }) {
+    if (strength < 0.22 && !isHeavyFirst) return
+    const kanji = FD_MONO_IMPACT_KANJI[(this.impactPops.length + this.episodeNo) % FD_MONO_IMPACT_KANJI.length]
+    this.impactPops.push({
+      x, y, z, kanji, age: 0,
+      dur: isHeavyFirst ? 0.62 : 0.45,
+      scale: isHeavyFirst ? 1.28 : 0.98,
+      red: isHeavyFirst || (this.impactPops.length % 2 === 1)
+    })
+    if (this.impactPops.length > 8) this.impactPops.shift()
+    if (isHeavyFirst) this.fxFlash = Math.max(this.fxFlash, 0.70)
+  }
+
+  onSettle({ mode, tier, silentStatic }) {
+    if (mode === 'hidden') return
+    if (silentStatic) {
+      this.fxMono = (tier === 'failure' || tier === 'fumble') ? 0.88 : 0
+      this.stapleAge = 0.5
+      return
+    }
+    const activeActor = this.actor === 'dual'
+      ? (tier === 'critical' ? 'shinobu' : 'hitagi')
+      : (this.actor === 'dual2' ? (tier === 'failure' || tier === 'fumble' ? 'mayoi' : 'hanekawa') : this.actor)
+
+    this.introHolding = false
+    this.cutInAge = this.cutInDur + 1
+    this.komaQueue.length = 0
+    this.activeKoma = null
+
+    if (tier === 'fumble') {
+      this._enqueueKoma({ ...this._scriptFor(activeActor, 'fumble1'), duration: 0.34, ep: this.episodeNo })
+      this._enqueueKoma({ ...this._scriptFor(activeActor, 'fumble2'), duration: 0.54, ep: this.episodeNo })
+      this.fxFlash = 0.85
+    } else {
+      const key = ['critical', 'success', 'costly', 'failure'].includes(tier) ? tier : 'success'
+      this._enqueueKoma({ ...this._scriptFor(activeActor, key), duration: tier === 'critical' ? 0.58 : 0.46, ep: this.episodeNo })
+      this.fxFlash = tier === 'critical' ? 0.68 : 0.32
+    }
+
+    if (activeActor === 'shinobu' && (tier === 'critical' || mode === 'fate' || mode === 'push')) {
+      this.slashKind = 'kokorowatari'
+      this.slashAge = 0
+    } else if (tier === 'fumble' || (activeActor === 'hitagi' && tier === 'costly')) {
+      this.slashKind = 'cutter'
+      this.slashAge = 0
+    }
+    if (activeActor === 'hitagi' || this.actor === 'dual') this.stapleAge = 0
+  }
+
+  onRevealHidden() {
+    this.revealRipAge = 0
+    this.slashKind = this.actor === 'shinobu' ? 'kokorowatari' : 'cutter'
+    this.slashAge = 0
+    this.fxFlash = 0.78
+  }
+
+  _enqueueKoma(card) {
+    this.komaQueue.push(card)
+    if (!this.activeKoma) {
+      this.activeKoma = this.komaQueue.shift()
+      this.komaTimer = 0
+    }
+  }
+
+  step(dt, { charging, chargeTime, chargeMode, settled, settleTime, tier, fateSlowAmount }) {
+    if (this.activeKoma) {
+      this.komaTimer += dt
+      if (this.komaTimer >= this.activeKoma.duration) {
+        this.activeKoma = this.komaQueue.length > 0 ? this.komaQueue.shift() : null
+        this.komaTimer = 0
+        if (!this.activeKoma && this.cutInAge === 0 && this.introHolding) {
+          this._restartActorVideos(this.cutInActor)
+        }
+      }
+    } else {
+      if (this.cutInAge < 20) this.cutInAge += dt
+      if (this.slashAge < 10) this.slashAge += dt
+      if (this.stapleAge < 10) this.stapleAge += dt
+      if (this.revealRipAge < 10) this.revealRipAge += dt
+    }
+
+    for (let i = this.impactPops.length - 1; i >= 0; i--) {
+      this.impactPops[i].age += dt
+      if (this.impactPops[i].age >= this.impactPops[i].dur) this.impactPops.splice(i, 1)
+    }
+
+    this.fxFlash = Math.max(0, this.fxFlash - dt * 4.2)
+    const targetMono = (settled && !charging && (tier === 'failure' || tier === 'fumble')) ? 0.92 : 0.0
+    this.fxMono += (targetMono - this.fxMono) * Math.min(1, dt * 8.0)
+
+    let targetRoll = 0
+    if (charging) {
+      const c01 = Math.min(1, chargeTime / 0.88)
+      targetRoll = chargeMode === 'push' ? (-0.095 * c01) : (0.075 * c01)
+    } else if (fateSlowAmount > 0.05) {
+      targetRoll = -0.11 * fateSlowAmount
+    } else if (settled && tier === 'fumble' && settleTime < 1.8) {
+      targetRoll = 0.068 * Math.max(0, 1 - settleTime / 2.2)
+    } else if (settled && tier === 'critical' && settleTime < 1.1) {
+      targetRoll = -0.048 * Math.max(0, 1 - settleTime / 1.1)
+    }
+    this.camRollRad += (targetRoll - this.camRollRad) * Math.min(1, dt * 9.0)
+  }
+
+  hasActiveFX() {
+    return Boolean(this.activeKoma) ||
+      this.introHolding ||
+      this.cutInAge < this.cutInDur + 0.15 ||
+      this.slashAge < 1.15 ||
+      this.stapleAge < 0.8 ||
+      this.revealRipAge < 0.7 ||
+      this.impactPops.length > 0 ||
+      this.fxFlash > 0.01
+  }
+
+  renderOverlay(ctx, state) {
+    const {
+      W, H, clock, charging, chargeTime, chargeMode,
+      settled, settleTime, tier, mode, total, dice,
+      hiddenMask, compactMode, fateSlowAmount, projectToUV
+    } = state
+
+    ctx.save()
+
+    // 1. 电影遮幅
+    if (!compactMode) {
+      let barRatio = 0
+      if (charging && chargeMode === 'push') barRatio = 0.11 * fdMonoClamp01(chargeTime / 0.5)
+      else if (fateSlowAmount > 0.05) barRatio = 0.105 * fateSlowAmount
+      else if (settled && !hiddenMask && (tier === 'failure' || tier === 'fumble')) {
+        barRatio = 0.085 * fdMonoEaseOut(settleTime / 0.28)
+      }
+      if (barRatio > 0.005) {
+        const bh = Math.round(H * barRatio)
+        ctx.fillStyle = '#070609'
+        ctx.fillRect(0, 0, W, bh)
+        ctx.fillRect(0, H - bh, W, bh)
+        ctx.fillStyle = tier === 'fumble' || (charging && chargeMode === 'push') ? '#d91e2a' : 'rgba(244, 241, 234, 0.28)'
+        ctx.fillRect(0, bh - 1.5, W, 1.5)
+        ctx.fillRect(0, H - bh, W, 1.5)
+      }
+    }
+
+    // 2. 撞击拟声字
+    if (this.impactPops.length > 0 && !this.introHolding) {
+      this._drawImpactPops(ctx, W, H, projectToUV)
+    }
+
+    // 3. 落定标尺与暗骰封条
+    if (settled && !charging) {
+      if (hiddenMask) {
+        this._drawHiddenCensorSeals(ctx, W, H, dice, clock, projectToUV)
+      } else if (!compactMode && !this.activeKoma) {
+        this._drawDiceLeaderLines(ctx, W, H, dice, tier, settleTime, projectToUV)
+      }
+    }
+
+    // 4. 终结斩击
+    if (this.slashAge < 1.15 && !this.activeKoma) {
+      this._drawFinisherSlash(ctx, W, H)
+    }
+
+    // 5. 前置四主角实拍 Cut-in 动画（带点击跳过提示）
+    if (!compactMode && !this.activeKoma && this.cutInAge < this.cutInDur) {
+      this._drawCharacterCutIn(ctx, W, H, clock)
+      if (this.introHolding) {
+        ctx.save()
+        ctx.fillStyle = 'rgba(11, 10, 14, 0.72)'
+        ctx.fillRect(W - 148, H - 40, 132, 24)
+        ctx.strokeStyle = 'rgba(244, 241, 234, 0.42)'
+        ctx.lineWidth = 1
+        ctx.strokeRect(W - 148, H - 40, 132, 24)
+        ctx.fillStyle = '#f4f1ea'
+        ctx.font = `600 11px ${FD_MONO_CODE}`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('CLICK TO SKIP ▸', W - 82, H - 28)
+        ctx.restore()
+      }
+    }
+
+    // 6. 物语风章节落款卡
+    if (settled && !charging && !hiddenMask && !this.activeKoma) {
+      this._drawChapterSignature(ctx, W, H, { tier, total, settleTime, compactMode })
+    }
+
+    // 7. 最顶层：全屏切卡（黒/赤/白/紫/黄コマ）
+    if (this.activeKoma) {
+      this._drawFullscreenKoma(ctx, W, H, this.activeKoma, this.komaTimer, compactMode)
+    }
+
+    ctx.restore()
+  }
+
+  _drawFullscreenKoma(ctx, W, H, card, timer, compactMode) {
+    ctx.save()
+    ctx.fillStyle = card.bg
+    ctx.fillRect(0, 0, W, H)
+    const pad = compactMode ? 8 : 20
+    ctx.strokeStyle = card.accent
+    ctx.globalAlpha = 0.65
+    ctx.lineWidth = compactMode ? 1.5 : 2
+    ctx.strokeRect(pad, pad, W - pad * 2, H - pad * 2)
+
+    ctx.globalAlpha = 0.14
+    ctx.fillStyle = card.accent
+    ctx.beginPath()
+    ctx.moveTo(W * 0.72, 0); ctx.lineTo(W * 0.86, 0)
+    ctx.lineTo(W * 0.68, H); ctx.lineTo(W * 0.54, H)
+    ctx.closePath(); ctx.fill()
+
+    ctx.globalAlpha = 1
+    ctx.fillStyle = card.accent
+    ctx.font = `700 ${compactMode ? 9 : 12}px ${FD_MONO_CODE}`
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+    ctx.fillText(`${card.koma} // EP.${String(card.ep || 1).padStart(3, '0')}`, pad + 10, pad + 8)
+
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'
+    ctx.fillStyle = card.fg; ctx.globalAlpha = 0.74
+    ctx.font = `700 ${compactMode ? 9 : 13}px ${FD_MONO_SERIF}`
+    ctx.fillText(card.sub || '', W - pad - 10, H - pad - 8)
+
+    const jx = (Math.sin(timer * 180) > 0 ? 1 : -1) * 0.8
+    ctx.globalAlpha = 1; ctx.fillStyle = card.fg
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    const baseSize = compactMode ? Math.max(16, Math.min(26, W * 0.085)) : Math.max(28, Math.min(56, W * 0.06))
+    const fontSize = card.head.length <= 2 ? baseSize * 1.6 : (card.head.length > 9 ? baseSize * 0.74 : baseSize)
+    ctx.font = `900 ${Math.round(fontSize)}px ${FD_MONO_SERIF}`
+    ctx.fillText(card.head, W * 0.5 + jx, H * 0.5)
+
+    const p = fdMonoClamp01(timer / Math.max(0.05, card.duration))
+    ctx.fillStyle = card.accent
+    ctx.fillRect(pad, H - pad - 3, (W - pad * 2) * p, 3)
+    ctx.restore()
+  }
+
+  _drawCharacterCutIn(ctx, W, H, clock) {
+    const t = this.cutInAge / Math.max(0.1, this.cutInDur)
+    const enter = fdMonoEaseOut(this.cutInAge / 0.24)
+    const exit = t > 0.86 ? (1 - fdMonoClamp01((t - 0.86) / 0.14)) : 1
+    const alpha = enter * exit
+    if (alpha <= 0.01) return
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    const stripH = Math.max(160, Math.min(420, H * 0.74))
+    const cy = H * 0.50
+
+    if (this.cutInActor === 'dual' || this.cutInActor === 'dual2') {
+      const [topA, botA] = this.cutInActor === 'dual' ? ['hitagi', 'shinobu'] : ['hanekawa', 'mayoi']
+      const dualH = Math.max(110, Math.min(240, H * 0.42))
+      this._drawSingleCutInBand(ctx, W, H * 0.28, dualH, topA, enter, exit, clock, -0.014)
+      this._drawSingleCutInBand(ctx, W, H * 0.72, dualH, botA, enter, exit, clock, 0.014)
+    } else {
+      const meta = FD_MONO_ACTOR_META[this.cutInActor] || FD_MONO_ACTOR_META.hitagi
+      this._drawSingleCutInBand(ctx, W, cy, stripH, this.cutInActor, enter, exit, clock, meta.alignLeft ? -0.012 : 0.012)
+    }
+    ctx.restore()
+  }
+
+  _drawSingleCutInBand(ctx, W, cy, bandH, actor, enter, exit, clock, tilt) {
+    const meta = FD_MONO_ACTOR_META[actor] || FD_MONO_ACTOR_META.hitagi
+    const alignLeft = meta.alignLeft
+    const slideOffset = (1 - enter) * (alignLeft ? 100 : -100) + (1 - exit) * (alignLeft ? -60 : 60)
+
+    ctx.save()
+    ctx.translate(W * 0.5 + slideOffset, cy)
+    ctx.rotate(tilt)
+    const bw = W * 1.12
+    const top = -bandH * 0.5
+    ctx.fillStyle = meta.barBg
+    ctx.fillRect(-bw * 0.5, top, bw, bandH)
+    ctx.beginPath(); ctx.rect(-bw * 0.5, top, bw, bandH); ctx.clip()
+
+    const vid = FD_MONO_MEDIA_POOL.getVideo(actor)
+    const img = FD_MONO_MEDIA_POOL.getImage(actor)
+    let drewMedia = false
+
+    const drawProportional = (src, natW, natH) => {
+      const scale = Math.max((W * 1.02) / natW, (bandH * 1.04) / natH) * (1.03 - enter * 0.03)
+      const dw = natW * scale
+      const dh = natH * scale
+      ctx.drawImage(src, -dw * 0.5, -dh * 0.5, dw, dh)
+      const grad = ctx.createLinearGradient(-W * 0.5, 0, W * 0.5, 0)
+      if (alignLeft) {
+        grad.addColorStop(0, 'rgba(10, 4, 8, 0.80)')
+        grad.addColorStop(0.32, 'rgba(10, 4, 8, 0.16)')
+        grad.addColorStop(0.62, 'rgba(10, 4, 8, 0.0)')
+        grad.addColorStop(1, 'rgba(10, 4, 8, 0.12)')
+      } else {
+        grad.addColorStop(0, 'rgba(10, 6, 18, 0.12)')
+        grad.addColorStop(0.38, 'rgba(10, 6, 18, 0.0)')
+        grad.addColorStop(0.68, 'rgba(10, 6, 18, 0.16)')
+        grad.addColorStop(1, 'rgba(10, 6, 18, 0.80)')
+      }
+      ctx.fillStyle = grad
+      ctx.fillRect(-bw * 0.5, top, bw, bandH)
+      drewMedia = true
+    }
+
+    if (vid && vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+      drawProportional(vid, vid.videoWidth, vid.videoHeight)
+    } else if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      drawProportional(img, img.naturalWidth, img.naturalHeight)
+    }
+
+    if (!drewMedia) {
+      ctx.strokeStyle = meta.border
+      ctx.globalAlpha = 0.25
+      ctx.lineWidth = 1.2
+      for (let i = -8; i <= 8; i++) {
+        const lx = i * 64 + ((clock * 120) % 64)
+        ctx.beginPath(); ctx.moveTo(lx - 26, top); ctx.lineTo(lx + 26, top + bandH); ctx.stroke()
+      }
+      ctx.globalAlpha = 1
+    }
+
+    ctx.textAlign = alignLeft ? 'left' : 'right'
+    ctx.textBaseline = 'middle'
+    const tx = alignLeft ? -W * 0.43 : W * 0.43
+    ctx.fillStyle = meta.label
+    ctx.font = `700 11px ${FD_MONO_CODE}`
+    ctx.shadowColor = 'rgba(0,0,0,0.92)'; ctx.shadowBlur = 10
+    ctx.fillText(meta.title, tx, -bandH * 0.14)
+    ctx.fillStyle = '#fbf8f2'
+    ctx.font = `900 ${Math.round(Math.min(34, bandH * 0.145))}px ${FD_MONO_SERIF}`
+    ctx.fillText(this.cutInCaption || '確定。', tx, bandH * 0.08)
+    ctx.fillStyle = meta.border
+    ctx.fillRect(alignLeft ? tx : tx - 130, bandH * 0.22, 130, 2.5)
+    ctx.shadowBlur = 0
+    ctx.restore()
+
+    ctx.save()
+    ctx.translate(W * 0.5 + slideOffset, cy)
+    ctx.rotate(tilt)
+    ctx.fillStyle = meta.border
+    ctx.fillRect(-bw * 0.5, top, bw, 3)
+    ctx.fillRect(-bw * 0.5, top + bandH - 3, bw, 3)
+    ctx.restore()
+  }
+
+  _drawImpactPops(ctx, W, H, projectToUV) {
+    const tmp = { u: 0, v: 0, visible: false }
+    for (const pop of this.impactPops) {
+      projectToUV(pop.x, pop.y, pop.z + 18, tmp)
+      if (!tmp.visible) continue
+      const p = fdMonoClamp01(pop.age / pop.dur)
+      const alpha = p < 0.2 ? p / 0.2 : 1 - (p - 0.2) / 0.8
+      ctx.save()
+      ctx.translate(tmp.u * W, (1 - tmp.v) * H - p * 16)
+      ctx.globalAlpha = alpha
+      ctx.rotate(pop.red ? -0.14 : 0.11)
+      const sz = Math.round(26 * pop.scale)
+      ctx.fillStyle = pop.red ? '#d91e2a' : '#0b0a0e'
+      ctx.fillRect(-sz * 0.55, -sz * 0.55, sz * 1.1, sz * 1.1)
+      ctx.strokeStyle = '#f4f1ea'; ctx.lineWidth = 1.3
+      ctx.strokeRect(-sz * 0.55, -sz * 0.55, sz * 1.1, sz * 1.1)
+      ctx.fillStyle = '#f4f1ea'
+      ctx.font = `900 ${Math.round(sz * 0.72)}px ${FD_MONO_SERIF}`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(pop.kanji, 0, 1)
+      ctx.restore()
+    }
+  }
+
+  _drawFinisherSlash(ctx, W, H) {
+    const p = fdMonoClamp01(this.slashAge / 1.1)
+    const isKokoro = this.slashKind === 'kokorowatari'
+    const alpha = p < 0.14 ? p / 0.14 : Math.pow(1 - (p - 0.14) / 0.86, 1.5)
+    if (alpha <= 0.01) return
+    ctx.save()
+    ctx.globalAlpha = alpha
+    const x0 = isKokoro ? W * 0.06 : W * 0.92
+    const y0 = isKokoro ? H * 0.86 : H * 0.16
+    const x1 = isKokoro ? W * 0.94 : W * 0.08
+    const y1 = isKokoro ? H * 0.14 : H * 0.84
+    ctx.strokeStyle = isKokoro ? '#d91e2a' : '#8e55d6'
+    ctx.lineWidth = (isKokoro ? 20 : 13) * (1 - p * 0.7)
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+    ctx.strokeStyle = isKokoro ? '#fff6d6' : '#f4f1ea'
+    ctx.lineWidth = (isKokoro ? 6 : 4) * (1 - p * 0.5)
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+    ctx.restore()
+  }
+
+  _drawDiceLeaderLines(ctx, W, H, dice, tier, settleTime, projectToUV) {
+    if (!dice || dice.length === 0 || dice.length > 6) return
+    const appear = fdMonoEaseOut((settleTime - 0.16) / 0.24)
+    if (appear <= 0.01) return
+    const tmp = { u: 0, v: 0, visible: false }
+    const accent = tier === 'critical' ? '#f2b63d' : (tier === 'fumble' ? '#d91e2a' : '#f4f1ea')
+    ctx.save()
+    ctx.globalAlpha = appear * 0.92
+    for (let i = 0; i < dice.length; i++) {
+      const d = dice[i]
+      projectToUV(d.x, d.y, d.z + d.radius * 0.6, tmp)
+      if (!tmp.visible) continue
+      const px = tmp.u * W, py = (1 - tmp.v) * H
+      const dir = px > W * 0.52 ? 1 : -1
+      const kx = px + dir * 22, ky = py - 22, ex = kx + dir * 52
+      ctx.fillStyle = '#d91e2a'; ctx.fillRect(px - 2.5, py - 2.5, 5, 5)
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.15
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(kx, ky); ctx.lineTo(ex, ky); ctx.stroke()
+      const faceVal = d.faceValue !== undefined ? d.faceValue : (d.targetFace ? d.targetFace.value : '?')
+      const tag = `${String(d.meshKey || 'D').toUpperCase()} // ${faceVal}`
+      ctx.font = `700 10px ${FD_MONO_CODE}`
+      const tw = ctx.measureText(tag).width + 10
+      const bx = dir > 0 ? ex - tw : ex
+      ctx.fillStyle = 'rgba(11, 10, 14, 0.86)'; ctx.fillRect(bx, ky - 16, tw, 15)
+      ctx.fillStyle = accent; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.fillText(tag, bx + 5, ky - 8.5)
+    }
+    ctx.restore()
+  }
+
+  _drawHiddenCensorSeals(ctx, W, H, dice, clock, projectToUV) {
+    const tmp = { u: 0, v: 0, visible: false }
+    const pulse = 0.72 + 0.28 * Math.sin(clock * 4.5)
+    ctx.save()
+    for (let i = 0; i < Math.min(6, dice.length); i++) {
+      const d = dice[i]
+      projectToUV(d.x, d.y, d.z + d.radius * 0.7, tmp)
+      if (!tmp.visible) continue
+      ctx.save()
+      ctx.translate(tmp.u * W, (1 - tmp.v) * H)
+      ctx.rotate(i % 2 === 0 ? -0.18 : 0.14)
+      ctx.fillStyle = '#0b0a0e'; ctx.fillRect(-38, -12, 76, 24)
+      ctx.strokeStyle = `rgba(217, 30, 42, ${pulse})`; ctx.lineWidth = 1.8
+      ctx.strokeRect(-38, -12, 76, 24)
+      ctx.fillStyle = '#d91e2a'; ctx.font = `900 11px ${FD_MONO_SERIF}`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText('検閲済', 0, 1)
+      ctx.restore()
+    }
+    ctx.restore()
+  }
+
+  _drawChapterSignature(ctx, W, H, { tier, total, settleTime, compactMode }) {
+    const appear = fdMonoEaseOut((settleTime - 0.10) / 0.22)
+    if (appear <= 0.01) return
+    const lead = this.actor === 'dual' ? 'hitagi' : (this.actor === 'dual2' ? 'hanekawa' : this.actor)
+    const meta = FD_MONO_ACTOR_META[lead] || FD_MONO_ACTOR_META.hitagi
+    const cardW = compactMode ? 96 : 132
+    const cardH = compactMode ? 46 : 62
+    const sx = compactMode ? W - cardW * 0.5 - 10 : W - cardW * 0.5 - 18
+    const sy = compactMode ? H - cardH * 0.5 - 10 : Math.min(118, H * 0.28)
+    const tierLabel = { critical: '大成功', success: '成立', costly: '代償', failure: '不成立', fumble: '大失敗', normal: '確定' }[tier] || '成立'
+
+    ctx.save()
+    ctx.translate(sx, sy + (1 - appear) * 8)
+    ctx.globalAlpha = appear
+    ctx.fillStyle = 'rgba(11, 10, 14, 0.94)'
+    ctx.fillRect(-cardW * 0.5, -cardH * 0.5, cardW, cardH)
+    ctx.strokeStyle = tier === 'fumble' ? '#d91e2a' : 'rgba(244, 241, 234, 0.72)'
+    ctx.lineWidth = 1.4
+    ctx.strokeRect(-cardW * 0.5, -cardH * 0.5, cardW, cardH)
+    ctx.fillStyle = meta.border
+    ctx.fillRect(-cardW * 0.5, -cardH * 0.5, 6, cardH)
+
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+    ctx.fillStyle = meta.label; ctx.font = `700 ${compactMode ? 8 : 9}px ${FD_MONO_CODE}`
+    ctx.fillText(`第${String(this.episodeNo).padStart(2, '0')}話 // ${meta.code}`, -cardW * 0.5 + 14, -cardH * 0.24)
+    ctx.fillStyle = tier === 'fumble' ? '#ff4252' : '#f4f1ea'
+    ctx.font = `900 ${compactMode ? 14 : 18}px ${FD_MONO_SERIF}`
+    ctx.fillText(tierLabel, -cardW * 0.5 + 14, compactMode ? 5 : 4)
+    ctx.textAlign = 'right'; ctx.fillStyle = meta.border
+    ctx.font = `900 ${compactMode ? 15 : 21}px ${FD_MONO_SERIF}`
+    ctx.fillText(String(total), cardW * 0.5 - 10, compactMode ? 5 : 6)
+
+    if (lead === 'hitagi' && this.stapleAge < 90) {
+      ctx.strokeStyle = '#e8ecf2'; ctx.lineWidth = 2.4
+      ctx.beginPath()
+      ctx.moveTo(-cardW * 0.5 - 4, -cardH * 0.5 + 10); ctx.lineTo(-cardW * 0.5 + 12, -cardH * 0.5 - 4)
+      ctx.moveTo(cardW * 0.5 - 12, cardH * 0.5 + 4); ctx.lineTo(cardW * 0.5 + 4, cardH * 0.5 - 10)
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+}
+
 /* ===== src/client/dice-3d.js ===== */
 /* ------------------------------------------------------------------ *
  * dice-3d.js —— 零依赖 WebGL2 RGBA16F HDR 3D 投骰舞台 & 长按按钮蓄力引擎
@@ -4515,6 +5333,61 @@ void main() {
         }
         col = col * (1.0 - rawOcc * 0.52) + causticGI;
       }
+      if (v2 == 6) {
+        // [12] 剧场切卡 · 化物语高反差平面构成舞台
+        vec2 rotP = rot2(-0.24) * p;
+        float diagStripe = smoothstep(0.012, 0.0, abs(fract(rotP.x * 2.2) - 0.5) - 0.46);
+        float gridFineX = smoothstep(0.008, 0.0, abs(fract(p.x * 3.6 + 0.5) - 0.5));
+        float gridFineY = smoothstep(0.008, 0.0, abs(fract(p.y * 3.6 + 0.5) - 0.5));
+        float archGrid = max(gridFineX, gridFineY) * 0.22;
+
+        vec3 baseDark = vec3(0.032, 0.030, 0.038);
+        vec3 accentRed = vec3(0.86, 0.11, 0.16);
+        vec3 accentGold = vec3(0.95, 0.72, 0.24);
+        vec3 accentViolet = vec3(0.52, 0.30, 0.78);
+
+        vec3 stageAccent = u_tier == 1 ? mix(accentRed, accentGold, 0.35)
+                         : u_tier == 5 ? accentRed
+                         : u_tier == 4 ? vec3(0.45, 0.46, 0.50)
+                         : u_tier == 3 ? accentViolet
+                         : accentRed;
+
+        float slashBand = smoothstep(0.015, -0.015, rotP.x + 0.38) * smoothstep(-0.82, -0.78, rotP.x);
+        float redRibbon = smoothstep(0.012, 0.0, abs(rotP.x - 0.42) - 0.018);
+
+        col = baseDark;
+        col = mix(col, vec3(0.095, 0.092, 0.105), slashBand * 0.85 * distFade);
+        col = mix(col, vec3(0.24, 0.23, 0.25), archGrid * distFade);
+        col = mix(col, stageAccent * (0.68 + 0.35 * max(u_climax, u_charge)), redRibbon * 0.85 * distFade);
+        col = mix(col, vec3(0.14, 0.13, 0.16), diagStripe * 0.14 * distFade);
+
+        float r = length(p);
+        float a = atan(p.y, p.x) + u_time * (0.18 + u_charge * 1.4);
+        float aa = max(0.003, fwidth(r) * 1.25);
+        float ringOuter = smoothstep(aa, 0.0, abs(r - (0.88 - u_charge * 0.08)));
+        float ringInner = smoothstep(aa * 0.9, 0.0, abs(r - 0.52));
+        float ticks = (r > 0.82 && r < 0.88) ? smoothstep(0.09, 0.0, abs(sin(a * 36.0))) * 0.65 : 0.0;
+        float axisCross = (smoothstep(aa * 0.9, 0.0, abs(p.x)) + smoothstep(aa * 0.9, 0.0, abs(p.y))) * step(0.18, r) * step(r, 0.92) * 0.36;
+
+        col = mix(col, vec3(0.92, 0.90, 0.86), clamp((ringOuter * 0.65 + ticks + axisCross) * distFade, 0.0, 1.0));
+        col = mix(col, stageAccent, clamp(ringInner * (0.45 + 0.55 * max(u_climax, u_charge)) * distFade, 0.0, 1.0));
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 0.95) continue;
+          float pr = imp.z / 0.95;
+          float d = length(hit.xy - imp.xy);
+          float wRing = smoothstep(2.0, 0.0, abs(d - (14.0 + pr * 78.0))) * (1.0 - pr) * imp.w;
+          float rRing = smoothstep(2.4, 0.0, abs(d - (8.0 + pr * 54.0))) * (1.0 - pr) * imp.w;
+          col = mix(col, vec3(0.96, 0.94, 0.90), clamp(wRing * 0.92, 0.0, 0.95));
+          col = mix(col, stageAccent, clamp(rRing * 0.95, 0.0, 0.95));
+        }
+
+        float hardShadow = smoothstep(0.16, 0.42, rawOcc);
+        float shadowRim = smoothstep(0.10, 0.24, rawOcc) * (1.0 - hardShadow);
+        col = mix(col, vec3(0.012, 0.010, 0.015), hardShadow * 0.88);
+        col += stageAccent * shadowRim * (0.28 + 0.42 * max(u_climax, u_charge));
+      }
     } else {
       float distFade = exp(-rad * rad * 0.42);
 
@@ -4676,6 +5549,10 @@ void main() {
     float skyH = clamp(rayDir.z * 3.0, 0.0, 1.0);
     if (u_theme == 8) col = mix(vec3(0.76, 0.71, 0.62), vec3(0.62, 0.57, 0.49), skyH);
     else if (u_theme == 10) col = mix(vec3(0.80, 0.79, 0.77), vec3(0.72, 0.71, 0.69), skyH);
+    else if (u_theme == 12) {
+      vec3 duskRed = u_tier == 4 ? vec3(0.16, 0.16, 0.18) : vec3(0.42, 0.055, 0.085);
+      col = mix(duskRed, vec3(0.025, 0.018, 0.032), pow(skyH, 0.7));
+    }
     else if (u_theme == 6) col = mix(vec3(0.05, 0.035, 0.022), vec3(0.015, 0.012, 0.008), skyH);
     else if (u_theme >= 6) col = mix(vec3(0.03, 0.035, 0.055), vec3(0.008, 0.01, 0.018), skyH);
     else if (u_theme == 4) col = mix(vec3(0.58, 0.56, 0.52), vec3(0.32, 0.34, 0.36), skyH);
@@ -5112,6 +5989,47 @@ void main() {
     }
 
     // [11: murano] 深海星仪：威尼斯微磨砂海琉璃 & 斯涅尔真实背景星轨折射
+    if (v2 == 6) {
+      // [12] 剧场切卡 · 化物语赛璐璐高反差黑白红双色骰
+      bool isIvory = (u_dieIndex % 2) == 1;
+      vec3 crimson = vec3(0.88, 0.11, 0.16);
+      vec3 gold = vec3(0.96, 0.76, 0.28);
+
+      float ndl = dot(N, L1);
+      float celBand = ndl > 0.58 ? 1.0 : (ndl > 0.16 ? 0.64 : 0.30);
+
+      vec3 bodyHi = isIvory ? vec3(0.96, 0.94, 0.90) : vec3(0.14, 0.135, 0.16);
+      vec3 bodyMid = isIvory ? vec3(0.84, 0.81, 0.77) : vec3(0.075, 0.072, 0.09);
+      vec3 bodyLo = isIvory ? vec3(0.64, 0.61, 0.58) : vec3(0.032, 0.030, 0.042);
+
+      vec3 body = celBand > 0.8 ? bodyHi : (celBand > 0.45 ? bodyMid : bodyLo);
+      if (celBand < 0.45) {
+        float hatch = smoothstep(0.15, 0.0, abs(fract((gl_FragCoord.x + gl_FragCoord.y) * 0.16) - 0.5) - 0.32);
+        body = mix(body, isIvory ? vec3(0.46, 0.44, 0.43) : vec3(0.018, 0.016, 0.024), hatch * 0.38);
+      }
+
+      vec3 edgeCol = isIvory ? vec3(0.08, 0.07, 0.09) : crimson;
+      body = mix(body, edgeCol, ridgeLine * (isIvory ? 0.78 : 0.62) * (1.0 - glyphMask));
+
+      float inkRim = smoothstep(0.30, 0.14, NdotV);
+      body = mix(body, isIvory ? vec3(0.04, 0.035, 0.05) : vec3(0.92, 0.14, 0.20) * 0.55, inkRim * 0.78);
+
+      vec3 glyphCol = isIvory ? vec3(0.06, 0.055, 0.07) : vec3(0.96, 0.94, 0.90);
+      if (isMaxFace || (u_settled > 0.5 && isWinFace && u_tier == 1)) {
+        glyphCol = u_tier == 1 && u_settled > 0.5 ? mix(crimson, gold, 0.45) : crimson;
+      } else if (!isIvory && isWinFace && u_settled > 0.5) {
+        glyphCol = vec3(1.0, 0.98, 0.95);
+      }
+
+      vec3 moatCol = isIvory ? vec3(0.96, 0.94, 0.90) : vec3(0.03, 0.028, 0.04);
+      body = mix(body, moatCol, moatMask * 0.82);
+      body = mix(body, glyphCol, glyphMask);
+      if (u_settled > 0.5 && !isWinFace) body *= 0.80;
+
+      fragColor = vec4(applyContestSideTint(body, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
     vec3 env = sampleStudioEnv(R, 5);
     vec3 refrDir = refract(-V, N, 1.0 / 1.51);
     float tFloor = -v_worldPos.z / min(-0.18, refrDir.z);
@@ -5525,6 +6443,15 @@ uniform float u_chroma;
 uniform float u_bulletTime;
 uniform float u_bloomStrength;
 uniform float u_time;
+uniform int u_tier;
+uniform float u_fxFlash;
+uniform float u_fxMono;
+
+float hashFilmMono(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
 
 vec3 acesFilm(vec3 x) {
   const float a = 2.51;
@@ -5586,6 +6513,35 @@ void main() {
       vec3 c = hdr * lightVig;
       c = c / (1.0 + max(vec3(0.0), c - 0.92) * 0.8);
       fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      return;
+    }
+    if (u_theme == 12) {
+      vec2 uv = clamp(v_uv, 0.001, 0.999);
+      float ca = (0.0022 + u_fxFlash * 0.016) * (0.4 + length(fromCenter) * 1.4);
+      vec3 c;
+      c.r = texture(u_sceneTex, clamp(uv + vec2(ca, 0.0), 0.001, 0.999)).r;
+      c.g = texture(u_sceneTex, uv).g;
+      c.b = texture(u_sceneTex, clamp(uv - vec2(ca, 0.0), 0.001, 0.999)).b;
+      if (u_bloomStrength > 0.001) {
+        c += texture(u_bloomTex, uv).rgb * u_bloomStrength;
+      }
+      c = clamp((c - 0.03) * 1.12, 0.0, 1.0);
+      float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      if (u_fxMono > 0.01) {
+        if (u_tier == 5) {
+          float redness = clamp((c.r - max(c.g, c.b)) * 2.4, 0.0, 1.0);
+          vec3 bw = vec3(smoothstep(0.12, 0.82, luma));
+          c = mix(c, mix(bw, vec3(0.95, 0.08, 0.14), redness), u_fxMono);
+        } else {
+          c = mix(c, vec3(luma * 0.96, luma * 0.98, luma * 1.04), u_fxMono);
+        }
+      }
+      if (u_fxFlash > 0.35) {
+        c = mix(c, vec3(1.0) - c, smoothstep(0.35, 0.85, u_fxFlash) * 0.78);
+      }
+      float grain = (hashFilmMono(gl_FragCoord.xy + fract(u_time * 17.3) * 100.0) - 0.5) * 0.045;
+      float vig = 1.0 - dot(fromCenter, fromCenter) * 0.34;
+      fragColor = vec4(clamp(c * vig + grain, 0.0, 1.0), 1.0);
       return;
     }
     float vig = 1.0 - dot(fromCenter, fromCenter) * 0.28;
@@ -5888,8 +6844,8 @@ class WebGLDiceRenderer {
 
     this.compositeProg = cacheUniforms(linkProgram(gl, FULLSCREEN_VERT, COMPOSITE_FRAG), [
       'u_sceneTex', 'u_bloomTex', 'u_resolution', 'u_sceneTexSize',
-      'u_theme', 'u_shockwave', 'u_chroma', 'u_bulletTime',
-      'u_bloomStrength', 'u_time'
+      'u_theme', 'u_tier', 'u_shockwave', 'u_chroma', 'u_bulletTime',
+      'u_bloomStrength', 'u_time', 'u_fxFlash', 'u_fxMono'
     ])
 
     this.emptyVAO = gl.createVertexArray()
@@ -6122,10 +7078,11 @@ class WebGLDiceRenderer {
 
     const {
       time, themeId, tierCode, climax, charge,
-      camEye, camTarget, camFovRad,
+      camEye, camTarget, camFovRad, camRollRad = 0,
       dice, impacts, slashes,
       particles, shockwave, chroma, bulletTime,
-      usePipsForD6, hiddenMask, bloomEnabled
+      usePipsForD6, hiddenMask, bloomEnabled,
+      fxFlash = 0, fxMono = 0
     } = frame
 
     const isPixelTheme = themeId === 7
@@ -6134,7 +7091,8 @@ class WebGLDiceRenderer {
 
     const aspect = this.width / Math.max(1, this.height)
     mat4Perspective(this._proj, camFovRad, aspect, 18.0, 2600.0)
-    mat4LookAt(this._view, camEye, camTarget, [0, 0, 1])
+    const upVec = Math.abs(camRollRad) > 1e-4 ? [Math.sin(camRollRad), 0, Math.cos(camRollRad)] : [0, 0, 1]
+    mat4LookAt(this._view, camEye, camTarget, upVec)
     mat4Multiply(this._viewProj, this._proj, this._view)
     mat4Invert(this._invViewProj, this._viewProj)
 
@@ -6195,7 +7153,7 @@ class WebGLDiceRenderer {
 
     gl.useProgram(this.diceProg.prog)
     const du = this.diceProg.u
-    const styleSlot = isCuratedV2 ? (themeId - 6) : 4
+    const styleSlot = themeId === 12 ? 0 : (isCuratedV2 ? Math.min(5, themeId - 6) : 4)
     gl.uniformMatrix4fv(du.u_viewProj, false, this._viewProj)
     gl.uniform3f(du.u_camPos, camEye[0], camEye[1], camEye[2])
     gl.uniform1f(du.u_time, time)
@@ -6263,10 +7221,10 @@ class WebGLDiceRenderer {
         gl.blendFunc(gl.ONE, gl.ONE)
       }
       this._drawRibbonsAndSlashes(dice, slashes, camEye, time, themeId, tierCode)
-    } else if (themeId === 8 || themeId === 9 || themeId === 11) {
+    } else if (themeId === 8 || themeId === 9 || themeId === 11 || themeId === 12) {
       gl.depthMask(false)
       gl.enable(gl.BLEND)
-      if (themeId === 8) {
+      if (themeId === 8 || themeId === 12) {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       } else {
         gl.blendFunc(gl.ONE, gl.ONE)
@@ -6281,7 +7239,7 @@ class WebGLDiceRenderer {
     } else {
       gl.depthMask(false)
       gl.enable(gl.BLEND)
-      if (themeId === 8 || themeId === 9 || themeId === 10) {
+      if (themeId === 8 || themeId === 9 || themeId === 10 || themeId === 12) {
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       } else {
         gl.blendFunc(gl.ONE, gl.ONE)
@@ -6368,11 +7326,14 @@ class WebGLDiceRenderer {
     gl.uniform2f(cu.u_resolution, this.width, this.height)
     gl.uniform2f(cu.u_sceneTexSize, activeTarget.w, activeTarget.h)
     gl.uniform1i(cu.u_theme, themeId)
+    gl.uniform1i(cu.u_tier, tierCode)
     gl.uniform4f(cu.u_shockwave, shockwave[0], shockwave[1], shockwave[2], shockwave[3])
     gl.uniform1f(cu.u_chroma, chroma)
     gl.uniform1f(cu.u_bulletTime, bulletTime)
     gl.uniform1f(cu.u_bloomStrength, bloomStr)
     gl.uniform1f(cu.u_time, time)
+    gl.uniform1f(cu.u_fxFlash, fxFlash)
+    gl.uniform1f(cu.u_fxMono, fxMono)
 
     gl.bindVertexArray(this.emptyVAO)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -7013,6 +7974,30 @@ class ProceduralDiceAudio {
     const amp = Math.min(1, Math.max(0.08, strength))
     const jitter = 0.94 + Math.random() * 0.14
 
+    if (preset === 'monogatari') {
+      const wood = ctx.createOscillator()
+      const wg = ctx.createGain()
+      wood.type = 'triangle'
+      wood.frequency.setValueAtTime(1180 * jitter, now)
+      wood.frequency.exponentialRampToValueAtTime(420, now + 0.034)
+      wg.gain.setValueAtTime(0.22 * amp, now)
+      wg.gain.exponentialRampToValueAtTime(0.001, now + 0.042)
+      wood.connect(wg); this._connectPanned(wg, pan)
+
+      const clip = ctx.createOscillator()
+      const cg = ctx.createGain()
+      clip.type = 'sine'
+      clip.frequency.setValueAtTime(3640 * jitter, now)
+      cg.gain.setValueAtTime(0.042 * amp * amp, now)
+      cg.gain.exponentialRampToValueAtTime(0.0008, now + 0.055)
+      clip.connect(cg); this._connectPanned(cg, pan)
+
+      wood.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      wood.start(now); clip.start(now)
+      wood.stop(now + 0.048); clip.stop(now + 0.06)
+      return
+    }
+
     if (preset === 'pixel') {
       const osc = ctx.createOscillator()
       const g = ctx.createGain()
@@ -7189,6 +8174,44 @@ class ProceduralDiceAudio {
     const ctx = this.ensureContext()
     if (!ctx) return
     const now = ctx.currentTime
+
+    if (preset === 'monogatari') {
+      if (this.noiseBuffer) {
+        const clicks = tier === 'fumble' ? [0, 0.055, 0.11] : [0, 0.068]
+        for (const off of clicks) {
+          const ns = ctx.createBufferSource()
+          ns.buffer = this.noiseBuffer
+          const f = ctx.createBiquadFilter()
+          f.type = 'highpass'
+          f.frequency.value = 1800
+          const ng = ctx.createGain()
+          ng.gain.setValueAtTime(0.11, now + off)
+          ng.gain.exponentialRampToValueAtTime(0.001, now + off + 0.022)
+          ns.connect(f); f.connect(ng); ng.connect(this.masterGain)
+          ns.start(now + off); ns.stop(now + off + 0.026)
+        }
+      }
+      let notes = [523.25, 659.25, 783.99, 987.77]
+      if (tier === 'critical') notes = [587.33, 739.99, 880.0, 1108.73, 1479.98]
+      else if (tier === 'costly') notes = [440.0, 523.25, 622.25]
+      else if (tier === 'failure') notes = [392.0, 369.99]
+      else if (tier === 'fumble') notes = [311.13, 220.0, 155.56]
+      notes.forEach((freq, i) => {
+        const t0 = now + 0.04 + i * (tier === 'fumble' ? 0.06 : 0.042)
+        const dur = tier === 'critical' ? 0.48 : (tier === 'fumble' ? 0.34 : 0.26)
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = tier === 'fumble' ? 'sawtooth' : 'triangle'
+        osc.frequency.setValueAtTime(freq, t0)
+        if (tier === 'fumble') osc.frequency.exponentialRampToValueAtTime(freq * 0.72, t0 + dur)
+        g.gain.setValueAtTime(0.001, t0)
+        g.gain.linearRampToValueAtTime(tier === 'fumble' ? 0.055 : 0.082, t0 + 0.012)
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur)
+        osc.connect(g); g.connect(this.masterGain)
+        osc.start(t0); osc.stop(t0 + dur + 0.02)
+      })
+      return
+    }
 
     if (preset === 'pixel') {
       let notes = [523.25, 659.25, 783.99]
@@ -7372,6 +8395,17 @@ const NEXTGEN_THEMES = Object.freeze([
     accent: '#78cad2',
     swatch: 'radial-gradient(circle at 35% 30%, #4ea8b4 0%, #14364a 58%, #08131f 100%)',
     soundPreset: 'murano'
+  },
+  {
+    id: 'monogatari',
+    themeIndex: 12,
+    name: '物语怪异 · 剧场切卡与四主角实拍',
+    subtitle: 'SHAFT Koma & 4-Heroine Cast',
+    badge: '🎬 前置实拍 · 切卡演出',
+    desc: '致敬《化物语》高反差平面构成与新房剪辑：前置按需加载四主角（战场原/忍野忍/黑羽川/八九寺）四镜头实拍动画，随后 60fps 丝滑掷骰与全屏黒/赤/白コマ切卡揭晓结果。',
+    accent: '#d91e2a',
+    swatch: 'linear-gradient(120deg, #0b0a0e 0%, #0b0a0e 48%, #d91e2a 48.5%, #d91e2a 76%, #f4f1ea 76.5%, #f4f1ea 100%)',
+    soundPreset: 'monogatari'
   },
   {
     id: 'astral',
@@ -7967,6 +9001,7 @@ class CinematicDiceStage {
     this.pinSettled = Boolean(options.pinSettled)
 
     this.theme = THEME_BY_ID.atelier
+    this.monogatari = new FdMonogatariDirector()
     this.quality = 'ultra'
     this.usePipsForD6 = false
     this.cinematicCamEnabled = !this.compactMode
@@ -8323,10 +9358,23 @@ class CinematicDiceStage {
     this.revealed = true
     this.settleTime = 0
     this.climax = 1.0
+    if (this.theme.themeIndex === 12) {
+      this.monogatari.onRevealHidden()
+      this.monogatari.onSettle({ mode: 'normal', tier: this.tier, silentStatic: false })
+    }
     this._triggerClimaxFX()
     if (this.audio) this.audio.playSettle(this.theme.soundPreset, this.tier)
     if (this.onRollSettled) this.onRollSettled(this)
     this.wake()
+  }
+
+  skipMonogatariIntro() {
+    if (this.theme.themeIndex !== 12 || !this.monogatari) return false
+    const skipped = this.monogatari.skipIntro()
+    if (skipped && this.audio) {
+      this.audio.playThrowWhoosh(this.theme.soundPreset, 1.0, this.mode)
+    }
+    return skipped
   }
 
   _spawnSpark(opts) {
@@ -8715,6 +9763,15 @@ class CinematicDiceStage {
     this.rollTime = 0
     this.simTime = 0
     this.bouncePlayCursor = 0
+
+    if (this.theme.themeIndex === 12) {
+      this.monogatari.onThrow({
+        mode: this.mode,
+        tier: this.tier,
+        silentStatic: Boolean(spec.silentStatic),
+        compactMode: this.compactMode
+      })
+    }
 
     if (this.audio && !spec.silentStatic) {
       this.audio.playThrowWhoosh(this.theme.soundPreset, 0.95 + power * 0.75, this.mode)
@@ -9250,6 +10307,9 @@ class CinematicDiceStage {
       })
     }
 
+    if (id === 12 && this.monogatari) {
+      this.monogatari.onBounce({ x: b.x, y: b.y, z: b.z || 6, strength: b.strength, isHeavyFirst: heavyFirstHit })
+    }
     if (this.audio) {
       const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
       this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
@@ -9434,6 +10494,7 @@ class CinematicDiceStage {
 
       const hasImpacts = this.impacts.some(imp => imp.strength > 0.001 || (imp._delay && imp._delay > 0))
       const hasSlashes = this.slashes.some(sl => sl.active)
+      const hasMonoFx = this.theme.themeIndex === 12 && this.monogatari && this.monogatari.hasActiveFX()
       const hiddenIdle = this.mode === 'hidden' && !this.revealed && this.settleTime < 3.2
       const sleepAfter = this.theaterMode ? 3.8 : 2.6
       if (
@@ -9443,6 +10504,7 @@ class CinematicDiceStage {
         this.particles.aliveCount === 0 &&
         !hasImpacts &&
         !hasSlashes &&
+        !hasMonoFx &&
         !hiddenIdle
       ) {
         this.running = false
@@ -9645,6 +10707,23 @@ class CinematicDiceStage {
         }
       }
     } else if (!this.settled) {
+      // 化物语皮肤：前置播放开场字卡 + 主角四镜头实拍动画，结束后才放行 3D 骰子落地揭晓结果
+      if (this.theme.themeIndex === 12 && !this.compactMode && this.monogatari && this.monogatari.isHoldingRoll()) {
+        this.rollTime += rawDt
+        this.monogatari.step(rawDt, {
+          charging: this.charging,
+          chargeTime: this.chargeTime,
+          chargeMode: this.chargeMode,
+          settled: this.settled,
+          settleTime: this.settleTime,
+          tier: this.tier,
+          mode: this.mode,
+          fateSlowAmount: this.fateSlowAmount
+        })
+        this._updateSpringCamera(rawDt)
+        return
+      }
+
       const remainingSim = this.maxSimDuration - this.simTime
       const prog = this.simTime / Math.max(0.35, this.maxSimDuration)
       const pwr = this.lastChargePower || 0
@@ -9789,6 +10868,9 @@ class CinematicDiceStage {
           d.settled = true
         }
         if (this.mode !== 'hidden') {
+          if (this.theme.themeIndex === 12 && this.monogatari) {
+            this.monogatari.onSettle({ mode: this.mode, tier: this.tier, silentStatic: false })
+          }
           this._triggerClimaxFX()
           if (this.audio) this.audio.playSettle(this.theme.soundPreset, this.tier)
         }
@@ -9840,6 +10922,17 @@ class CinematicDiceStage {
 
     const slowParticleFactor = Math.max(this.bulletTimeAmount * 0.65, this.fateSlowAmount * 0.55)
     this._stepParticles(rawDt * (1 - slowParticleFactor))
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.step(rawDt, {
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        fateSlowAmount: this.fateSlowAmount
+      })
+    }
     this._updateSpringCamera(rawDt)
   }
 
@@ -10051,6 +11144,7 @@ class CinematicDiceStage {
     const hiddenMask = this.mode === 'hidden' && !this.revealed
     const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
+    const isMono = this.theme.themeIndex === 12
     this.renderer.render({
       time: this.clock,
       themeId: this.theme.themeIndex,
@@ -10060,6 +11154,7 @@ class CinematicDiceStage {
       camEye: this.camEye,
       camTarget: this.camTarget,
       camFovRad: this.camFov,
+      camRollRad: isMono && this.monogatari ? this.monogatari.camRollRad : 0,
       dice: this.dice,
       impacts: this.impacts,
       slashes: this.slashes,
@@ -10069,7 +11164,9 @@ class CinematicDiceStage {
       bulletTime: this.bulletTimeAmount,
       usePipsForD6: this.usePipsForD6,
       hiddenMask,
-      bloomEnabled: this.quality !== 'lite'
+      bloomEnabled: this.quality !== 'lite',
+      fxFlash: isMono && this.monogatari ? this.monogatari.fxFlash : 0,
+      fxMono: isMono && this.monogatari ? this.monogatari.fxMono : 0
     })
 
     if (this.hudCtx) {
@@ -10087,6 +11184,28 @@ class CinematicDiceStage {
     ctx.clearRect(0, 0, W, H)
 
     this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
+
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.renderOverlay(ctx, {
+        W, H,
+        clock: this.clock,
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        mode: this.mode,
+        total: this.total,
+        dice: this.dice,
+        hiddenMask,
+        compactMode: this.compactMode,
+        fateSlowAmount: this.fateSlowAmount,
+        projectToUV: (x, y, z, out) => this.renderer.projectToUV(x, y, z, out)
+      })
+      ctx.restore()
+      return
+    }
 
     if (this.settled && !this.charging && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
       drawThemeSealOverlay(ctx, {
@@ -10441,6 +11560,28 @@ class CinematicDiceStage {
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
 
       this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
+
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.renderOverlay(ctx, {
+        W, H,
+        clock: this.clock,
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        mode: this.mode,
+        total: this.total,
+        dice: this.dice,
+        hiddenMask,
+        compactMode: this.compactMode,
+        fateSlowAmount: this.fateSlowAmount,
+        projectToUV: (x, y, z, out) => this.renderer.projectToUV(x, y, z, out)
+      })
+      ctx.restore()
+      return
+    }
 
       const sealWindow = this.pinSettled ? Infinity : (this.theaterMode ? 3.5 : 2.5)
       if (this.mode !== "contest" && this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
@@ -11101,7 +12242,7 @@ function LiveRollBanner(props) {
     }, animation === 'compact' ? 320 : (use3D ? 1120 : 760))
     const hider = setTimeout(() => {
       if (typeof onDismiss === 'function') onDismiss()
-    }, use3D ? 5200 : 4200)
+    }, animation === 'monogatari' ? 12500 : (use3D ? 5200 : 4200))
     return () => {
       if (ticker) clearInterval(ticker)
       clearTimeout(stopper)
@@ -12829,13 +13970,23 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
       clearTimeout(ov.safetyTimer)
       ov.safetyTimer = 0
     }
+    const baseMs = (theme && theme.id === 'monogatari') ? 15000 : 7200
     ov.safetyTimer = setTimeout(() => {
       ov.safetyTimer = 0
       if (!fdFloorRollOverlays.has(ov)) return
       ov.settled = true
       fdToggleNodeClass(wrap, 'is-settled', true)
       ov.scheduleExit(0)
-    }, 7200 + Math.round(Math.max(0, Number(powerVal) || 0) * 500))
+    }, baseMs + Math.round(Math.max(0, Number(powerVal) || 0) * 500))
+  }
+
+  /* 物语怪异前置演出期间轻触剧场可一键跳过动画直达掷骰 */
+  if (typeof wrap.addEventListener === 'function') {
+    wrap.addEventListener('pointerdown', () => {
+      if (ov.stage && typeof ov.stage.skipMonogatariIntro === 'function') {
+        ov.stage.skipMonogatariIntro()
+      }
+    })
   }
 
   const syncPaneGeometry = () => {
@@ -15475,6 +16626,7 @@ function SettingsTab(props) {
   const settings = (view && view.settings) || FD_DEFAULT_SETTINGS
   /* 单一事实源：控件值直接来自 view.settings；改动立刻写回并落盘 */
   const apply = patch => {
+    if (typeof fdSyncMonogatariPrefs === 'function') fdSyncMonogatariPrefs({ ...settings, ...(patch || {}) })
     if (!actions || typeof actions.persistSettings !== 'function') return
     return actions.persistSettings(patch)
   }
@@ -15535,6 +16687,39 @@ function SettingsTab(props) {
         ].join('\n')
       },
       h(FdSelect, { value: settings.animation, options: FD_ANIMATION_OPTIONS, onChange: value => apply({ animation: value }) })),
+
+      settings.animation === 'monogatari'
+        ? h(Fragment, null,
+          h(FdField, {
+            label: '物语演出角色',
+            help: '选择「物语怪异」皮肤前置四镜头动画的出场主角：默认自动四主角轮换（战场原黑仪 / 忍野忍 / 黑羽川 / 八九寺真宵），也可指定单人或双人同框对峙。'
+          },
+          h(FdSelect, {
+            value: settings.monogatariActor || 'auto',
+            options: FD_MONOGATARI_ACTOR_OPTIONS,
+            onChange: value => apply({ monogatariActor: value })
+          })),
+          h(FdField, {
+            label: '物语演出节奏',
+            help: '完整剧场：每次投骰先播放约 6 秒主角四镜头高燃动画再落地揭晓点数（点击舞台可随时跳过）；快节奏切卡：仅保留全屏字卡、撞击拟声字与建筑标尺。'
+          },
+          h(FdSelect, {
+            value: settings.monogatariIntroMode || 'full',
+            options: FD_MONOGATARI_INTRO_OPTIONS,
+            onChange: value => apply({ monogatariIntroMode: value })
+          })),
+          h(FdField, {
+            label: '外置媒体源基址（可选）',
+            help: '留空默认从 flizzywine/dsh-tavern 的独立分支 media-assets 按需拉取并持久缓存到浏览器 Cache Storage；也可填自定义静态目录或本地代理 URL。'
+          },
+          h('input', {
+            type: 'text',
+            className: 'fd-input',
+            value: settings.monogatariMediaBase || '',
+            placeholder: '默认：flizzywine/dsh-tavern@media-assets（按需缓存）',
+            onChange: e => apply({ monogatariMediaBase: e && e.target ? e.target.value : '' })
+          })))
+        : null,
 
       h(FdField, {
         label: '结果揭晓时机',

@@ -55,6 +55,7 @@ const FD_ANIMATION_OPTIONS = [
   { value: 'urushi', label: '典藏 · 京都黑漆（镜面大漆螺钿与金泥莳绘）' },
   { value: 'bauhaus', label: '典藏 · 包豪斯白瓷（哑光氧化锆与博朗信号橙）' },
   { value: 'murano', label: '典藏 · 深海星仪（威尼斯折射海琉璃与银星盘）' },
+  { value: 'monogatari', label: '典藏 · 物语怪异（新房切卡 · 四主角外置实拍演出）' },
   { value: 'bounce', label: '幻想 · 星穹秘法（智能切换）' },
   { value: 'prism', label: '幻想 · 时停棱镜（碎星圣晶 · 子弹时间）' },
   { value: 'inferno', label: '幻想 · 焚天熔炉（玄武熔铁 · 烈焰光柱）' },
@@ -122,6 +123,21 @@ const FD_MULTI_CHECK_MODE_DETAILS = {
   }
 }
 
+const FD_MONOGATARI_ACTOR_OPTIONS = [
+  { value: 'auto', label: '自动联动（四主角轮换）' },
+  { value: 'hitagi', label: '戦場ヶ原ひたぎ（重石蟹 · 文具风暴）' },
+  { value: 'shinobu', label: '忍野忍（怪異の王 · 妖刀心渡）' },
+  { value: 'hanekawa', label: 'ブラック羽川（障り猫 · 銀爪疾斬）' },
+  { value: 'mayoi', label: '八九寺真宵（迷い牛 · 路標迷宮）' },
+  { value: 'dual', label: '双人同框：战场原 × 忍野忍' },
+  { value: 'dual2', label: '双人同框：黑羽川 × 八九寺' }
+]
+
+const FD_MONOGATARI_INTRO_OPTIONS = [
+  { value: 'full', label: '完整剧场（前置 6s 主角动画 · 点击可跳过）' },
+  { value: 'fast', label: '快节奏切卡（仅全屏字卡与标尺 · 零等待）' }
+]
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -135,6 +151,9 @@ const FD_DEFAULT_SETTINGS = {
   contestEnabled: true,
   revealTiming: 'immediate',
   animation: 'atelier',
+  monogatariActor: 'auto',
+  monogatariIntroMode: 'full',
+  monogatariMediaBase: '',
   preSendPause: false,
   preSendScope: 'both',
   preSendWait: 18,

@@ -8,6 +8,7 @@ function SettingsTab(props) {
   const settings = (view && view.settings) || FD_DEFAULT_SETTINGS
   /* 单一事实源：控件值直接来自 view.settings；改动立刻写回并落盘 */
   const apply = patch => {
+    if (typeof fdSyncMonogatariPrefs === 'function') fdSyncMonogatariPrefs({ ...settings, ...(patch || {}) })
     if (!actions || typeof actions.persistSettings !== 'function') return
     return actions.persistSettings(patch)
   }
@@ -68,6 +69,39 @@ function SettingsTab(props) {
         ].join('\n')
       },
       h(FdSelect, { value: settings.animation, options: FD_ANIMATION_OPTIONS, onChange: value => apply({ animation: value }) })),
+
+      settings.animation === 'monogatari'
+        ? h(Fragment, null,
+          h(FdField, {
+            label: '物语演出角色',
+            help: '选择「物语怪异」皮肤前置四镜头动画的出场主角：默认自动四主角轮换（战场原黑仪 / 忍野忍 / 黑羽川 / 八九寺真宵），也可指定单人或双人同框对峙。'
+          },
+          h(FdSelect, {
+            value: settings.monogatariActor || 'auto',
+            options: FD_MONOGATARI_ACTOR_OPTIONS,
+            onChange: value => apply({ monogatariActor: value })
+          })),
+          h(FdField, {
+            label: '物语演出节奏',
+            help: '完整剧场：每次投骰先播放约 6 秒主角四镜头高燃动画再落地揭晓点数（点击舞台可随时跳过）；快节奏切卡：仅保留全屏字卡、撞击拟声字与建筑标尺。'
+          },
+          h(FdSelect, {
+            value: settings.monogatariIntroMode || 'full',
+            options: FD_MONOGATARI_INTRO_OPTIONS,
+            onChange: value => apply({ monogatariIntroMode: value })
+          })),
+          h(FdField, {
+            label: '外置媒体源基址（可选）',
+            help: '留空默认从 flizzywine/dsh-tavern 的独立分支 media-assets 按需拉取并持久缓存到浏览器 Cache Storage；也可填自定义静态目录或本地代理 URL。'
+          },
+          h('input', {
+            type: 'text',
+            className: 'fd-input',
+            value: settings.monogatariMediaBase || '',
+            placeholder: '默认：flizzywine/dsh-tavern@media-assets（按需缓存）',
+            onChange: e => apply({ monogatariMediaBase: e && e.target ? e.target.value : '' })
+          })))
+        : null,
 
       h(FdField, {
         label: '结果揭晓时机',
