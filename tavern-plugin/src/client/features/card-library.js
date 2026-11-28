@@ -617,17 +617,18 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				worldBookCatalogWarning ? h("div", { className: "dsh-card-error" }, worldBookCatalogWarning) : null
 			);
 			const coverUrl = props.hasImage ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(cardPath) : "";
-			// The cover: a click shows it large; 开始游玩 is a standalone primary action in the hero info area (full-width under the cover on narrow screens).
+			// The cover opens its own preview, and the play button starts the card.
 			const cover = h("div", { className: "dsh-card-cover-wrap" },
 				coverUrl
 					? h("button", { type: "button", className: "dsh-card-cover", "aria-label": "查看封面", title: "查看大图", onClick: function () { openImageViewer({ src: coverUrl, alt: title || "查看大图" }); } }, h("img", { src: coverUrl, alt: "", decoding: "async" }))
 					: h("span", { className: "dsh-card-cover is-empty", "aria-hidden": true }, h("span", null, title)));
-			const playButton = h(ui.Button, {
-				primary: true,
-				className: "ap-primary dsh-card-play",
+			const playButton = h(ui.IconButton, {
+				icon: "play",
+				label: "开始游玩",
+				className: "dsh-card-play",
 				disabled: props.busy,
 				onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-card", { detail: { path: cardPath } })); }
-			}, h(ui.Glyph, { name: "play" }), h("span", null, "开始游玩"));
+			});
 			const more = props.menu ? h(CardDetailMenuButton, { menu: props.menu, label: title, disabled: props.busy }) : null;
 			const back = props.onBack ? h("button", { type: "button", className: "ap-icon-button dsh-card-back", "aria-label": "返回人物卡库", title: "返回人物卡库", onClick: props.onBack }, h(ui.Glyph, { name: "back" })) : null;
 			const name = h("h2", { className: "dsh-card-name", title: cardPath.split("/").pop() }, h("span", { className: "dsh-card-name-text" }, title),
