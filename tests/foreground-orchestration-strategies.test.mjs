@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
-import { dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { createTurnOrchestrator, dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { WORKBENCH_RUNTIME_TOOLS } from '../tavern-plugin/lib/domain/foreground-tools.js'
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from "../tavern-plugin/lib/domain/foreground-orchestration-strategies.js"
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
@@ -240,27 +241,27 @@ test('新版 DSH 文件工具只向卡片 Agent 开放，不泄漏给正文 Agen
 })
 
 test('工作台诊断工具在无 Skill 记录时可用，关联游玩记录后提示先读概览', async () => {
-  const names = ['tavern_read_play_chat', 'tavern_read_runtime_health', 'tavern_save_skill']
+  const names = ['tavern_read_play_chat', 'tavern_read_runtime_health', 'working_directory', 'tavern_save_skill']
   const visible = createSkillGatedTools()
   let mode = 'card'
+  const turns = createTurnOrchestrator({ store: { chatForSession: async () => ({ mode }) }, frameBuilder: { build() {} } })
   const run = createNativePlayOrchestrationStrategy({
-    modeFor: async () => mode,
+    modeFor: turns.modeFor,
     resolvePreset: async () => null,
     workspaceContext: () => '',
-    controlledToolNames: new Set(names),
-    visibleTools: async () => mode === 'card' ? visible(names, { id: 'new-session', events: [] }) : []
+    controlledToolNames: new Set(['tavern_read_play_chat', ...WORKBENCH_RUNTIME_TOOLS, 'tavern_save_skill']),
+    visibleTools: async sessionId => visible(await turns.visibleTools(sessionId), { id: 'new-session', events: [] })
   })
   const assemble = mountedResources => run.assembleSystemPrompt(
     { sections: [], tools: names.map(name => ({ name })) },
     { sessionId: 'new-session', chat: { mode, workspace: { mountedResources } } }
   )
   const empty = await assemble([])
-  assert.deepEqual(empty.tools.map(tool => tool.name), names.slice(0, 2))
+  assert.deepEqual(empty.tools.map(tool => tool.name), names.slice(0, 3))
   assert.ok(!empty.sections.some(section => section.name === 'tavern:play-chat-diagnostics'))
   const linked = await assemble([{ kind: 'play-chat' }])
   assert.match(linked.sections.find(section => section.name === 'tavern:play-chat-diagnostics').text, /tavern_read_play_chat.*overview/)
-  mode = 'story'
-  assert.deepEqual((await assemble([{ kind: 'play-chat' }])).tools, [])
+  for (mode of ['story', 'script']) assert.deepEqual((await assemble([{ kind: 'play-chat' }])).tools, [])
 })
 
 for (const sessionId of ['native']) test('regeneration gates ordinary and stale inputs before preparation: '+sessionId,async()=>{

@@ -3,6 +3,7 @@ export const LIST_LOREBOOK_TOOL = 'list_lorebook'
 export const GREP_LOREBOOK_TOOL = 'grep_lorebook'
 export const WORKBENCH_READ_LOREBOOK_TOOL = 'tavern_read_lorebook'
 export const WORKBENCH_UPDATE_LOREBOOK_TOOL = 'tavern_update_lorebook'
+export const WORKBENCH_RUNTIME_TOOLS = Object.freeze(['tavern_read_runtime_health', 'working_directory'])
 export const WORLDBOOK_ACCESS_TOOLS = Object.freeze(['read', LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL, READ_LOREBOOK_TOOL])
 
 const RENAMED_LOREBOOK_TOOLS = new Map([

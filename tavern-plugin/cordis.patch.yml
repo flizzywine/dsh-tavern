@@ -49,6 +49,13 @@
 # 没有自己界面的插件（如 dsh-ops）只能在那里改配置。
 - id: ui-agent-preset
   disabled: true
+# Tavern does not use DSH's shared team task board or its model-menu switch.
+- id: ui-agent-team
+  disabled: true
+- id: tool-agent-team
+  disabled: true
+- id: agent-team
+  disabled: true
 - id: skill-office
   disabled: true
 - insert:
