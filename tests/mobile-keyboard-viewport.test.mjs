@@ -304,3 +304,79 @@ test('sync 严格先批量读取几何再写入 CSS 变量，且同帧重复 res
   assert.equal(rectReads, 2, '几何未变时同帧第二次 resize 跳过重复 sync')
   release()
 })
+
+test('多栏与宽单栏触屏场景正确写入并清理 --dsh-sheet-left / --dsh-sheet-right', () => {
+  const doc = makeDocument()
+  const harness = makeView(doc, { height: 900 })
+  doc.view = harness.view
+  doc.defaultView = harness.view
+  doc.documentElement.clientWidth = 1280
+  let narrowMatches = false
+  let touchMatches = true
+  const listeners = new Map()
+  harness.view.innerWidth = 1280
+  harness.view.matchMedia = query => ({
+    get matches() { return query === '(pointer: coarse)' ? touchMatches : narrowMatches },
+    addEventListener: (name, fn) => listeners.set(query + ':' + name, fn),
+    removeEventListener: () => {}
+  })
+  doc.seat = { getBoundingClientRect: () => ({ top: 800, left: 280, right: 1000, width: 720 }), scrollHeight: 90, clientHeight: 90, isConnected: true, children: [] }
+  doc.card = { getBoundingClientRect: () => ({ top: 804, left: 296, right: 984, width: 688 }) }
+  doc.querySelector = selector => selector === '[data-composer-seat]' ? doc.seat : selector === '[data-composer-card]' ? doc.card : selector.includes('header') ? header : null
+
+  const { installVisualViewportPin } = vm.runInNewContext(
+    `${layoutSource}\n;({ installVisualViewportPin })`,
+    { Date, composerOffsetPx: (vh, _top, rt) => Math.max(0, Math.round(vh - rt)), sheetMaxPx: () => 400 }
+  )
+  const release = installVisualViewportPin(doc)
+  const style = doc.documentElement.style
+
+  // 平板多栏：贴聊天列（seat 280..1000，留 8px 边距）
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '288px')
+  assert.equal(style.getPropertyValue('--dsh-sheet-right'), '288px')
+
+  // 宽单栏：左栏收起到 56px、无右栏，输入卡居中在 358..1138（1384 - 780 > 96）
+  doc.documentElement.clientWidth = 1440
+  harness.view.innerWidth = 1440
+  doc.seat.getBoundingClientRect = () => ({ top: 800, left: 56, right: 1440, width: 1384 })
+  doc.card.getBoundingClientRect = () => ({ top: 804, left: 358, right: 1138, width: 780 })
+  harness.view.dispatch('resize')
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '366px')
+  assert.equal(style.getPropertyValue('--dsh-sheet-right'), '310px')
+
+  // 手机窄屏：390px
+  doc.documentElement.clientWidth = 390
+  harness.view.innerWidth = 390
+  narrowMatches = true
+  doc.seat.getBoundingClientRect = () => ({ top: 744, left: 0, right: 390, width: 390 })
+  doc.card.getBoundingClientRect = () => ({ top: 748, left: 16, right: 374, width: 358 })
+  harness.view.dispatch('resize')
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '8px')
+  assert.equal(style.getPropertyValue('--dsh-sheet-right'), '8px')
+
+  // 缺少输入框锚点时清理抽屉水平定位变量
+  const savedSeat = doc.seat
+  const savedCard = doc.card
+  doc.seat = null
+  doc.card = null
+  harness.view.innerHeight = 844
+  harness.vv.height = 844
+  harness.view.dispatch('resize')
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '')
+  assert.equal(style.getPropertyValue('--dsh-sheet-right'), '')
+
+  // 锚点恢复后再切回非触屏宽屏，验证 restore() 清理抽屉水平定位变量
+  doc.seat = savedSeat
+  doc.card = savedCard
+  harness.view.innerHeight = 800
+  harness.vv.height = 800
+  harness.view.dispatch('resize')
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '8px')
+  narrowMatches = false
+  touchMatches = false
+  listeners.get('(pointer: coarse):change')?.()
+  harness.flush()
+  assert.equal(style.getPropertyValue('--dsh-sheet-left'), '')
+  assert.equal(style.getPropertyValue('--dsh-sheet-right'), '')
+  release()
+})

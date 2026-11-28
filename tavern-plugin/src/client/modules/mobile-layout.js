@@ -46,7 +46,7 @@ function installVisualViewportPin(doc) {
     const keyboard = view.navigator && view.navigator.virtualKeyboard;
     const narrow = view.matchMedia(TAVERN_MOBILE_QUERY);
     const touch = view.matchMedia("(pointer: coarse)");
-    const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-keyboard-inset", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
+    const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-keyboard-inset", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width", "--dsh-sheet-left", "--dsh-sheet-right"];
     const previous = properties.map(name => [name, html.style.getPropertyValue(name), html.style.getPropertyPriority(name)]);
     let frame = 0, chaseFrame = 0, chaseUntil = 0, disposed = false, seat = null, card = null, header = null, boxDirty = true;
     let lastInnerH = -1, lastInnerW = -1, lastVvH = -1, lastVvTop = -1, lastKbTop = -1, lastKbH = -1;
@@ -87,7 +87,7 @@ function installVisualViewportPin(doc) {
         boxDirty = true;
         observer?.disconnect();
         seat = nextSeat; card = nextCard; header = nextHeader;
-        for (const element of [seat, header]) if (element) observer?.observe(element);
+        for (const element of [seat, card, header]) if (element) observer?.observe(element);
         // A capped seat keeps its own box size while content grows, so watch its children too.
         if (seat && seat.children) for (const child of seat.children) observer?.observe(child);
     }
@@ -139,6 +139,7 @@ function installVisualViewportPin(doc) {
         const activeCard = card || pin;
         const bounds = activeCard ? (activeCard === pin ? pinRect : activeCard.getBoundingClientRect()) : null;
         const seatScroll = Boolean(seat && seat.scrollHeight > seat.clientHeight + 1);
+        const viewportWidth = Number(doc.documentElement.clientWidth) || Number(view.innerWidth) || 0;
         // 外壳高度：布局视口已被顶上去就 100%，键盘浮在页面上才用可视区像素。
         const shell = tavernShellHeight(view.innerHeight, height);
         // 外壳真占多高：100% 时由布局视口决定，否则就是脚本算出来的那一段。
@@ -162,11 +163,26 @@ function installVisualViewportPin(doc) {
             setPx("--dsh-composer-width", bounds.width);
             setPx("--dsh-composer-offset", composerOffsetPx(visible, top, rectTop));
             setPx("--dsh-sheet-max", sheetMaxPx(visible, rectTop - top, headerBottom));
+            // 窄/中栏贴聊天列（留 8px 边距，不跨左右侧栏且不被大内边距皮肤压窄）；
+            // 宽单栏（输入卡因 max-width 居中留白超过 96px）对齐输入卡宽度，避免抽屉横铺整屏。
+            const anchor = pinRect && bounds.width > 0 && pinRect.width - bounds.width > 96 ? bounds : (pinRect || bounds);
+            const anchorRight = Number.isFinite(anchor.right) ? anchor.right : anchor.left + anchor.width;
+            const sheetLeft = Math.max(8, Math.round(anchor.left) + 8);
+            const sheetRight = viewportWidth > 0 ? Math.max(8, Math.round(viewportWidth - anchorRight) + 8) : -1;
+            if (viewportWidth > 0 && anchor.width > 32 && sheetLeft + sheetRight < viewportWidth - 64) {
+                setPx("--dsh-sheet-left", sheetLeft);
+                setPx("--dsh-sheet-right", sheetRight);
+            } else {
+                html.style.removeProperty("--dsh-sheet-left");
+                html.style.removeProperty("--dsh-sheet-right");
+            }
         } else {
             html.style.removeProperty("--dsh-composer-offset");
             html.style.removeProperty("--dsh-sheet-max");
             html.style.removeProperty("--dsh-composer-left");
             html.style.removeProperty("--dsh-composer-width");
+            html.style.removeProperty("--dsh-sheet-left");
+            html.style.removeProperty("--dsh-sheet-right");
         }
         // Only scroll the seat when its content really exceeds the cap: a scrolling seat clips
         // every menu that opens upward from the composer (更多, access mode, model picker).
