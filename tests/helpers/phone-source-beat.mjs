@@ -9,4 +9,4 @@ export const phoneSourceBeatScript = async () => [await read('src/client/mod-cli
 const require = createRequire(import.meta.url)
 const {phoneModBeat} = require('../../tavern-plugin/mods/phone/client/beat.cjs')
 const {stageAutoVoiceAllowed} = require('../../tavern-plugin/src/client/source-beat.cjs')
-export const phoneBeatKernel = {phoneModAutoVoiceAllowed: (direction, para, directorEnabled) => stageAutoVoiceAllowed(direction, para, directorEnabled, phoneModBeat)}
+export const phoneBeatKernel = {phoneModAutoVoiceAllowed: (direction, para, directorEnabled, waited) => stageAutoVoiceAllowed(direction, para, directorEnabled, waited, phoneModBeat)}

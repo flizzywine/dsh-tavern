@@ -70,6 +70,14 @@ export function createStageRuntimeHarness() {
       timers.set(intent.token.id, id)
       break
     }
+    case 'schedule-voice-wait': {
+      const id = clock.setTimeout(() => {
+        timers.delete(intent.token.id)
+        dispatch({type: 'VOICE_WAIT_DUE', token: intent.token})
+      }, intent.delay)
+      timers.set(intent.token.id, id)
+      break
+    }
     case 'cancel-timer':
       clock.clearTimeout(timers.get(intent.token.id)); timers.delete(intent.token.id); break
     // emulate slot discovery before independent readiness.

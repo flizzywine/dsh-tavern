@@ -59,6 +59,9 @@ function createStageRuntimeState() {
         // has ended (STAGE_REVEAL). A consumer without a loader opens revealed (STAGE_OPEN).
         revealed: true,
         voiceAvailable: true,
+        // the voiced page whose automatic voice waits for its coming direction (stageVoiceDirectionComing):
+        // {key (stageVoiceWaitKey), token, expired}; expired once STAGE_VOICE_DIRECTION_WAIT_MS passed (VOICE_WAIT_DUE).
+        voiceWait: null,
         // The session's performance kind declarations (stage-performance-kinds.cjs) once the stage publishes core and the
         // installed managed mods' (SESSION_INPUTS performanceKinds); null reads as the core kinds.
         performanceKinds: null,
@@ -175,6 +178,9 @@ function stageRuntimeIndicators(state) {
         drops: stageNoDrops,
         // Auto holds here; manual paging never does.
         awaitingDirection: stageAwaitingDirection(state),
+        // this page's voice waits (at most STAGE_VOICE_DIRECTION_WAIT_MS) for its coming direction; auto holds, so the
+        // page's dwell counts from its voice, not from the page turn.
+        awaitingVoiceDirection: stageAwaitingVoiceDirection(state),
         // a one-shot of this page is still preparing or playing (an SE still sounds, a text card still shows) or
         // a performance ritual still plays; the story timer counts it as a caption (timer-stage.js). Skip never waits for it.
         performing: Object.values(state.ledger).some(entry => entry.status === 'pending' || entry.status === 'playing'),
@@ -196,6 +202,19 @@ function stageRoundPhase(state) {
 const stageRoundStaging = round => !round.complete && ['running', 'partial'].includes(round.phase);
 // The live page's paragraph has no director prefix yet although one is coming (body still streaming or director
 // running). Off/error/done, history and cancelled turns never wait; auto and skip both hold here.
+// A voiced page's automatic voice follows its line, not the director: the director only lines the page's performance up
+// with it. When the paragraph's direction is on its way (the round not read yet, its director running, its body still
+// streaming) the voice waits for it at most STAGE_VOICE_DIRECTION_WAIT_MS, then speaks anyway. A direction that is not
+// coming (done short of the page, off, error, missing on the host, cancelled, interrupted) is never waited for.
+const STAGE_VOICE_DIRECTION_WAIT_MS = 1500;
+function stageVoiceDirectionComing(state, para) {
+    const director = state.director;
+    if (state.settings?.config?.stage?.director !== true || state.interrupted || director.complete || director.through >= para) return false;
+    if (['running', 'partial'].includes(director.phase) || director.phase === 'unknown' && director.revision < 0) return true;
+    return state.cursor.mode === 'live' && (state.pending.director || state.pending.text || state.text.streaming);
+}
+const stageVoiceWaitKey = state => state.cursor.anchor ? JSON.stringify([state.cursor.visitId, state.cursor.anchor.paragraphId, state.cursor.anchor.offset]) : null;
+const stageAwaitingVoiceDirection = state => !!state.voiceWait && !state.voiceWait.expired && state.voiceWait.key === stageVoiceWaitKey(state);
 function stageAwaitingDirection(state) {
     const anchor = state.cursor.anchor, config = state.settings?.config;
     if (!state.source || !anchor || state.cursor.mode !== 'live' || state.interrupted) return false;
@@ -435,6 +454,17 @@ function reduceStageRuntime(previous, event) {
         patch({ledger: {...state.ledger, [key]: {status: eligible ? 'pending' : 'skipped', token, descriptor, ...(reason ? {reason} : {}), ...(dwell ? {dwell: true} : {})}}});
         if (eligible) effect('prepare-one-shot', {token, descriptor});
     }
+    function endVoiceWait() {
+        if (!state.voiceWait) return;
+        if (!state.voiceWait.expired) effect('cancel-timer', {token: state.voiceWait.token});
+        patch({voiceWait: null});
+    }
+    function startVoiceWait(key) {
+        endVoiceWait();
+        const token = {id: nextId(), source: state.source};
+        patch({voiceWait: {key, token, expired: false}});
+        effect('schedule-voice-wait', {token, delay: STAGE_VOICE_DIRECTION_WAIT_MS});
+    }
     function scanEvents(late = false) {
         if (!state.cursor.anchor || state.replay?.phase === 'baseline') return;
         for (const entry of state.director.entries) {
@@ -458,7 +488,13 @@ function reduceStageRuntime(previous, event) {
         }
         const page = pageAt(state.text, state.cursor.anchor);
         // Voice starts only after the mounted consumer opens the stage, never during closed-session observation.
-        if (state.opened && state.voiceAvailable && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
+        // A page a source mod shows (the phone) never speaks on the stage; any other voiced page speaks once its coming
+        // direction arrived or its wait expired (stageVoiceDirectionComing).
+        if (state.opened && state.voiceAvailable && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) &&
+            phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true,true)) {
+            const waitKey = stageVoiceWaitKey(state), wait = state.voiceWait?.key === waitKey ? state.voiceWait : null;
+            if (stageVoiceDirectionComing(state, page.anchor.para) && !wait?.expired) { if (!wait) startVoiceWait(waitKey); return; }
+            endVoiceWait();
             // narration speaks per page (stageVoiceDescriptor); a line once per paragraph, its subtitle cards sharing the clip.
             // A line held for its 配音补译 (silent under the plain key) plays once its voice text, or the fallback, arrives.
             const key = JSON.stringify([sourceKey(state.source), 'voice', page.anchor.paragraphId, state.cursor.visitId, ...(page.voice.narration ? [page.anchor.offset] : []),
@@ -797,6 +833,11 @@ function reduceStageRuntime(previous, event) {
         if (round.dirty) readRound(); else settleRound();
         break;
     }
+    case 'VOICE_WAIT_DUE':
+        if (event.token?.id !== state.voiceWait?.token.id || state.voiceWait.expired) break;
+        patch({voiceWait: {...state.voiceWait, expired: true}});
+        scanEvents();
+        break;
     case 'READ_TIMER':
         if (event.token?.id === state.observation.timer?.id && sameSource(event.token?.source, state.source)) {
             observation({timer: null}); requestRead();
