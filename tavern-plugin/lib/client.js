@@ -26508,13 +26508,15 @@ function tavernModelRefusalNotice(text) {
 		//              card on the text box waiting hidden; skipping the animation goes straight to the page, never past it;
 		//   ⑤ resolve  a settled record stamps its outcome in its tone's colour, lists what it changed, and shrinks into its card
 		//              on the text box, which waited hidden meanwhile (checkPerforming, check.js), so no result shows early.
-		// A settled record whose awaiting record (`of`) was thrown is not thrown again: its dice are at rest from the start,
-		// the turned ones turn, and it resolves. Every beat is an effect point (checkCues, check-result.js) for the skin's cues.
+		// A settled record whose awaiting record (`of`) was thrown on this stage is not thrown again: its dice are at rest from
+		// the start, the turned ones turn, and it resolves; one whose awaiting record never played is thrown in full. Every
+		// beat is an effect point (checkCues, check-result.js) for the skin's cues.
 		//
 		// Once only, like the d100 throw (throw.js): a record plays when it first appears in the chat snapshot while this stage
 		// is mounted, the reply runs and the reader follows live; the records already there when the stage mounts (reload,
-		// history) never play. A record with a stage show (show.js) has its dice in the show. Click / tap or Esc ends the
-		// animation at once; 减少动态 (the stage CONFIG setting) does not animate, a result page still opens. Its sound is the
+		// history) never play. One whose place the reader passes while the stage is not live (skipping, the backlog, a menu or
+		// page open, the box hidden) waits and plays once it is live again, within its round: a newer round drops it. A record
+		// with a stage show (show.js) has its dice in the show. Click / tap or Esc ends the animation at once; 减少动态 (the stage CONFIG setting) does not animate, a result page still opens. Its sound is the
 		// d100 throw's: the release, every table contact, the skid, a clack where dice touch (createDiceSounds, the stage SE
 		// player); the mod's `sound` option off silences it, its `rollSound` option (a skin asset) replaces it with one sound
 		// at the release.
@@ -26581,7 +26583,7 @@ function tavernModelRefusalNotice(text) {
 		// The beats of one record, timed: [{at, point, detail}] and the moments the pictures change. `resolving`: a settled
 		// record whose dice are already down (its awaiting record was thrown); `list`: the thrown dice; `later`: a record that
 		// asks the player whose page opens later (CheckThrow): it shows what it is now and files like a settled one.
-		function checkTimeline(record, list, resolving, at, delays, later) {
+		function checkTimeline(record, list, resolving, at, delays, later, told) {
 		    const T = CHECK_THROW_T, n = list.length, points = [];
 		    if (record.hidden) {
 		        // Under the cup: thrown, covered, filed; nothing read.
@@ -26619,7 +26621,8 @@ function tavernModelRefusalNotice(text) {
 		            return { points: points.sort((a, b) => a.at - b.at), times };
 		        }
 		    }
-		    const changes = record.hidden || pending ? [] : checkShown(record, record.changes || []);
+		    // A ruling the skin performs after its throw (the rules' perform, page.js) leaves what changed to that performance (told).
+		    const changes = record.hidden || pending || told ? [] : checkShown(record, record.changes || []);
 		    if (pending) times.end = tierAt + T.ask + T.hold;
 		    else if (outcome && !record.hidden) {
 		        points.push({ at: tierAt, point: "tier", detail: { record, outcome, tone } });
@@ -26748,7 +26751,7 @@ function tavernModelRefusalNotice(text) {
 		        }
 		        // A turned die hops in place onto its face after the change (a low hop, a short spin).
 		        const flips = list.map((die, i) => die.after === undefined ? null : diePlan(THREE, meshes[i].userData.model, die.after, rest[i].clone(), rest[i].clone(), diceRandom(record.callId + ":turn:" + i), 0));
-		        const timeline = checkTimeline(record, list, resolving, i => [left + spots[i][0], top + spots[i][1]], delays, later), T = timeline.times;
+		        const timeline = checkTimeline(record, list, resolving, i => [left + spots[i][0], top + spots[i][1]], delays, later, checkSkinPerforms(record, mod && mod.values)), T = timeline.times;
 		        if (hidden) {
 		            // The dust ring at the cup's lip on the floor, sized from the projected lip.
 		            const project = v => { const p = v.clone().project(gl.camera); return [(p.x + 1) / 2 * w, (1 - p.y) / 2 * h]; };
@@ -26984,21 +26987,24 @@ function tavernModelRefusalNotice(text) {
 		    // (later); its result page opens on the round's last page, where the story asks.
 		    const placeKey = dicePlaceKey(props.place);
 		    React.useLayoutEffect(() => {
-		        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, thrown: new Set(), queue: dicePlaceQueue(item => item.record), asks: [] };
+		        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, thrown: new Set(), queue: dicePlaceQueue(), asks: [] };
 		        if (!key) return;
-		        const records = showKeyRecords(key), s = seen.current, first = !s.ids;
+		        const records = showKeyRecords(key), s = seen.current, first = !s.ids, now = latest.current;
 		        if (first) s.ids = new Set();
 		        const fresh = records.filter(record => !s.ids.has(record.callId));
-		        const arrived = fresh.filter(record => record.dice && checkDiceFaces(record).some(die => diceForSides(die.sides, die.face).length))
-		            .map(record => ({ record, resolving: Boolean(record.of && s.thrown.has(record.of)) }));
-		        for (const record of records) { s.ids.add(record.callId); if (record.dice && record.id) s.thrown.add(record.id); }
-		        const now = latest.current;
+		        const arrived = fresh.filter(record => record.dice && checkDiceFaces(record).some(die => diceForSides(die.sides, die.face).length));
+		        for (const record of records) s.ids.add(record.callId);
 		        if (!first && arrived.length && now.running) s.queue.add(arrived, latestTurn);
-		        const due = s.queue.take(now.place).map(item => Object.assign({}, item, { later: checkAsks(item.record) && dicePlaced(item.record, now.place, latestTurn) }));
+		        // A record whose place the reader passed while the stage was not live waits for it, within its round.
+		        s.queue.drop(item => item.turn < latestTurn);
+		        if (!now.live) return;
+		        // Resolving: its awaiting record was thrown here (s.thrown), so its dice are already down.
+		        const due = s.queue.take(now.place).map(record => ({ record, resolving: Boolean(record.of && s.thrown.has(record.of)), later: checkAsks(record) && dicePlaced(record, now.place, latestTurn) }));
+		        for (const item of due) if (item.record.id) s.thrown.add(item.record.id);
 		        s.asks = s.asks.filter(ask => ask.turn === latestTurn).concat(due.filter(item => item.later).map(item => ({ record: item.record, turn: latestTurn })));
 		        // A record with a stage show has its dice in the show (show.js); only its later page is opened here.
 		        const thrown = due.filter(item => !item.record.show);
-		        if (thrown.length && now.live) {
+		        if (thrown.length) {
 		            // 减少动态: nothing moves; a record that asks the player still opens its page.
 		            if (now.calm) { const asking = thrown.filter(item => checkAsks(item.record) && !item.later).at(-1); if (asking) { checkPerforming.hold([asking.record.callId]); player.current.ask(asking.record); } }
 		            else player.current.enqueue(thrown);
