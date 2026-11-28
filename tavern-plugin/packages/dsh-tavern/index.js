@@ -139,7 +139,10 @@ function openOriginal() {
 async function handleCall(ctx, endpoint, payload) {
   try {
     const paths = launcherPaths(ctx)
-    if (endpoint === 'achievements') return { ok: true, value: await readAchievementLibrary(paths.home) }
+    if (endpoint === 'achievements') {
+      const sourceRoot = paths.host === 'cli' ? undefined : inspectInstallation(paths).appDir
+      return { ok: true, value: await readAchievementLibrary(paths.home, { sourceRoot }) }
+    }
     if (paths.host === 'cli') {
       const updater = ctx.get?.('tavernApplicationUpdater')
       if (endpoint === 'status') return { ok: true, value: { host: 'cli', updateSupported: Boolean(updater) } }

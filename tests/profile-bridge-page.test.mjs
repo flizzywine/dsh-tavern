@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import sharp from 'sharp'
+import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
 import { createPluginDataStore } from '../tavern-plugin/lib/domain/plugin-data-store.js'
 import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-achievements/lib/index.js'
 import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
@@ -155,6 +157,56 @@ test('正式启动器没有成就测试入口，解锁后刷新已经打开的�
   }
 })
 
+test('成就库补读后来添加的封面并保留历史解锁记录', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'tavern-achievement-cover-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const dataRoot = join(home, 'profile-data', 'tavern', 'data')
+  const files = createFileResourceStore({ dataRoot })
+  await files.ensure()
+  const addedPath = 'cards/后来加封面.json'
+  const otherPath = 'cards/同名.json'
+  const renamedPath = 'cards/改名后.json'
+  await Promise.all([addedPath, otherPath, renamedPath].map(path => files.writeWorking(path, '{"name":"同名人物"}')))
+  const startedAt = Date.UTC(2026, 9, 20), unlockedAt = Date.UTC(2026, 9, 22)
+  const tier = { earned: true, cardName: '同名人物', unlockedAt, contextChars: 1200 }
+  const achievements = [
+    { ...tier, id: 'starter', title: '佳作', rounds: 50, startedAt },
+    { ...tier, id: 'bronze', title: '名篇', rounds: 100 },
+    { ...tier, id: 'silver', title: '传奇', rounds: 300, chatId: 'linked', cardPath: 'cards/改名前.json', cover: coverA },
+    { ...tier, id: 'gold', title: '史诗', rounds: 500, cardName: '旧存档人物', startedAt: startedAt + 3 },
+  ]
+  const store = createPluginDataStore({ dataRoot })
+  await store.save(medalPlugin, { version: 1, achievements })
+  await writeFile(join(dataRoot, 'index.json'), JSON.stringify({ chats: [
+    { id: 'legacy', cardPath: addedPath, cardName: tier.cardName, createdAt: startedAt },
+    { id: 'other', cardPath: otherPath, cardName: tier.cardName, createdAt: startedAt + 1 },
+    { id: 'linked', cardPath: renamedPath, cardName: '改名后', createdAt: startedAt + 2 },
+    { id: 'remaining', cardPath: addedPath, cardName: '旧存档人物', createdAt: startedAt + 4 },
+    { id: 'newer', cardPath: otherPath, cardName: '旧存档人物', createdAt: unlockedAt + 1 },
+  ] }))
+  const initial = await readAchievementLibrary(home)
+  assert.equal(initial[0].cover, undefined)
+  assert.equal(initial[2].cover, coverA)
+
+  async function setCover(path, background) {
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background } }).png().toBuffer()
+    await files.setCardCover(path, png, () => '{"name":"同名人物"}')
+  }
+  await setCover(addedPath, '#ed3250')
+  await setCover(otherPath, '#4455ef')
+  await setCover(renamedPath, '#aa58dd')
+  const refreshed = await readAchievementLibrary(home)
+  assert.match(refreshed[0].cover, /^data:image\/webp;base64,/)
+  assert.equal(refreshed[1].cover, undefined, '无来源记录的同名卡有歧义时不猜封面')
+  assert.match(refreshed[2].cover, /^data:image\/webp;base64,/)
+  assert.notEqual(refreshed[2].cover, coverA, '已记录来源的成就跟随人物卡改名和更换封面')
+  assert.equal(refreshed[3].cover, refreshed[0].cover, '旧存档已移除时，按解锁前的唯一同名卡找回封面')
+  assert.deepEqual(refreshed.map(({ cover, ...record }) => record), initial.map(({ cover, ...record }) => record))
+  await setCover(addedPath, '#1c7f3f')
+  assert.notEqual((await readAchievementLibrary(home))[0].cover, refreshed[0].cover)
+  assert.deepEqual((await store.read(medalPlugin)).achievements, achievements)
+})
+
 test('启动器从旧存档补记成就，保留原卡片并继续提示新结算的成就', async t => {
   const home = await mkdtemp(join(tmpdir(), 'tavern-achievements-refresh-'))
   t.after(() => rm(home, { recursive: true, force: true }))
@@ -177,7 +229,7 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
   const automationId = 'test-01234567-89ab-cdef-0123-456789abcdef'
   await writeFile(join(dataRoot, 'automation', automationId + '.json'), JSON.stringify({ sessionId: automationId }))
   const chats = [
-    { id: 'recent', sessionId: 'recent-game', cardName: '百轮存档', createdAt, updatedAt: 2, preview: { turnCount: 100 } },
+    { id: 'recent', sessionId: 'recent-game', cardName: '百轮存档', cardPath: 'cards/百轮存档.json', createdAt, updatedAt: 2, preview: { turnCount: 100 } },
     { id: 'legacy', cardName: '旧版存档', createdAt, updatedAt: 1 },
     { id: 'automation', sessionId: automationId, updatedAt: 3, preview: { turnCount: 1000 } },
     { id: 'workbench', sessionId: 'workbench-game', mode: 'card', updatedAt: 4, preview: { turnCount: 1000 } },
@@ -236,7 +288,10 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
     assert.equal(saved[1].contextChars, 202)
     assert.equal(saved[2].turnCount, 300)
     assert.deepEqual(saved[3], existing)
-    assert.deepEqual((await store.read(medalPlugin)).achievements[3], existing)
+    const recorded = (await store.read(medalPlugin)).achievements
+    assert.equal(recorded[1].cardPath, 'cards/百轮存档.json')
+    assert.equal(recorded[1].chatId, 'recent')
+    assert.deepEqual(recorded[3], existing)
     assert.equal((await store.read('dsh-tavern-adventure-medal')).achievements.length, 2)
     assert.deepEqual(notifications, [])
 

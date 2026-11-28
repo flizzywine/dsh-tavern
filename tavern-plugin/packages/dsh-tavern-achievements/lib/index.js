@@ -24,7 +24,6 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -42,7 +41,6 @@ const ACHIEVEMENTS = [
   { id: 'rainbow', rounds: 1000, title: '神话' },
 ]
 const NOTIFICATION_TTL_MS = 8000
-const MAX_COVER_BYTES = 150_000
 
 function str(value) {
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
@@ -545,18 +543,9 @@ function createAchievementSnapshot(dataRoot) {
   async function openCoverReader() {
     const source = resolveAppSource(dataRoot)
     if (!source) return null
-    const resourcesFile = path.join(source, 'tavern-plugin', 'lib', 'domain', 'file-resources.js')
-    const { createFileResourceStore } = await import(pathToFileURL(resourcesFile).href)
-    const resources = createFileResourceStore({ dataRoot })
-    const sharp = createRequire(resourcesFile)('sharp')
-    return async cardPath => {
-      const cover = await resources.cardImagePreview(cardPath)
-      if (!cover) return undefined
-      const bytes = await sharp(await cover.read(), { limitInputPixels: 40_000_000 })
-        .resize({ width: 480, height: 720, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 82 }).toBuffer()
-      return bytes.length <= MAX_COVER_BYTES ? 'data:image/webp;base64,' + bytes.toString('base64') : undefined
-    }
+    const module = pathToFileURL(path.join(source, 'tavern-plugin', 'lib', 'domain', 'achievement-cover.js'))
+    const { createAchievementCoverReader } = await import(module.href)
+    return createAchievementCoverReader(dataRoot)
   }
 
   async function readCover(cardPath) {
@@ -572,6 +561,7 @@ function createAchievementSnapshot(dataRoot) {
     const startedAt = safeNumber(row.createdAt) || safeNumber(chat?.createdAt)
     return {
       ...(cardName ? { cardName } : {}),
+      ...(cardPath ? { cardPath, chatId: row.id } : {}),
       ...(cover ? { cover } : {}),
       ...(startedAt > 0 && startedAt <= 8.64e15 ? { startedAt } : {}),
       ...(Array.isArray(chat?.messages) ? { contextChars: contextCharsOf(chat) } : {}),
