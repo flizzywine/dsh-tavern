@@ -30,6 +30,27 @@ test('普通卡和舞台卡都能从本局设置进入舞台设置', async t => 
   }
 })
 
+test('会话没有舞台状态时，可以从本局设置按需打开舞台设置', async t => {
+  const path = 'cards/ordinary.json'
+  const { page, calls } = await openTavernSettings(t, { sessionId: 'game', stageClient: true, respond(method) {
+    if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
+    if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', card: { path } } }
+    if (method === 'getConversationBackgroundConfig') return { backgroundTasks: {}, modelCatalog: [] }
+    if (method === 'listGamePlugins') return { plugins: { settings: [] } }
+    if (method === 'getConversationWritingSkills') return { skills: [] }
+    if (method === 'prepareStageWorkbench') return { installed: true, status: 'ready' }
+    if (method === 'getCardAssetBindings') return { path, revision: 'card-1', extension: {} }
+  } })
+  const open = page.getByRole('button', { name: '打开舞台设置', exact: true })
+  await open.waitFor()
+  await page.getByText('未开启', { exact: true }).waitFor()
+  assert.equal(calls.some(call => call.method === 'prepareStageWorkbench'), false)
+  await open.click()
+  await page.getByRole('button', { name: '启用舞台（对话气泡）', exact: true }).waitFor()
+  assert.ok(calls.some(call => call.method === 'prepareStageWorkbench'))
+  assert.ok(calls.some(call => call.method === 'getCardAssetBindings' && call.args.path === path))
+})
+
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
   let playerName = '你', preset = null, model = null, disabledTools = [], fail = false, candidateTabs = true
   const { page, calls } = await openTavernSettings(t, { sessionId: 'game', respond(method, args) {

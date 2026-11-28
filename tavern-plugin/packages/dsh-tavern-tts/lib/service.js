@@ -24,10 +24,13 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 const modelFor = (provider, model) => model ?? provider.defaultModel?.()
+// Reference pools kept in memory: a cast of a dozen full pools (a few MiB each).
+const REFERENCE_CACHE_BYTES = 96 * 1024 ** 2
 
 export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
-  let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
+  const referenceReads = new Map()
+  let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0, referenceBytes = 0
   const requests = createRequestObservers()
   let activeProviders = 0, lastSynthesisAt = null
   async function providerWork(work, synthesis = true) {
@@ -47,6 +50,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     return g
   }
   function revoke(source) {
+    for (const [key,entry] of referenceReads) if (entry.source === source) { referenceBytes -= entry.bytes; referenceReads.delete(key) }
     for (const [grant,g] of grants) if (g.source === source) { g.abort.abort(); grants.delete(grant) }
     for (const [ticket,t] of tickets) if (!grants.has(t.grant)) tickets.delete(ticket)
   }
@@ -134,8 +138,27 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const key = ttsCacheKey(identity)
       return {g,source,voice,entry,p,ref,params,readings,identity,key}
   }
-  // The reference audio a provider receives for a voice, read once per request; synthesis and prewarm send the same.
-  async function readReferences({source, voice, p, readings}, signal) {
+  // The reference audio a provider receives for a voice; synthesis and prewarm send the same. Read once per voice and kept
+  // (the most recently used, up to REFERENCE_CACHE_BYTES): every line of a reference voice sends its whole pool, and the
+  // asset library's reads wait behind any pack write, so reading it again for each line left the provider idle between
+  // lines (bug:drama3-voice-slow: 2-20 s per line on a local Drama 3 worker). A source's replacement or removal drops it.
+  function voiceReferences({source, voice, p, readings}) {
+    const key = JSON.stringify([source.sourceId, source.revision, p.id, readings.revision, voice.references.map(item => [item.sha256, item.transcript, item.language])])
+    let entry = referenceReads.get(key)
+    if (entry) { referenceReads.delete(key); referenceReads.set(key, entry); return entry.read }
+    entry = {source:source.sourceId, bytes:0, read:readReferences({source, voice, p, readings})}
+    referenceReads.set(key, entry)
+    entry.read.then(({reference, references}) => {
+      if (referenceReads.get(key) !== entry) return
+      entry.bytes = (references || [reference]).reduce((sum, item) => sum + item.bytes.length, 0); referenceBytes += entry.bytes
+      for (const [old, kept] of referenceReads) {
+        if (referenceBytes <= REFERENCE_CACHE_BYTES || old === key) break
+        referenceBytes -= kept.bytes; referenceReads.delete(old)
+      }
+    }, () => { if (referenceReads.get(key) === entry) referenceReads.delete(key) })
+    return entry.read
+  }
+  async function readReferences({source, voice, p, readings}) {
     if (!p.capabilities?.referenceInput?.some(kind => ['bytes-v1','bytes-list-v1'].includes(kind))) fail('REFERENCE_UNSUPPORTED')
     const multiple = p.capabilities.referenceInput.includes('bytes-list-v1')
     if (!multiple && voice.references.length !== 1) fail('REFERENCE_UNSUPPORTED')
@@ -143,7 +166,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     let total = 0
     for (const item of voice.references) {
       // The asset owner validated stored audio at ingress; the reader owns authorization.
-      const bytes = Buffer.from(await interrupted(Promise.resolve().then(() => source.readReference(item.sha256)), signal))
+      const bytes = Buffer.from(await source.readReference(item.sha256))
       total += bytes.length
       const limits = p.capabilities.referenceLimits
       if (limits?.totalBytes && total > limits.totalBytes || limits?.count && voice.references.length > limits.count || limits?.bytes && bytes.length > limits.bytes) fail('REFERENCE_LIMIT_EXCEEDED')
@@ -373,9 +396,12 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
           // and other engines retain one lane.
           const queue = lanes.get(lane) || createSynthesisQueue(p.capabilities?.concurrency || (['qwen','azure','volcengine','openai-compatible','minimax'].includes(p.kind) ? 2 : 1), () => { if (lanes.get(lane) === queue) lanes.delete(lane) })
           lanes.set(lane,queue)
+          // Read while the line waits for its lane, so the line ahead of it is still speaking meanwhile.
+          const pool = ref ? voiceReferences({source, voice, p, readings}) : null
+          pool?.catch(() => {})
           flight.promise = queue.run(async () => {
             signal.throwIfAborted()
-            const {reference, references} = ref ? await readReferences({source, voice, p, readings}, signal) : {}
+            const {reference, references} = pool ? await interrupted(pool, signal) : {}
             const audio = wav(await interrupted(providerWork(() => p.synthesize({ request:requestFor(p.id), ...identity, text: identity.text, textPrepared:true, voiceId:voice.voiceId, revision:voice.revision, reference, ...(references ? {references} : {}), readingsRevision: readings.revision, mood:input.mood, moodStyles:voice.moodStyles, identity:key }, { signal, ...(onPcm ? {onPcm} : {}) })), signal))
             live?.end()
             signal.throwIfAborted(); alive(); if (started !== epoch) fail('CACHE_CLEARED')
@@ -429,7 +455,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const pack = voiceFor(input.voice).voice.pack
       if (!p.prewarm || !voice.references || pack?.voice.sources[pack.binding.source ?? pack.voice.defaultSource].kind !== 'reference-list') return {prewarmed:false}
       const signal = AbortSignal.any([g.abort.signal, AbortSignal.timeout(130000)])
-      const {references} = await readReferences({source, voice, p, readings}, signal)
+      const {references} = await interrupted(voiceReferences({source, voice, p, readings}), signal)
       const result = await providerWork(() => p.prewarm({references, ...(params.model ? {model:params.model} : {}), request:requestFor(p.id)}, {signal}), false)
       return {prewarmed:result !== false}
     },
@@ -478,7 +504,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return result
     },
     async clearCache({ scope, all } = {}) { alive(); if (!all && !scope) fail('INVALID_INPUT'); epoch++; for (const f of flights.values()) f.abort.abort(); tickets.clear(); for (const g of grants.values()) g.keys.clear(); const result = await cache.clear(all ? undefined : scope); emit({ type:'cacheInvalidated', epoch }); return { ...result, epoch } },
-    async dispose() { if (disposed) return; disposed = true; api.jobs.dispose(); for (const source of sources.keys()) revoke(source); for (const g of grants.values()) g.abort.abort(); grants.clear(); for (const e of providers.values()) e.abort.abort(); for (const f of flights.values()) f.abort.abort(); providers.clear(); sources.clear(); tickets.clear(); emit({ type:'disposed' }); listeners.clear(); await cache.flush(); await voiceLoudness.flush() },
+    async dispose() { if (disposed) return; disposed = true; api.jobs.dispose(); for (const source of sources.keys()) revoke(source); for (const g of grants.values()) g.abort.abort(); grants.clear(); for (const e of providers.values()) e.abort.abort(); for (const f of flights.values()) f.abort.abort(); providers.clear(); sources.clear(); tickets.clear(); referenceReads.clear(); emit({ type:'disposed' }); listeners.clear(); await cache.flush(); await voiceLoudness.flush() },
   }
   // Include preparation/cache awaits before a provider flight exists, not only network work.
   const synthesize = api.synthesize

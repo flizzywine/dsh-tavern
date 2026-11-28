@@ -551,7 +551,7 @@ export function createAssetPackService(options) {
       async take(zip, entry, index) {
         const file = path.join((await dir()).dir, index + path.posix.extname(entry.path)), hash = createHash('sha256')
         await zip.consume(entry, compose(new Transform({transform(chunk, encoding, callback) { hash.update(chunk); callback(null, chunk) }}), createWriteStream(file, {flags:'wx'})))
-        return new SpooledFile(entry.size, file, hash.digest('hex'), spoolFileStamp(await stat(file, {bigint:true})))
+        return new SpooledFile(entry.size, file, hash.digest('hex'))
       },
       retain() { users++ },
       // resolves when the last user's release has removed the spool; callers that can wait do, so nothing runs after them
@@ -1778,7 +1778,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':ext==='css'?'text/css':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}

@@ -247,7 +247,7 @@ function createConversationSettingsModule({
             } catch (err) { setProblem(errorText(err)); }
             finally { setOpening(false); }
         }
-        const word = stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
+        const word = stage?.stage ? "舞台模式已开启" : stage?.dialogue ? "仅对话气泡" : "未开启";
         // A model this game chose for a stage slot before the stage kept them: still used, so it is named here, with the way back.
         const data = config.data;
         const chosen = (data?.modModelSlots || []).filter(slot => slot.owner !== "core" && data.modModels?.[slot.modId]?.[slot.id]);
@@ -386,7 +386,7 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
-            stage ? h(SessionStageSection, { sessionId, config, stage }) : null,
+            h(SessionStageSection, { sessionId, config, stage }),
             h(SessionModelSection, { sessionId, config }),
             h(SessionFeatureSection, { config }),
             h(SessionPluginSettings, { sessionId }),

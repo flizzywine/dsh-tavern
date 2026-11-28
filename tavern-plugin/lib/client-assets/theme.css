@@ -6010,6 +6010,8 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .fork-inline-pop button.fork-inline-option.is-grouped:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { padding-left: 22px; }
 .fork-inline-group:first-child { margin-top: 0; padding-top: 4px; border-top: 0; }
 .fork-inline-pop.is-palette { display: grid; gap: 8px; min-width: 0; padding: 8px; }
+.fork-inline-color-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.fork-inline-color-row > :first-child { flex: 1; min-width: 0; }
 .fork-inline-palette { display: grid; grid-template-columns: repeat(6, 26px); gap: 8px; padding: 0 2px; }
 .fork-inline-pop button.fork-inline-palette-swatch:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-ink) 18%, transparent); }
 .fork-inline-pop button.fork-inline-palette-swatch[aria-pressed=true]:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { box-shadow: 0 0 0 2px Canvas, 0 0 0 4px var(--fork-accent); }

@@ -115,6 +115,8 @@ export interface CardBundleAdapter {
   remapRaw(raw: unknown, mappings: Array<PackMapping & {from: string}>): unknown;
   /** the same raw with these packs appended to the card's bound packs (card export of global packs). */
   bindRaw(raw: unknown, packIds: string[]): unknown;
+  /** Keep only the selected bindings and the card's config pack binding in the export. */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
   /** Keep only the selected pack bindings in an exported card. */

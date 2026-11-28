@@ -1216,7 +1216,7 @@ export async function apply(ctx) {
     }
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
-  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, addCardReleaseFromFile, estimateCardUpdate, recoverCardUpdates } = createCardFiles({
+  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, clearCardReleases, addCardReleaseFromFile, estimateCardUpdate, recoverCardUpdates } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), prepareCardAssets: () => stageSwitch.ensure(),
     withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'), mediaStore,
@@ -3718,7 +3718,7 @@ export async function apply(ctx) {
       discardCardArchivePreview, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
       readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads, worldBooks,
       presentCardText, ctx, cardArchiveUploads, readCardExtensions, path, transferExports, listCardExportPacks,
-      listCardReleases, addCardReleaseFromFile, estimateCardUpdate, exportCardFile, cardPluginUploads,
+      listCardReleases, clearCardReleases, addCardReleaseFromFile, estimateCardUpdate, exportCardFile, cardPluginUploads,
       cardPluginUpdates, cardZipTargets, normalizeResourcePath, duplicateCard, cardScripts,
       resolveCardId: cardStorage.resolve,
     }),

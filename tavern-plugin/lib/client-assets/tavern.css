@@ -4096,7 +4096,8 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-dock-actions .dsh-tavern-candidate-entry { display: inline-flex; align-items: center; gap: 3px; }
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) {
     position: fixed; z-index: var(--dsh-play-z-sheet, 7);
-    left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px), var(--dsh-sheet-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px), var(--dsh-sheet-right, 0px));
     bottom: var(--dsh-composer-offset, 8rem); width: auto; max-width: none; margin: 0;
     max-height: var(--dsh-sheet-max, min(60dvh, 480px));
     display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain;
@@ -4186,6 +4187,9 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
      低于手机布局的抽屉、悬浮按钮（55）和弹层。 */
   body.dsh-tavern-shell-active [data-sidebar-right-open][data-sidebar-right-panel="fullscreen"] { z-index: 40; }
   html.dsh-tavern-viewport-pinned [data-composer-seat] {
+    /* DSH 0.2.2 给激活态 .composerSeat 加了 will-change: transform，会将其变成 fixed 后代的包含块，
+       导致候选抽屉的视口坐标叠加左侧栏与底部偏移后甩出列外；移动端固定抽屉期间解除该包含块。 */
+    will-change: auto !important;
     /* 宿主用外侧 box-shadow 描边；候选收起后卡片紧贴滚动容器，需为上描边保留绘制空间。
        border-box 让这 4px 计入可用高度，极短窗口也不能把发送栏挤到键盘下面。 */
     box-sizing: border-box; padding-top: 4px; scroll-padding-top: 4px;
@@ -4912,13 +4916,6 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
 }
 @media (max-width: 380px) {
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_tabs"] { gap: 10px; }
-}
-
-@media (min-width: 1024px) and (pointer: coarse) {
-  html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) {
-    left: calc(var(--dsh-composer-left, 0px) + 8px); right: auto;
-    width: max(0px, calc(var(--dsh-composer-width, 100vw) - 16px));
-  }
 }
 
 /* 手机外壳兜底：移动插件（Pocket / dsh-web-mobile）、DSH 0.2.2 抽屉（data-sidebar-drawer）与 dsh-go 抽屉

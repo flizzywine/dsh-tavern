@@ -749,10 +749,7 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false);
-        if (named && asked.reader) openStageReader(asked.reader, id);
-        else { setOpenPage(id); setEntryCardPage(id); }
-        entrance.end();
+        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
@@ -804,7 +801,7 @@ function GalStage(props) {
             return true;
         };
         return galHoldLeave(hold);
-    });
+    }, [activeSkin, reading.reducedMotion]);
     // ADV skins (textbox.layout other than box) read like the official games: no
     // 【】「」, no face window; quickMenu capsule / orb folds the quick buttons into the system menu behind one top-right
     // control (R13: one place each).
@@ -1001,7 +998,7 @@ function GalStage(props) {
         if (leasing && nextPage !== page) voicePlayer.stopPlayback();
         setForwardReading(forward);
         if (!forward) setSceneVisit(n => n + 1);
-        subtitles.select(nextPage, nextCard); setPage(nextPage); setTyped(false); setEndedAt(null);
+        subtitles.select(nextPage, nextCard); setPage(nextPage); setTyped(!forward); setEndedAt(null); // reading back shows the line whole (a forward turn types it)
     }
     // a clip export (clip-render.js) reads the text box pager's cards of
     // the page on screen and turns its cards the way auto does, so the video walks the same cards as the stage.
@@ -1208,7 +1205,14 @@ function GalStage(props) {
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    // A game's figures follow its reading: a line read with a speaker stands that speaker alone (a focus actor - a picked target -
+    // stays), the player's own line or a name with no figure standing nobody; narration keeps the scene's actors; the player's own
+    // line in the text box (scene.input) is theirs, so only the scene's actors stand, not the line read before it.
+    const leaseRead = leasing && !leaseInput ? leaseView.pages?.[leaseView.page] : null;
+    const leaseStands = actor => leaseInput ? leaseView.scene.actors.some(item => item.alias === actor.id)
+        : !leaseRead || leaseRead.kind !== 'line' || actor.id === leaseRead.alias || actor.focus === true;
+    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage
+        && leaseStands(actor)) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -1567,10 +1571,6 @@ function GalStage(props) {
         h("svg", { className: "fork-gal-look-defs", "aria-hidden": true, width: 0, height: 0, focusable: "false" },
             h("filter", { id: "fork-gal-look-ui", colorInterpolationFilters: "sRGB", filterUnits: "userSpaceOnUse", x: "-640", y: "-640", width: "5200", height: "3400" }, h("feColorMatrix", { type: "matrix", values: "1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0" }))),
         h("div", { className: "fork-gal-letterbox", "aria-hidden": true }, h("i"), h("i")),
-        // the leasing game's own controls (lease-hud.cjs), between the top bar and the text box in this skin's theme scope.
-        // Follow the text box's held line through transitions, not the read high-water mark or game queue.
-        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
-            displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         h(stageEntryContextType().Provider, { value: entryStore }, h("div", { ref: topbarRef, className: "fork-gal-topbar", onClick: event => event.stopPropagation(), onFocus: hud.onFocus, onBlur: hud.onBlur },
             h("div", { className: "fork-gal-topleft" },
                 turn !== latestTurn && receivedDirection && !["done", "error"].includes(receivedDirection.status) ? h("div", { className: "fork-gal-history-direction", "data-state": receivedDirection.status, "aria-live": "polite" },
@@ -1647,6 +1647,11 @@ function GalStage(props) {
                     id === "backlog" ? control("backlog", "履历（L）", openBacklog) :
                     // ≡ opens the system menu for touch and mouse too; Esc still opens it.
                     menuButton()))),
+        // the leasing game's own controls (lease-hud.cjs), in this skin's theme scope.
+        // After the text box in the tree: its bottom line is CSS-anchored to the box's frame, and an anchor must precede the element positioned against it.
+        // Follow the text box's held line through transitions, not the read high-water mark or game queue.
+        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
+            displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         // the HUD slots (a countdown plate); its own pause button is the only control on it.
         // After the text box: a skin's box art may span the whole stage (e.g. a frame that carries the top-right flourish), and the
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
