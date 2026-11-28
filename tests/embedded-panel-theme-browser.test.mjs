@@ -215,3 +215,58 @@ test('右侧栏世界书库随宿主皮肤与壁纸实时更新表面调色板�
   assert.equal(dark.primaryColor, 'rgb(212, 137, 108)')
   assert.equal(dark.surfaceToken, 'rgb(24, 23, 21)')
 })
+
+test('Bloom paints both sidebars and keeps the fullscreen panel legible', async t => {
+  const [base, theme, bloom] = await Promise.all([
+    read('lib/client-assets/tavern.css'),
+    read('lib/client-assets/theme.css'),
+    read('packages/dsh-dream-skin/src/bloom-appearance.css'),
+  ])
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  await page.setContent(`<!doctype html><body class="dsh-tavern-shell-active" style="
+    --dsw-specific-sidebar-fill: oklch(92% .027 114 / .6);
+    --dsw-alias-bg-layer-1: oklch(95% .01 114);
+    --dsw-alias-label-primary: #232721;
+    --dsw-alias-brand-primary: #53732e;
+    --dsw-alias-border-l2: #b2bea8;
+    --fk-s-base-bgSolid: #edf1e9">
+    <div data-slot="sidebar"><div id="left" style="height: 80px"><aside class="dsh-tavern-sidebar">
+      <div class="dsh-tavern-side-row active">当前游玩</div>
+    </aside></div></div>
+    <div data-sidebar-right-panel="push"><div data-dockkit-pane>
+      <aside class="dsh-tavern-status fork-status"><div data-kind="info" class="fork-status-alert">已加载</div></aside>
+    </div></div>
+  </body>`)
+  await page.addStyleTag({ content: [base, theme, bloom].join('\n') })
+  const inspect = options => page.evaluate(({ enabled, dark = false, fullscreen = false }) => {
+    document.body.toggleAttribute('data-dsh-bloom-backdrop', enabled)
+    document.body.toggleAttribute('data-ds-dark-theme', dark)
+    const panel = document.querySelector('[data-sidebar-right-panel]')
+    panel.setAttribute('data-sidebar-right-panel', fullscreen ? 'fullscreen' : 'push')
+    panel.toggleAttribute('data-sidebar-right-open', fullscreen)
+    const style = selector => getComputedStyle(document.querySelector(selector))
+    return {
+      left: style('#left').backgroundImage,
+      leftContent: style('.dsh-tavern-sidebar').backgroundColor,
+      right: style('[data-sidebar-right-panel]').backgroundImage,
+      rightBase: style('[data-sidebar-right-panel]').backgroundColor,
+      rightContent: style('.fork-status').backgroundColor,
+      selected: style('.dsh-tavern-side-row.active').boxShadow,
+    }
+  }, options)
+  const light = await inspect({ enabled: true })
+  assert.match(light.left, /linear-gradient\(158deg.*\/ 0\.6/)
+  assert.match(light.right, /linear-gradient\(202deg.*\/ 0\.6/)
+  assert.equal(light.leftContent, 'rgba(0, 0, 0, 0)')
+  assert.equal(light.rightContent, 'rgba(0, 0, 0, 0)')
+  assert.match(light.selected, /rgb\(83, 115, 46\) 2px 0px/)
+  const fullscreen = await inspect({ enabled: true, dark: true, fullscreen: true })
+  assert.notEqual(fullscreen.right, light.right)
+  assert.equal(fullscreen.rightBase, 'rgb(237, 241, 233)')
+  const custom = await inspect({ enabled: false })
+  assert.equal(custom.left, 'none')
+  assert.equal(custom.right, 'none')
+  assert.notEqual(custom.rightContent, 'rgba(0, 0, 0, 0)')
+})

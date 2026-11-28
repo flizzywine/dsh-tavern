@@ -13,7 +13,7 @@ Tavern changes:
 - Light and dark variants of a palette share a `schemeFamily`. The native light/dark preference selects the matching variant when the saved skin is restored.
 - Fresh preferences select Tavern Terracotta, with no factory image, URL or gradient. Existing user preferences are retained by the upstream persistence logic.
 - Skin selection still offers its built-in gradients; manually chosen wallpapers remain supported.
-- Bloom's skin-following wallpaper paints a layered gradient on the conversation surface. The default input material adds a tinted highlight using the existing opacity control. The gradient uses the palette's muted and companion colors.
+- Bloom's skin-following wallpaper paints a layered gradient on the conversation surface. The sidebars use softer gradients with neutral surfaces for selected rows and tabs. The default input material adds a tinted highlight using the existing opacity control.
 
 This runtime snapshot ships inside Tavern, including npm/Git installations. It is not independently published. Refresh with `node bin/vendor-dream-skin.mjs /path/to/unmodified/dsh-dream-skin-9.23.0` and rerun theme and package checks. No host dependency upgrade is required.
 

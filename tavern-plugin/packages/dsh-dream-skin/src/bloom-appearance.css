@@ -16,3 +16,61 @@ html[data-dsh-material="none"] body[data-dsh-bloom-backdrop] :is(.uV2eYG_card, [
         color-mix(in oklch, var(--dsw-alias-brand-primary) calc(var(--dsh-bloom-composer-fill) * .13), transparent));
     box-shadow: inset 0 1px 0 color-mix(in srgb, white calc(var(--dsh-bloom-composer-fill) * .23), transparent);
 }
+
+@supports (color: oklch(from white l c h / alpha)) {
+    body[data-dsh-bloom-backdrop] {
+        --dsh-bloom-side-top-lightness: -.012;
+        --dsh-bloom-side-mid-lightness: .027;
+        --dsh-bloom-side-bottom-lightness: .061;
+        --dsh-bloom-side-card-lightness: .027;
+        --dsh-bloom-side-fill: var(--dsw-specific-sidebar-fill);
+        --dsh-bloom-side-top: oklch(from var(--dsh-bloom-side-fill) calc(l + var(--dsh-bloom-side-top-lightness)) calc(c * .78) h / alpha);
+        --dsh-bloom-side-mid: oklch(from var(--dsh-bloom-side-fill) calc(l + var(--dsh-bloom-side-mid-lightness)) calc(c * .51) h / alpha);
+        --dsh-bloom-side-bottom: oklch(from var(--dsh-bloom-side-fill) calc(l + var(--dsh-bloom-side-bottom-lightness)) calc(c * .23) h / alpha);
+        --dsh-bloom-side-card: oklch(from var(--dsw-alias-bg-layer-1) calc(l + var(--dsh-bloom-side-card-lightness)) calc(c * .42) h);
+        --dsh-bloom-side-outline: inset 0 0 0 1px var(--dsw-alias-border-l2);
+        --dsh-bloom-side-indicator: inset 2px 0 var(--dsw-alias-brand-primary);
+    }
+
+    body[data-dsh-bloom-backdrop][data-ds-dark-theme] {
+        --dsh-bloom-side-top-lightness: .037;
+        --dsh-bloom-side-mid-lightness: -.014;
+        --dsh-bloom-side-bottom-lightness: -.057;
+        --dsh-bloom-side-card-lightness: .047;
+    }
+
+    /* The full sidebar owns the paint so the header, list and footer share one gradient. */
+    body[data-dsh-bloom-backdrop] [data-slot="sidebar"] > :has(.dsh-tavern-sidebar),
+    body[data-dsh-bloom-backdrop] .dsh-tavern-sidebar:not([data-slot="sidebar"] *) {
+        background: linear-gradient(158deg, var(--dsh-bloom-side-top), var(--dsh-bloom-side-mid) 46%, var(--dsh-bloom-side-bottom));
+    }
+
+    body[data-dsh-bloom-backdrop] [data-slot="sidebar"] .dsh-tavern-sidebar,
+    body[data-dsh-bloom-backdrop] [data-sidebar-right-panel] :is([data-dockkit-pane], [data-dockkit-strip], .fork-status) {
+        background: transparent;
+    }
+
+    body[data-dsh-bloom-backdrop] [data-sidebar-right-panel],
+    body.dsh-tavern-shell-active[data-dsh-bloom-backdrop] [data-sidebar-right-panel="fullscreen"][data-sidebar-right-open] {
+        background: linear-gradient(202deg, var(--dsh-bloom-side-top), var(--dsh-bloom-side-mid) 46%, var(--dsh-bloom-side-bottom));
+    }
+
+    body.dsh-tavern-shell-active[data-dsh-bloom-backdrop] [data-sidebar-right-panel="fullscreen"][data-sidebar-right-open] {
+        background-color: var(--fk-s-base-bgSolid, Canvas);
+    }
+
+    body[data-dsh-bloom-backdrop] .dsh-tavern-sidebar .dsh-tavern-mode-switch {
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+    }
+
+    body[data-dsh-bloom-backdrop] .dsh-tavern-sidebar :is(.dsh-tavern-side-new:not(:hover), .dsh-tavern-mode-switch button.active),
+    body[data-dsh-bloom-backdrop] [data-sidebar-right-panel] :is([data-dockkit-strip] [role="tab"][aria-selected="true"], .fork-status-guides > li, textarea.fork-status-guide-input) {
+        background-color: var(--dsh-bloom-side-card);
+    }
+
+    body[data-dsh-bloom-backdrop] .dsh-tavern-sidebar .dsh-tavern-side-row.active,
+    body[data-dsh-bloom-backdrop] [data-sidebar-right-panel] .fork-status-alert[data-kind="info"] {
+        background: var(--dsh-bloom-side-card);
+        box-shadow: var(--dsh-bloom-side-indicator), var(--dsh-bloom-side-outline);
+    }
+}
