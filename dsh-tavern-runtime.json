@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "bd4448cea664894476f82c53676e7796d45af874",
-  "releaseSequence": 2289,
+  "revision": "c1cfd210aa4a1f71de4b10f6304c40ddd23b9d53",
+  "releaseSequence": 2290,
   "version": "3.5.0",
   "files": [
     {
@@ -9721,8 +9721,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-audio.js",
-      "sha256": "04bd021932a4da4711e11e939fd1007f6b4a3cbe4d6b17e3d4e81dffaceb6042",
-      "size": 13690
+      "sha256": "17e25dfebde63aa2386ba0cb699762cc6c67eef1bf8f9cdd545d5363e69e531d",
+      "size": 13799
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-discovery.js",
@@ -10475,9 +10475,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "8c3c22b6d37148102c10f3f30d118dd3e98a1a22",
+    "commit": "e6132678b6d6766e2ee3104065f2df6f89b59024",
     "path": "runtime.zip",
-    "sha256": "e6adbabfb17290e0b1423fae87884e4ae21bf92fdf9be0c83e4089843902e60c",
-    "size": 18415497
+    "sha256": "11cc39a4bcf487e7c19df2da5c5da0ba4b6089293be6aed52d22ae97f0865777",
+    "size": 18415556
   }
 }
