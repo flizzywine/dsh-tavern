@@ -35,9 +35,19 @@ test('resolveSchemeSkin selects the family member for the scheme', () => {
 })
 
 test('each shipped Bloom palette can switch to its light and dark variants', () => {
-  for (const variant of ['cinnabar', 'osmanthus', 'sage', 'ripple', 'mist', 'lavender']) {
+  const labels = {
+    cinnabar: '朱砂', dawn: '粉霞', tangerine: '橙黄', aurora: '落霞', stone: '赭石',
+    amber: '琥珀', osmanthus: '轻黄', mint: '草色', sage: '竹青', ripple: '天青',
+    mist: '黛蓝', lapis: '青金', lavender: '青莲', silverrose: '银红', petal: '桃夭'
+  }
+  const bloom = themes.filter(theme => theme.id.startsWith('tavern-bloom-'))
+  const names = new Map(bloom.map(theme => [theme.id, theme.label]))
+  assert.equal(bloom.length, 30)
+  for (const [variant, label] of Object.entries(labels)) {
     const light = `tavern-bloom-${variant}`
     const dark = `${light}-dark`
+    assert.equal(names.get(light), label)
+    assert.equal(names.get(dark), label + ' · 深色')
     assert.equal(resolveSchemeSkin(light, 'dark'), dark)
     assert.equal(resolveSchemeSkin(dark, 'light'), light)
   }

@@ -9,7 +9,7 @@ CSS skins retain their existing profile location, `$DSH_HOME/profile-data/tavern
 Edit `src/interface-skin.js` or `tavern-themes.json` and run `node bin/build-tavern-client.mjs`. The build's `--check` verifies the generated client files. The vendoring command also integrates these sources. The locally maintained host code is not overwritten by that command.
 
 Tavern changes:
-- The native skin picker includes light and dark versions of Tavern Terracotta and six Bloom palettes. Bloom colors and names are adapted from [webkubor/dsh-bloom-theme](https://github.com/webkubor/dsh-bloom-theme/blob/ab06f1f05058afccfa3c040255ad89dc4a2157ea/src/palette.ts) under the [MIT license](lib/LICENSE-Bloom).
+- The native skin picker includes light and dark versions of Tavern Terracotta and all fifteen Bloom palettes. Bloom colors and names are adapted from [webkubor/dsh-bloom-theme](https://github.com/webkubor/dsh-bloom-theme/blob/ab06f1f05058afccfa3c040255ad89dc4a2157ea/src/palette.ts) under the [MIT license](lib/LICENSE-Bloom).
 - Light and dark variants of a palette share a `schemeFamily`. The native light/dark preference selects the matching variant when the saved skin is restored.
 - Fresh preferences select Tavern Terracotta, with no factory image, URL or gradient. Existing user preferences are retained by the upstream persistence logic.
 - Skin selection still offers its built-in gradients; manually chosen wallpapers remain supported.
