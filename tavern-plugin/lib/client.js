@@ -28722,9 +28722,19 @@ function tavernModelRefusalNotice(text) {
 		        }
 		    }
 		    // Existing automatic demand drives retries; polling/remounts cannot bypass the per-line budget.
+		    // A line that failed because the voice service is not running (SERVICE_OFFLINE) is not out of budget: the service may be
+		    // started later (after the round was written), so it keeps coming back on a slow backoff (1 s doubling to 30 s) for as long
+		    // as something still wants the line. Any other failure stops after three tries.
+		    const retryable = failure => failure.code === 'SERVICE_OFFLINE' || failure.attempts < 3;
 		    function canRetry(input) {
 		        const failure = failures.get(keyOf(input));
-		        return !failure || failure.attempts < 3 && now() >= failure.retryAt;
+		        return !failure || retryable(failure) && now() >= failure.retryAt;
+		    }
+		    // Milliseconds until an automatic demand may ask for this line again, or null when none will (no failure, already asked or
+		    // cached, out of budget): the stage's observer schedules its next look from it.
+		    function retryIn(input) {
+		        const key = keyOf(input), failure = failures.get(key);
+		        return !failure || clips.has(key) || pending.has(key) || !retryable(failure) || failure.retryAt === Infinity ? null : Math.max(0, failure.retryAt - now());
 		    }
 		    function prepare(descriptor, input, service) {
 		        const key = keyOf(input);
@@ -28737,7 +28747,7 @@ function tavernModelRefusalNotice(text) {
 		            if (!abort.signal.aborted && epoch === generation && error.name !== 'AbortError') {
 		                const attempts = (failures.get(key)?.attempts || 0) + 1;
 		                const permanent = error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
-		                failures.set(key, {code:packVoiceFailureCode(error), attempts, retryAt:permanent ? Infinity : now() + 1000 * 2 ** (attempts - 1)});
+		                failures.set(key, {code:packVoiceFailureCode(error), attempts, retryAt:permanent ? Infinity : now() + Math.min(30000, 1000 * 2 ** (attempts - 1))});
 		                emit();
 		            }
 		        };
@@ -28824,6 +28834,7 @@ function tavernModelRefusalNotice(text) {
 		        },
 		        setEnabled(value) { enabled = value === true; if (!enabled) stop(); },
 		        setRate(rate) { for (const clip of clips.values()) { clip.audio.preservesPitch = true; clip.audio.playbackRate = rate; } },
+		        retryIn,
 		        cancelPrefetch(items = []) { const keep = new Set(items.map(keyOf)); if (current) keep.add(current.requestKey); cancelPending(keep); },
 		        prioritize(items = []) { for (const item of [...items].reverse()) prioritize(keyOf(item)); },
 		        prefetch(descriptor, input) { const service = activeClient(), key = keyOf(input); return service && canRetry(input) && (pending.size < maxPrefetch || pending.has(key) || clips.has(key)) ? prepare(descriptor,input,service).then(() => true, () => false) : Promise.resolve(false); },
