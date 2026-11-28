@@ -53032,7 +53032,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 React.useEffect(function () {
                     let active = true;
                     rpc("getTavernSettings").then(function (result) {
-                        if (active) setState({ loading: false, busy: false, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
+                        if (active) setState({ loading: false, busy: false, notice: "", settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
                     }, function (error) {
                         if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
                     });
@@ -53040,7 +53040,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 }, []);
                 React.useEffect(() => {
                     let active=true;
-                    const refresh=()=>rpc('getTavernSettings').then(result=>{if(active)setState(current=>({...current,modModelSlots:result.modModelSlots || [],settings:result.settings,bodyGenerationProviders:result.bodyGenerationProviders || []}));},error=>{if(active)setState(current=>({...current,error:String(error.message || error)}));});
+                    const refresh=()=>rpc('getTavernSettings').then(result=>{if(active)setState(current=>({...current,modModelSlots:result.modModelSlots || [],settings:result.settings}));},error=>{if(active)setState(current=>({...current,error:String(error.message || error)}));});
                     window.addEventListener('dsh-tavern-mods-changed',refresh);
                     return ()=>{active=false;window.removeEventListener('dsh-tavern-mods-changed',refresh);};
                 },[]);
@@ -53097,20 +53097,6 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings },
                             sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false)) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
-                    group("正文生成", "所有游戏都按这些设置，下一轮生效。",
-                        card(
-                            h(TavernSettingRow, { title: "正文生成插件", help: "先选择插件，再启用插件生成。插件需已加载并完成自身配置。" },
-                                h(InlineField, { kind: "menu", label: "正文生成插件", hideLabel: true, disabled: state.loading || state.busy,
-                                    value: state.settings?.storyGenerationProvider || "", options: [{ value: "", label: "未选择" },
-                                        ...(state.settings?.storyGenerationProvider && !(state.bodyGenerationProviders || []).some(item => item.id === state.settings.storyGenerationProvider)
-                                            ? [{ value: state.settings.storyGenerationProvider, label: "已选插件不可用" }] : []),
-                                        ...(state.bodyGenerationProviders || []).map(item => ({ value: item.id, label: item.title + "（" + item.owner + "）" }))],
-                                    onCommit: value => saveDefault("storyGenerationProvider", value) })),
-                            h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。" },
-                                h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
-                                    value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
-                                    onCommit: value => saveDefault("storyGenerationMode", value) })),
-                            sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false))),
                     group("候选项", { status: state.noticeGroup === "候选项" ? settingsStatus : null },
                         card(
                             sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项。关闭后可手动生成。适用于所有对局之后的新回复。", false, saveCandidate),

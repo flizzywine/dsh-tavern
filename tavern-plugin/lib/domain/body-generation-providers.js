@@ -4,6 +4,13 @@ import { randomUUID } from 'node:crypto'
 import { untilAborted } from './plugin-callback.js'
 import { publicBodyMaterials } from './body-generation-materials.js'
 
+export const STCONTEXT_BODY_PROVIDER = 'dsh-tavern-STcontext:st-context'
+
+export function stcontextDefaultMode(settings) {
+  if (!settings?.storyGenerationProvider) return 'plugin-direct'
+  return settings.storyGenerationProvider === STCONTEXT_BODY_PROVIDER ? settings.storyGenerationMode ?? 'host' : 'host'
+}
+
 function jsonConfig(value) {
   if (value === undefined) return null
   const json = JSON.stringify(value)

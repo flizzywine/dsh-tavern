@@ -13,6 +13,8 @@ import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-set
 import { createScriptLibrary } from '../tavern-plugin/lib/domain/script-library.js'
 import { projectPureWritingRequest } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { projectPriorWritingReferences } from '../tavern-plugin/lib/domain/style-reference-request.js'
+import { createPluginBodyGeneration } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
+import * as stcontext from '../tavern-plugin/packages/dsh-tavern-STcontext/index.mjs'
 import * as styleRecall from '../tavern-plugin/packages/dsh-tavern-style-recall/lib/index.js'
 
 function memoryStore() {
@@ -300,6 +302,66 @@ test('正文生成默认值在插件与宿主设置间共用，且仅全局插�
   assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), { mode: 'host', hostRegex: true })
   assert.equal(settings.storyGenerationProvider, '')
   assert.equal(settings.storyGenerationMode, 'host')
+})
+
+test('STcontext 配置就绪后接管发送和重生成，停用后回退宿主并保留偏好', { skip: !cordis }, async t => {
+  let settings = {}
+  let config = { schemaVersion: 1, presets: [], settings: {} }
+  let preset = JSON.stringify({ prompts: [{ identifier: 'main', role: 'system', content: '写故事' }],
+    prompt_order: [{ character_id: 100001, order: [{ identifier: 'main', enabled: true }] }] })
+  const readTavernSettings = async () => structuredClone(settings)
+  const h = await harness(t, {
+    readTavernSettings,
+    async updateTavernSettings(patch, { beforeWrite } = {}) {
+      await beforeWrite?.(settings)
+      settings = applyTavernSettingsPatch(settings, patch)
+      return readTavernSettings()
+    },
+    pluginData: { read: async () => structuredClone(config) },
+    generationPresets: { read: async () => ({ text: preset, name: '测试预设' }) },
+  })
+  h.root.provide('llm', {})
+  const gameId = 'game-1'
+  const controller = createPluginBodyGeneration({
+    settings: readTavernSettings, providers: h.api.bodyGenerators,
+    chatForSession: async () => ({ mode: 'story', messages: [{ role: 'assistant', text: '正文' }] }),
+    async regenerateWithProvider({ prepare, providerId, hostRegex, signal }) {
+      return { snapshot: await prepare({ gameId, signal, reason: 'regenerate' }), providerId, hostRegex }
+    },
+  })
+  const host = { mode: 'host', provider: '', hostRegex: false }
+  const panel = patch => h.api.callHandler('dsh-tavern-stcontext/body-generation-defaults', patch)
+  assert.deepEqual(await controller.prepare(gameId), host)
+  const plugin = await h.root.plugin(stcontext)
+  assert.deepEqual(await panel({}), { mode: 'plugin-direct', hostRegex: false })
+  assert.deepEqual(await controller.prepare(gameId), host)
+  config.hostPreset = 'fixture'
+  assert.deepEqual(await controller.prepare(gameId), host, '缺少模型时用宿主')
+  config.settings.model = { provider: 'fixture', model: 'writer' }
+  const initial = await controller.prepare(gameId)
+  assert.equal(initial.mode, 'plugin-direct')
+  assert.equal(initial.provider, 'dsh-tavern-STcontext:st-context')
+  assert.ok(initial.snapshot?.config)
+
+  assert.deepEqual(await panel({ hostRegex: true }), { mode: 'plugin-direct', hostRegex: true })
+  assert.deepEqual(await panel({ mode: 'plugin-tool-call' }), { mode: 'plugin-tool-call', hostRegex: true })
+  assert.equal((await controller.prepare(gameId)).mode, 'plugin-tool-call')
+  assert.deepEqual(await controller.regenerate(gameId), { snapshot: initial.snapshot, providerId: initial.provider, hostRegex: true })
+  assert.deepEqual(await panel({ mode: 'host' }), { mode: 'host', hostRegex: true })
+  assert.equal((await controller.prepare(gameId)).mode, 'host')
+  await panel({ mode: 'plugin-tool-call' })
+
+  const validPreset = preset
+  preset = '{bad-json'
+  assert.deepEqual(await controller.prepare(gameId), host)
+  assert.equal(await controller.regenerate(gameId), null)
+  preset = validPreset
+  plugin.dispose()
+  assert.deepEqual(await controller.prepare(gameId), host)
+  assert.equal(await controller.regenerate(gameId), null)
+  await h.root.plugin(stcontext)
+  assert.deepEqual(await panel({}), { mode: 'plugin-tool-call', hostRegex: true })
+  assert.equal((await controller.prepare(gameId)).mode, 'plugin-tool-call')
 })
 
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {

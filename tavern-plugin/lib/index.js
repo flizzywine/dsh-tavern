@@ -251,7 +251,7 @@ import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds,
 import { replyBody, voiceBackfillLines, voiceBackfillKept } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
-import { createPluginBodyGeneration, configuredBodyGeneration } from './domain/plugin-body-generation.js'
+import { createPluginBodyGeneration } from './domain/plugin-body-generation.js'
 import { regenerationFrameKey } from './domain/regeneration-frame-cache.js'
 import { STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, createStoryContextTool, createStorySubmissionTool, foldStorySubmission, STORY_SUBMIT_TOOL_NAME } from './domain/story-tool-submission.js'
 import { readHistoryLayoutOverrideFile } from './domain/history-tool-call.js'
@@ -3504,8 +3504,8 @@ export async function apply(ctx) {
     // key and the preview rebuilds it.
     prepareRegenerationFrameCache: async ({ chat, card, turn, userText, target, targetAssistantIndex }) => {
       if (!chat || !card || !['story', 'script'].includes(chat.mode || 'story')) return null
+      if ((await pluginBodyGeneration.route(chat.sessionId)).mode.startsWith('plugin-')) return null
       const settings = await readTavernSettings()
-      if (str(configuredBodyGeneration(settings).mode).startsWith('plugin-') && !await pluginApi.writingPreparation.forGame(chat.sessionId)) return null
       const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
       const worldBook = await playWorldbooks.read(chat, card)
       const targetRow = targetAssistantIndex >= 0 ? chat.messages?.[targetAssistantIndex] : null

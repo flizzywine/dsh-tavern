@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { createPluginGameModes } from './domain/plugin-game-mode.js'
 import { createGameModeAgents } from './domain/game-mode-agents.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
-import { createBodyGenerationProviders } from './domain/body-generation-providers.js'
+import { createBodyGenerationProviders, STCONTEXT_BODY_PROVIDER, stcontextDefaultMode } from './domain/body-generation-providers.js'
 import { pluginMember, pluginMemberId, registerPluginMember } from './domain/background-members.js'
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
@@ -1506,8 +1506,11 @@ export function createTavernPluginApi(deps) {
       if (!(await bodyGenerators.list()).some(provider => provider.id === id)) throw new Error('请先注册正文生成器')
 
       const pluginModes = ['plugin-direct', 'plugin-tool-call']
-      const selectedMode = settings => settings?.storyGenerationProvider === id && pluginModes.includes(settings.storyGenerationMode)
-        ? settings.storyGenerationMode : 'host'
+      const isStcontext = id === STCONTEXT_BODY_PROVIDER
+      const selectedMode = settings => {
+        if (isStcontext) return stcontextDefaultMode(settings)
+        return settings?.storyGenerationProvider === id && pluginModes.includes(settings.storyGenerationMode) ? settings.storyGenerationMode : 'host'
+      }
       const present = settings => ({ mode: selectedMode(settings), hostRegex: settings?.storyPluginOutputRegex === true })
       if (mode === undefined && hostRegex === undefined) return present(await deps.readTavernSettings())
       if (mode !== undefined && mode !== 'host' && !pluginModes.includes(mode)) throw new Error('正文生成方式无效')
@@ -1516,7 +1519,7 @@ export function createTavernPluginApi(deps) {
       const patch = {}
       if (mode !== undefined) {
         patch.storyGenerationMode = mode
-        patch.storyGenerationProvider = mode === 'host' ? '' : id
+        patch.storyGenerationProvider = mode === 'host' && !isStcontext ? '' : id
       }
       if (hostRegex !== undefined) patch.storyPluginOutputRegex = hostRegex
       return present(await deps.updateTavernSettings(patch, { beforeWrite(current) {

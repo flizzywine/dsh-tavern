@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPluginBodyGeneration } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
-import { createBodyGenerationProviders } from '../tavern-plugin/lib/domain/body-generation-providers.js'
+import { createBodyGenerationProviders, STCONTEXT_BODY_PROVIDER } from '../tavern-plugin/lib/domain/body-generation-providers.js'
 import { captureBodyRegenerationSource } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { storySubmissionForTurn } from '../tavern-plugin/lib/domain/story-tool-submission.js'
@@ -75,6 +75,21 @@ test('正文生成使用全局设置，旧存档的覆盖项不生效，进行�
   assert.deepEqual(await f.controller.route('session'), { mode: 'host', provider: 'global:body', hostRegex: true })
   f.configure({ storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'global:other', storyPluginOutputRegex: true })
   assert.deepEqual(await f.controller.route('session'), { mode: 'plugin-tool-call', provider: 'global:other', hostRegex: true })
+})
+
+test('停止检查 STcontext 配置中的重生成时，不继续发起生成', async () => {
+  const preparing = gate(), release = gate()
+  const [owner, name] = STCONTEXT_BODY_PROVIDER.split(':')
+  const f = fixture(undefined, { regenerateWithProvider: () => assert.fail('已停止的重生成仍被调用') })
+  f.configure({})
+  f.providers.register(owner, { name, generate: () => assert.fail('已停止的生成仍被调用'),
+    async prepare() { preparing.resolve(); await release.promise; return {} } })
+  const regeneration = f.controller.regenerate('session')
+  await preparing.promise
+  const stopped = await f.controller.cancelRegeneration('session')
+  release.resolve()
+  assert.equal(stopped, true)
+  assert.deepEqual(await regeneration, { aborted: true })
 })
 
 test('current turn exports complete history and frozen state; successful duplicate/restart uses durable receipt', async () => {

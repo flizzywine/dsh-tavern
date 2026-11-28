@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
-import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 test('本局设置不展示或请求正文生成配置', async t => {
   const { page, calls } = await openTavernSettings(t, { sessionId: 'game', browserExecutable: process.env.PLAYWRIGHT_EXECUTABLE_PATH, respond(method) {
@@ -18,29 +18,40 @@ test('本局设置不展示或请求正文生成配置', async t => {
   assert.equal(calls.some(call => call.method === 'getBodyGenerationSettings'), false)
 })
 
-test('正文生成设置：选择插件、启用工具调用并切回宿主；丢失插件仍显示已选值', async t => {
-  let settings = { storyGenerationMode: 'host', storyGenerationProvider: '', defaultPlaySettings: { playerName: '你', backgroundTasks: {} } }
-  let available = true
-  const { page, calls } = await openTavernSettings(t, { browserExecutable: process.env.PLAYWRIGHT_EXECUTABLE_PATH, respond(method, args) {
-    if (method === 'getTavernSettings') return { settings, bodyGenerationProviders: available ? [{ id: 'p:body', owner: 'p', title: 'STcontext' }] : [] }
-    if (method === 'updateTavernSettings') { settings = applyTavernSettingsPatch(settings, args.patch); return { settings } }
+test('全局配置移除正文生成入口，STcontext 侧栏仍可选择生成方式和宿主正则', async t => {
+  const { page } = await openTavernSettings(t, { respond(method) {
+    if (method === 'getTavernSettings') return {
+      settings: { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'dsh-tavern-STcontext:st-context',
+        defaultPlaySettings: { playerName: '你', backgroundTasks: {} } },
+    }
   } })
-  const mode = page.getByRole('button', { name: /^正文生成方式：/ })
-  const provider = page.getByRole('button', { name: /^正文生成插件：/ })
-  await provider.click(); await page.getByRole('menuitemradio', { name: 'STcontext（p）' }).click()
-  await page.getByRole('button', { name: '正文生成插件：STcontext（p）', exact: true }).waitFor()
-  await mode.click(); await page.getByRole('menuitemradio', { name: '前台检索后由插件生成', exact: true }).click()
-  await page.getByRole('button', { name: '正文生成方式：前台检索后由插件生成', exact: true }).waitFor()
-  assert.equal(settings.storyGenerationProvider, 'p:body')
-  assert.equal(settings.storyGenerationMode, 'plugin-tool-call')
-  await page.getByRole('switch', { name: '插件生成正文后仍应用宿主正则' }).press('Space')
-  await page.getByRole('switch', { name: '插件生成正文后仍应用宿主正则', checked: true }).waitFor()
-  assert.equal(settings.storyPluginOutputRegex, true)
-  available = false
-  await page.evaluate(() => window.dispatchEvent(new Event('dsh-tavern-mods-changed')))
-  await page.getByRole('button', { name: '正文生成插件：已选插件不可用', exact: true }).waitFor()
-  await mode.click(); await page.getByRole('menuitemradio', { name: '宿主生成', exact: true }).click()
-  await page.getByRole('button', { name: '正文生成方式：宿主生成', exact: true }).waitFor()
-  assert.equal(settings.storyGenerationMode, 'host')
-  assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { storyGenerationMode: 'host' })
+  await page.getByRole('region', { name: '开局默认', exact: true }).getByRole('region', { name: '功能', exact: true }).waitFor()
+  assert.equal(await page.getByRole('region', { name: '正文生成', exact: true }).count(), 0)
+
+  let defaults = { mode: 'plugin-direct', hostRegex: false }
+  await page.exposeFunction('callStcontextHost', (name, patch) => {
+    if (name === 'dsh-tavern-stcontext/body-generation-defaults') return defaults = { ...defaults, ...patch }
+    if (name === 'dsh-tavern-stcontext/config') return { presets: [], settings: {}, hostReady: true }
+    if (name === 'dsh-tavern-stcontext/models') return { groups: [] }
+    throw new Error('Unexpected STcontext request: ' + name)
+  })
+  await page.evaluate(() => { window.__ModuleLoader__.load = definition => { window.stcontext = definition.factory(() => modules.react) } })
+  await page.addScriptTag({ content: await readFile(new URL('../tavern-plugin/packages/dsh-tavern-STcontext/client.js', import.meta.url), 'utf8') })
+  await page.evaluate(() => {
+    const target = document.body.appendChild(document.createElement('aside'))
+    window.stcontext.apply({ effect() {}, tavernUi: {
+      callHost: window.callStcontextHost,
+      registerComposerAction() {},
+      registerPanel(panel) {
+        modules['react-dom/client'].createRoot(target).render(panel.render({ gameId: 'game', visible: true }))
+      },
+    } })
+  })
+  const mode = page.getByRole('combobox', { name: '默认正文生成方式' })
+  assert.equal(await mode.inputValue(), 'plugin-direct')
+  await mode.selectOption('plugin-tool-call')
+  const regex = page.getByRole('checkbox', { name: '追加宿主正则' })
+  await regex.check()
+  await page.getByRole('checkbox', { name: '追加宿主正则', checked: true }).waitFor()
+  assert.deepEqual(defaults, { mode: 'plugin-tool-call', hostRegex: true })
 })

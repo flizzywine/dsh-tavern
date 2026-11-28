@@ -8,6 +8,7 @@ import { inputAttachments } from './player-input-content.js'
 import { unansweredTailIndex } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { STCONTEXT_BODY_PROVIDER, stcontextDefaultMode } from './body-generation-providers.js'
 
 export const BODY_GENERATION_PROMPT = [
   '<output_method>',
@@ -23,29 +24,42 @@ const error = (message, stage) => Object.assign(new Error(message), {
   code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage, [routeMismatch]: stage === 'route' } : {}) })
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
-export function configuredBodyGeneration(settings) {
+function configuredBodyGeneration(settings) {
   return { mode: settings?.storyGenerationMode ?? 'host',
     provider: settings?.storyGenerationProvider ?? '',
     hostRegex: settings?.storyPluginOutputRegex === true }
 }
 
-/** The selected route is frozen in the frame; changing global settings affects the next turn. */
-export function bodyGenerationRoute(chat, settings, turn, control) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story')) return { mode: 'host', provider: '' }
+function frozenBodyGeneration(chat, turn) {
   const frames = Object.values(chat?.foregroundFrames || {})
   const frame = turn ? frames.findLast(item => Number(item.turn) === Number(turn)) : frames.findLast(item =>
     chat?.timeline?.operations?.[item.operationId]?.status === 'running')
-  return frame?.source?.bodyGeneration || { ...configuredBodyGeneration(settings), ...control }
+  return frame?.source?.bodyGeneration
 }
 
 export function createPluginBodyGeneration({ chatForSession, routeChatForSession = chatForSession, readRevision, updateChat, settings, providers,
   isBackground = () => false, isWorldbookPath = () => false, regenerateWithProvider, writingPreparationFor }) {
   const tasks = new Map(), regenerations = new Map()
+  async function nextRoute(gameId, reason, signal) {
+    const current = await settings()
+    const configured = configuredBodyGeneration(current)
+    const control = await providers.controlRoute?.(gameId)
+    if (control) return { ...configured, ...control }
+
+    const mode = stcontextDefaultMode(current)
+    if (mode === 'host') return configured
+    // STcontext's prepare callback validates the selected preset and model without generating.
+    // Keep the same snapshot for the operation once this route has been selected.
+    const snapshot = await providers.prepare(STCONTEXT_BODY_PROVIDER, { gameId, reason, signal }).catch(() => null)
+    return snapshot ? { ...configured, mode, provider: STCONTEXT_BODY_PROVIDER, snapshot }
+      : { mode: 'host', provider: '', hostRegex: false }
+  }
   async function route(sessionId, turn) {
     const chat = await routeChatForSession(sessionId)
-    if (chat && ['story', 'script'].includes(chat.mode || 'story') && await writingPreparationFor?.(sessionId)) return { mode: 'host', provider: '' }
-    const control = chat && ['story', 'script'].includes(chat.mode || 'story') ? await providers.controlRoute?.(sessionId) : null
-    return bodyGenerationRoute(chat, await settings(), turn, control)
+    if (!chat || !['story', 'script'].includes(chat.mode || 'story') || await writingPreparationFor?.(sessionId)) {
+      return { mode: 'host', provider: '' }
+    }
+    return frozenBodyGeneration(chat, turn) ?? nextRoute(sessionId, 'normal')
   }
   async function materialsFor(chat, turn) {
     const frame = findBodyRegenerationFrame(chat, turn)
@@ -199,38 +213,42 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '', expectedReply) {
-      if (await writingPreparationFor?.(gameId)) return null
-      const configured = configuredBodyGeneration(await settings())
-      const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
-      if (!selected.mode?.startsWith('plugin-')) return null
-      // A tail player row has no assistant body of its own to replace: the native
-      // path must answer it instead of replacing the round before it.
-      if (unansweredTailIndex(await chatForSession(gameId)) >= 0) return null
-      if (regenerations.has(gameId)) throw error('正文正在重新生成')
-      const provider = await providers.require(selected.provider, gameId)
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const controller = new AbortController(), task = { controller, pending: null, committed: false }
-      const pending = Promise.resolve().then(() => regenerateWithProvider({ gameId, signal: controller.signal, ...(expectedReply ? { expectedReply } : {}),
-        onPhase: phase => { if (phase === 'committed') task.committed = true },
-        providerId: selected.provider, hostRegex: selected.hostRegex,
-        prepare: input => providers.prepare(selected.provider, input),
-        guidance,
-        validateProvider: async () => {
-          if (await providers.require(selected.provider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
-        },
-        generate: async ({ materials, signal, snapshot }) => {
-          try { return await providers.generate(selected.provider, { materials, signal, snapshot }) }
-          catch (cause) { throw bodyGenerationError(cause) }
-        } }))
+      const { signal } = controller
+      const pending = Promise.resolve().then(async () => {
+        const writing = await writingPreparationFor?.(gameId)
+        signal.throwIfAborted()
+        if (writing) return null
+        const selected = await nextRoute(gameId, 'regenerate', signal)
+        signal.throwIfAborted()
+        if (!selected.mode?.startsWith('plugin-')) return null
+        // The native path answers an unanswered player row rather than replacing the previous body.
+        const tail = unansweredTailIndex(await chatForSession(gameId))
+        signal.throwIfAborted()
+        if (tail >= 0) return null
+        const provider = await providers.require(selected.provider, gameId)
+        signal.throwIfAborted()
+        return regenerateWithProvider({ gameId, signal, ...(expectedReply ? { expectedReply } : {}),
+          onPhase: phase => { if (phase === 'committed') task.committed = true },
+          providerId: selected.provider, hostRegex: selected.hostRegex,
+          prepare: input => selected.snapshot ?? providers.prepare(selected.provider, input),
+          guidance,
+          validateProvider: async () => {
+            if (await providers.require(selected.provider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
+          },
+          generate: async ({ materials, signal, snapshot }) => {
+            try { return await providers.generate(selected.provider, { materials, signal, snapshot }) }
+            catch (cause) { throw bodyGenerationError(cause) }
+          } })
+      })
       task.pending = pending
       regenerations.set(gameId, task)
       try {
         return await pending
       } catch (cause) {
-        if (expectedReply) {
-          if (!task.committed && controller.signal.aborted && cause === controller.signal.reason) return { aborted: true }
-          if (['TAVERN_PLUGIN_STALE_VERSION', 'TAVERN_PLUGIN_TURN_UNAVAILABLE', 'TAVERN_PLUGIN_BUSY'].includes(cause?.code)) throw cause
-        }
+        if (!task.committed && signal.aborted && cause === signal.reason) return { aborted: true }
+        if (expectedReply && ['TAVERN_PLUGIN_STALE_VERSION', 'TAVERN_PLUGIN_TURN_UNAVAILABLE', 'TAVERN_PLUGIN_BUSY'].includes(cause?.code)) throw cause
         throw bodyGenerationError(cause, 'regenerate')
       } finally {
         if (regenerations.get(gameId) === task) regenerations.delete(gameId)
