@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4585b0e27baa95f284e20f770badc850bd3f5b39",
-  "releaseSequence": 2249,
+  "revision": "23ceb735ee6de238117adfc83f83ab85fb97107c",
+  "releaseSequence": 2250,
   "version": "3.5.0",
   "files": [
     {
@@ -4591,8 +4591,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "60eaecc0f6f642ef6fa42e1aca17d71990feff180c6ff5c4d4caaa42ec12a8e9",
-      "size": 276360
+      "sha256": "ee4d5000ab86af42079b449c6b730d08cf97439aeeed49377ebc7da7bcb1fdb7",
+      "size": 276561
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "933c0c824581bb025a2c490910f9d049241f2215",
+    "commit": "fe5b4d8992881aacd7c552bb07da0fba75c8daa1",
     "path": "runtime.zip",
-    "sha256": "1f9e5119b107a996502781566dd1c52e1b4199506d57438e10e58cc0de15e598",
-    "size": 18354385
+    "sha256": "54814e14b6f0b0f6d34492b956c6a5aa40ff7eb6f7eccdb4c173aad372b11b4b",
+    "size": 18354460
   }
 }
