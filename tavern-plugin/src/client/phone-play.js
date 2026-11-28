@@ -23,7 +23,7 @@ function usePhonePlay(sessionId, sessions) {
     const play = isPlayMode(useTavernSessionMode(owner));
     const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
     const phone = usePhoneWidth();
-    return play && phone && !(preferences && preferences.hideContextAndReasoning === false);
+    return play && phone && preferences?.debugViewEnabled !== true;
 }
 let phoneModPlayHolds = 0;
 function holdPhonePlayClass() {

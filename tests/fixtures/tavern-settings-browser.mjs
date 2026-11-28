@@ -5,7 +5,7 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeModelSlotGroups = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, sidebarStart = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
+export async function openTavernSettings(t, { settings, respond, exposeModelSlotGroups = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, sidebarStart = false, displayPreferences = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
   const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
@@ -62,7 +62,7 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
   if (exposeModelSlotGroups) source = source.replace('function TavernModelSlotGroups({', 'window.__modelSlotGroups = TavernModelSlotGroups; function TavernModelSlotGroups({')
   await page.addScriptTag({ content: source })
   const section = provided || sidebarStart ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
-  await page.evaluate(async ({ section, provided, sessionId, stageClient, sidebarStart, renderPropsCode }) => {
+  await page.evaluate(async ({ section, provided, sessionId, stageClient, sidebarStart, displayPreferences, renderPropsCode }) => {
     let Settings
     // stageClient: the core's stage client hold and loader run, and the loader's ctx.plugin applies the stage plugin
     // with the core's tavernStageFrontend.
@@ -92,7 +92,8 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
         testSignals.addEventListener(key, listener)
         return () => testSignals.removeEventListener(key, listener)
       } },
-      effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label)) || (sidebarStart && sidebarEffects.includes(label))) return run() },
+      effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label)) || (sidebarStart && sidebarEffects.includes(label)) ||
+        (displayPreferences && label === 'dsh-tavern: global display preferences')) return run() },
       slots: { inject(name, run) { window.__tavernTestSlots.push(name); return run() }, register(_spec, Component) { Settings = Component } }
     }
     window.client.apply(host)
@@ -105,7 +106,7 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
     const render = (Component, props) => root.render(modules.react.createElement(Component, props))
     const useTabInfo = () => ({ tab: { actions: { openTab: id => render(tabs.get(id).component, { scope: {} }) } } })
     render(Settings, { renderSlot: () => null, useTabInfo, ...renderProps })
-  }, { section, provided, sessionId, stageClient, sidebarStart, renderPropsCode })
+  }, { section, provided, sessionId, stageClient, sidebarStart, displayPreferences, renderPropsCode })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, calls }
 }

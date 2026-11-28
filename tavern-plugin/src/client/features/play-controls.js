@@ -1298,7 +1298,7 @@
 			const state = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const play = isPlayMode(state.view && state.view.mode);
 			const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
-			const hideProcess = play && !(preferences && preferences.showPlayProcess === true);
+			const hideProcess = play && preferences?.debugViewEnabled !== true;
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
 			// The failure still owning the tail: its row offers withdraw and rewind.
@@ -1523,7 +1523,7 @@
                     const owner = ctx.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
                     const play = isPlayMode(useTavernSessionMode(owner));
                     const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
-                    const hide = play && !(preferences && preferences.hideContextAndReasoning === false);
+                    const hide = play && preferences?.debugViewEnabled !== true;
                     const phone = usePhoneWidth() && hide;
                     React.useEffect(() => hide ? holdPlayShadow() : undefined, [hide]);
                     React.useEffect(() => phone ? holdPhoneShadow() : undefined, [phone]);

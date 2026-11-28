@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {createSettingsHandlers} from '../tavern-plugin/lib/rpc/settings.js'
 import { createModelSlotRuntime } from '../tavern-plugin/lib/domain/model-slot-runtime.js'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { mkdtemp } from './helpers/temp-directory.mjs'
 
 function harness({settingsDelay = 0} = {}){
@@ -60,6 +61,29 @@ test('模型选择器只取目录，不读整份设置', async () => {
   const h = harness()
   assert.deepEqual(await h.handlers.getTavernModelCatalog(), { modelCatalog: [{ provider: 'p1', providerName: 'P1', models: [{ id: 'm1', name: 'M1' }] }] })
   assert.equal(h.reads(), 0, '取目录不触发设置读盘')
+})
+
+test('调试视图读取旧偏好并将两项显示状态保持一致', async () => {
+  let document = {}
+  const handlers = createSettingsHandlers({ readTavernSettings: async () => presentTavernSettings(document, {}) })
+  for (const [old, enabled] of [
+    [{}, true],
+    [{ hideContextAndReasoning: false, showPlayProcess: false }, true],
+    [{ hideContextAndReasoning: true, showPlayProcess: true }, true],
+    [{ hideContextAndReasoning: true, showPlayProcess: false }, false],
+    [{ hideContextAndReasoning: true }, false],
+    [{ showPlayProcess: false }, false],
+  ]) {
+    document = old
+    const { debugViewEnabled, showPlayProcess, hideContextAndReasoning } = await handlers.getDisplayPreferences()
+    assert.equal(debugViewEnabled, enabled)
+    assert.equal(showPlayProcess, enabled)
+    assert.equal(hideContextAndReasoning, !enabled)
+  }
+  document = applyTavernSettingsPatch(document, { hideContextAndReasoning: false })
+  assert.deepEqual(document, { debugViewEnabled: true })
+  assert.deepEqual(applyTavernSettingsPatch(document, { debugViewEnabled: false }), { debugViewEnabled: false })
+  assert.throws(() => applyTavernSettingsPatch(document, { debugViewEnabled: 'false' }), /调试视图/)
 })
 
 test('空设置文件允许启动、读会话、保存错误可见性及重新写入设置', async () => {

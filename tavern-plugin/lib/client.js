@@ -45763,7 +45763,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const settings = storeOptions || {}
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
 		const preferences = options.displayPreferences || (typeof displayPreferences === 'undefined' ? null : displayPreferences)
-		const showPlayProcess = () => preferences?.snapshot()?.showPlayProcess === true
+		const showPlayProcess = () => preferences?.snapshot()?.debugViewEnabled === true
 		const showDamperStatus = () => preferences?.snapshot()?.showDamperStatus !== false
 		const subscribeProcess = preferences ? preferences.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE
 		const listeners = new Set()
@@ -52592,16 +52592,16 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                         ? settings.showDamperStatus !== false
                         : settings.narrativeDamper?.showTurnStatus !== false)
                     : true;
-                value = { showPlayProcess: settings.showPlayProcess === true, showDamperStatus: showDamper, hideContextAndReasoning: settings.hideContextAndReasoning === true, polishEnabled: settings.polishEnabled === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
-                document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
+                value = { debugViewEnabled: settings.debugViewEnabled === true, showDamperStatus: showDamper, polishEnabled: settings.polishEnabled === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.debugViewEnabled);
                 document.documentElement.classList.toggle("dsh-tavern-polish-enabled", value.polishEnabled);
-                applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
+                applyDebug(document, value.debugViewEnabled);
                 listeners.forEach(listener => listener());
             }
             async function refresh() {
                 const request = ++revision;
                 // retry a failed migration on focus; never discard an unsaved legacy opt-in.
-                try { await migrateDebug(hidden => displayPreferences.save({ hideContextAndReasoning: hidden })); } catch (_) {}
+                try { await migrateDebug(enabled => displayPreferences.save({ debugViewEnabled: enabled })); } catch (_) {}
                 try { const result = await rpc("getDisplayPreferences"); if (request === revision) apply(result); } catch (_) {}
             }
             return {
@@ -52615,9 +52615,9 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 },
                 start() {
                     // hide developer/process content before the first server response.
-                    const hidden = value ? !value.showPlayProcess : true;
-                    document.documentElement.classList.toggle("dsh-tavern-hide-process", hidden);
-                    applyDebug(document, value ? !value.hideContextAndReasoning : false);
+                    const enabled = value?.debugViewEnabled === true;
+                    document.documentElement.classList.toggle("dsh-tavern-hide-process", !enabled);
+                    applyDebug(document, enabled);
                     refresh();
                     const onStorage = event => { if (event.key === key) refresh(); };
                     window.addEventListener("focus", refresh);
@@ -52627,20 +52627,18 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                 }
             };
         })();
-        // Play process visibility is independent of developer chrome; card workbenches always keep native process controls.
-        function DisplayPreferencesSettings() {
+        function DebugSetting() {
             const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
             const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
-            async function save(patch) {
+            async function change(enabled) {
                 setBusy(true); setNotice("");
-                try { await displayPreferences.save(patch); setNotice("已保存"); }
+                try { await displayPreferences.save({ debugViewEnabled: enabled }); setNotice("已保存"); }
                 catch (error) { setNotice("保存失败：" + String(error.message || error)); }
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            return h(TavernSettingRow, { title: "游玩显示工作过程", help: "开启后恢复 DSH 原生的思考、工具调用和执行记录入口，可点击展开。卡片工作台始终显示，不受此开关影响。正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
-                h(Switch, { label: "游玩显示工作过程", checked: preferences?.showPlayProcess === true, disabled: preferences === null || busy,
-                    onChange: value => save({ showPlayProcess: value }) }));
+            return h(TavernSettingRow, { title: "调试视图", help: "显示游玩中的思考、工具调用和执行记录，以及轨迹、Token 统计、子代理入口和版本信息。卡片工作台始终显示工作过程。", note: notice },
+                h(Switch, { label: "调试视图", checked: preferences?.debugViewEnabled === true, disabled: preferences === null || busy, onChange: change }));
         }
         function HeaderItemsSettings(props) {
             const h = React.createElement;
@@ -52940,7 +52938,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
         }
 
         // Settings owns its initial snapshot; each editor saves only its own resource.
-        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
             // the one place that brings back every confirmation hidden with 「以后不再显示」 (confirm-dialog.js hiddenConfirms).
@@ -53119,9 +53117,8 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                     group("显示与交互", "",
                         card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                             sw("showCharacterDesignPanel", "显示人物设计", "在酒馆状态中显示人物档案和手动设计入口，适用于所有对局。", false),
-                            h(DisplayPreferencesSettings),
+                            h(DebugSetting),
                             renderSlot("settings.tavern.appearance", {}),
-                            DebugSetting ? h(DebugSetting) : null,
                             h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
                     // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
                     // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.
@@ -53190,8 +53187,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
         }
         const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
-            // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
-            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
+            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, HeaderItemsSettings,
             PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
@@ -60322,7 +60318,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 		        if (!pending) pending = (async function () {
 		            let legacy;
 		            try { legacy = win.localStorage.getItem(DEBUG_KEY); } catch (_) { return; }
-		            if (legacy === "1") await save(false);
+		            if (legacy === "1") await save(true);
 		            try { win.localStorage.removeItem(DEBUG_KEY); } catch (_) {}
 		        })().catch(function (error) { pending = null; throw error; });
 		        return pending;
@@ -60335,35 +60331,6 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 		function applyDebug(doc, enabled) {
 		    if (doc && doc.body) doc.body.classList.toggle("dsh-fork-debug", Boolean(enabled));
 		}
-		// one server-backed switch drives both the host and fork display classes.
-		function DebugSetting() {
-		    const h = React.createElement;
-		    const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
-		    const hidden = preferences ? preferences.hideContextAndReasoning : null;
-		    const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
-		    async function change(next) {
-		        if (busy) return;
-		        setBusy(true); setNotice("");
-		        try { await displayPreferences.save({ hideContextAndReasoning: !next }); setNotice("已保存"); }
-		        catch (error) { setNotice("保存失败：" + String(error.message || error)); }
-		        finally { setBusy(false); }
-		    }
-		    // No grey description (panel-ui-design.md §一.5): the explanation sits behind a 「?」, which must stay outside
-		    // any <label> (a button would become the label's control), so the title and the switch are separate labels.
-		    const id = React.useId ? React.useId() : "fork-debug-setting";
-		    // a row of the 显示与交互 card, never a card itself — with the card class
-		    // (.dsh-tavern-settings-group) the page's card rule turned this row into a column (title on top, switch at the bottom).
-		    return h("div", { className: "dsh-tavern-settings-row dsh-fork-debug-setting" },
-		        h("span", { className: "dsh-tavern-settings-copy" },
-		            h("span", { className: "dsh-tavern-settings-title" }, h("label", { htmlFor: id }, "调试视图"),
-		                typeof HelpTip === "function" ? h(HelpTip, { label: "调试视图说明" }, "显示轨迹、Token 统计、子代理入口与版本信息。游玩中的思考和工具记录由「游玩显示工作过程」单独控制。设置保存在服务端。") : null)),
-		        h("span", { className: "dsh-tavern-settings-control" },
-		            notice ? h("span", { className: "dsh-tavern-settings-note", role: "status" }, notice) : null,
-		            // the one switch (inline-field.js Switch).
-		            h(Switch, { id, label: "调试视图", checked: hidden === false, disabled: hidden === null || busy, onChange: change })));
-		}
-
-
 		// Feature-owned dialogs use the host portal without depending on the shell plugin.
 		function bodyPortal(node) { return ReactDOM && document.body ? ReactDOM.createPortal(node, document.body) : node; }
 
@@ -69575,7 +69542,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		    const play = isPlayMode(useTavernSessionMode(owner));
 		    const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
 		    const phone = usePhoneWidth();
-		    return play && phone && !(preferences && preferences.hideContextAndReasoning === false);
+		    return play && phone && preferences?.debugViewEnabled !== true;
 		}
 		let phoneModPlayHolds = 0;
 		function holdPhonePlayClass() {
@@ -69804,7 +69771,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const state = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const play = isPlayMode(state.view && state.view.mode);
 			const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
-			const hideProcess = play && !(preferences && preferences.showPlayProcess === true);
+			const hideProcess = play && preferences?.debugViewEnabled !== true;
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
 			// The failure still owning the tail: its row offers withdraw and rewind.
@@ -70049,7 +70016,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                     const owner = ctx.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
                     const play = isPlayMode(useTavernSessionMode(owner));
                     const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
-                    const hide = play && !(preferences && preferences.hideContextAndReasoning === false);
+                    const hide = play && preferences?.debugViewEnabled !== true;
                     const phone = usePhoneWidth() && hide;
                     React.useEffect(() => hide ? holdPlayShadow() : undefined, [hide]);
                     React.useEffect(() => phone ? holdPhoneShadow() : undefined, [phone]);

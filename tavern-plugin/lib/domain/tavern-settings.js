@@ -313,13 +313,12 @@ export function applyTavernSettingsPatch(current, patch) {
   if (Object.hasOwn(input, 'candidateGuidanceShortcuts')) {
     next.candidateGuidanceShortcuts = patchCandidateGuidanceShortcuts(object(next.candidateGuidanceShortcuts), input.candidateGuidanceShortcuts)
   }
-  if (Object.hasOwn(input, 'showPlayProcess')) {
-    if (typeof input.showPlayProcess !== 'boolean') throw new Error('无效的游玩过程显示设置')
-    next.showPlayProcess = input.showPlayProcess
-  }
-  if (Object.hasOwn(input, 'hideContextAndReasoning')) {
-    if (typeof input.hideContextAndReasoning !== 'boolean') throw new Error('无效的对话显示设置')
-    next.hideContextAndReasoning = input.hideContextAndReasoning
+  const debugKeys = ['debugViewEnabled', 'showPlayProcess', 'hideContextAndReasoning'].filter(key => Object.hasOwn(input, key))
+  if (debugKeys.length) {
+    if (debugKeys.some(key => typeof input[key] !== 'boolean')) throw new Error('无效的调试视图设置')
+    next.debugViewEnabled = readDebugViewEnabled(input)
+    delete next.showPlayProcess
+    delete next.hideContextAndReasoning
   }
   if (Object.hasOwn(input, 'polishEnabled')) {
     if (typeof input.polishEnabled !== 'boolean') throw new Error('无效的精修设置')
@@ -504,6 +503,14 @@ export function applyTavernSettingsPatch(current, patch) {
   return next
 }
 
+function readDebugViewEnabled(document) {
+  const { debugViewEnabled, showPlayProcess, hideContextAndReasoning } = object(document)
+  if (typeof debugViewEnabled === 'boolean') return debugViewEnabled
+  if (showPlayProcess === true || hideContextAndReasoning === false) return true
+  // Honor an explicit legacy opt-out, and keep the default debug view for profiles without a display preference.
+  return showPlayProcess !== false && hideContextAndReasoning !== true
+}
+
 export function presentTavernSettings(document, defaults) {
   const prompts = Object.keys(object(defaults)).map(function (name) {
     const custom = promptOverride(object(document), name)
@@ -511,6 +518,7 @@ export function presentTavernSettings(document, defaults) {
   })
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   const storyToolCalls = storyToolCallSettings(document)
+  const debugViewEnabled = readDebugViewEnabled(document)
   return {
     defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings, document?.candidateTabs),
     scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
@@ -524,8 +532,9 @@ export function presentTavernSettings(document, defaults) {
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
     defaultCompactionModel: normalizeBackgroundModel(object(document).defaultCompactionModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
-    showPlayProcess: object(document).showPlayProcess === true,
-    hideContextAndReasoning: object(document).hideContextAndReasoning === true,
+    debugViewEnabled,
+    showPlayProcess: debugViewEnabled,
+    hideContextAndReasoning: !debugViewEnabled,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),
     candidatePickMode: document?.candidatePickMode === 'send' ? 'send' : 'fill',

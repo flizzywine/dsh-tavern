@@ -21,7 +21,7 @@ test('客户端顶栏默认值与服务端一致，设置在首次读取前就�
     document: dom.window.document,
     window: dom.window,
     tavernViewTabItems: value => value && Array.isArray(value.items) ? ['chat'].concat(value.items.filter(id => id !== 'chat')) : ['chat'],
-    rpc: async () => ({ showPlayProcess: true, hideContextAndReasoning: true, headerItems: { display: 'icon', items: ['dsh-tavern:cards'] }, viewTabs: { items: ['chat', 'dsh-tavern:gallery'] } }),
+    rpc: async () => ({ debugViewEnabled: true, headerItems: { display: 'icon', items: ['dsh-tavern:cards'] }, viewTabs: { items: ['chat', 'dsh-tavern:gallery'] } }),
     // the store also drives the 调试视图 classes (debug.js); the shipped default is read before the first load.
     createDebugMigration: () => async () => {}, applyDebug() {}, TAVERN_HEADER_DEFAULT: value
   })
@@ -30,8 +30,6 @@ test('客户端顶栏默认值与服务端一致，设置在首次读取前就�
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.deepEqual(JSON.parse(JSON.stringify(store.snapshot().headerItems)), { display: 'icon', items: ['dsh-tavern:cards'] })
   assert.deepEqual(JSON.parse(JSON.stringify(store.snapshot().viewTabs)), { items: ['chat', 'dsh-tavern:gallery'] })
-  assert.equal(store.snapshot().showPlayProcess, true)
-  assert.equal(dom.window.document.documentElement.classList.contains('dsh-tavern-hide-process'), false, '即使调试视图关闭，也可独立显示工作过程')
   stop()
   dom.window.close()
 })

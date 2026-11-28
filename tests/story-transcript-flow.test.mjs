@@ -173,13 +173,13 @@ test('回合结束与页面变更合并读取，切换会话后旧会话停止�
 test('打开游玩工作过程后只在对应故事楼层显示可展开的工具记录', async t => {
 	const p = page(t), { context } = p
 	const listeners = new Set(), requests = []
-	let preference = { showPlayProcess: false }
+	let preference = { debugViewEnabled: false }
 	const displayPreferences = {
 		snapshot: () => preference,
 		subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }
 	}
 	const setShowProcess = value => act(async () => {
-		preference = { showPlayProcess: value }
+		preference = { debugViewEnabled: value }
 		listeners.forEach(listener => listener())
 	})
 	const data = context.createTavernStoryTranscriptDataModule({ displayPreferences, rpc: async (method, args) => {

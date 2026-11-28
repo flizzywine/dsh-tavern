@@ -74,6 +74,7 @@ export function createSettingsHandlers(deps) {
     async getDisplayPreferences(args) {
       const settings = await readTavernSettings()
       return {
+        debugViewEnabled: settings.debugViewEnabled,
         showPlayProcess: settings.showPlayProcess,
         polishEnabled: settings.polishEnabled,
         showDamperStatus: settings.narrativeDamper?.showTurnStatus !== false,

@@ -218,16 +218,16 @@
                         ? settings.showDamperStatus !== false
                         : settings.narrativeDamper?.showTurnStatus !== false)
                     : true;
-                value = { showPlayProcess: settings.showPlayProcess === true, showDamperStatus: showDamper, hideContextAndReasoning: settings.hideContextAndReasoning === true, polishEnabled: settings.polishEnabled === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
-                document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
+                value = { debugViewEnabled: settings.debugViewEnabled === true, showDamperStatus: showDamper, polishEnabled: settings.polishEnabled === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.debugViewEnabled);
                 document.documentElement.classList.toggle("dsh-tavern-polish-enabled", value.polishEnabled);
-                applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
+                applyDebug(document, value.debugViewEnabled);
                 listeners.forEach(listener => listener());
             }
             async function refresh() {
                 const request = ++revision;
                 // retry a failed migration on focus; never discard an unsaved legacy opt-in.
-                try { await migrateDebug(hidden => displayPreferences.save({ hideContextAndReasoning: hidden })); } catch (_) {}
+                try { await migrateDebug(enabled => displayPreferences.save({ debugViewEnabled: enabled })); } catch (_) {}
                 try { const result = await rpc("getDisplayPreferences"); if (request === revision) apply(result); } catch (_) {}
             }
             return {
@@ -241,9 +241,9 @@
                 },
                 start() {
                     // hide developer/process content before the first server response.
-                    const hidden = value ? !value.showPlayProcess : true;
-                    document.documentElement.classList.toggle("dsh-tavern-hide-process", hidden);
-                    applyDebug(document, value ? !value.hideContextAndReasoning : false);
+                    const enabled = value?.debugViewEnabled === true;
+                    document.documentElement.classList.toggle("dsh-tavern-hide-process", !enabled);
+                    applyDebug(document, enabled);
                     refresh();
                     const onStorage = event => { if (event.key === key) refresh(); };
                     window.addEventListener("focus", refresh);
@@ -253,20 +253,18 @@
                 }
             };
         })();
-        // Play process visibility is independent of developer chrome; card workbenches always keep native process controls.
-        function DisplayPreferencesSettings() {
+        function DebugSetting() {
             const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
             const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
-            async function save(patch) {
+            async function change(enabled) {
                 setBusy(true); setNotice("");
-                try { await displayPreferences.save(patch); setNotice("已保存"); }
+                try { await displayPreferences.save({ debugViewEnabled: enabled }); setNotice("已保存"); }
                 catch (error) { setNotice("保存失败：" + String(error.message || error)); }
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            return h(TavernSettingRow, { title: "游玩显示工作过程", help: "开启后恢复 DSH 原生的思考、工具调用和执行记录入口，可点击展开。卡片工作台始终显示，不受此开关影响。正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
-                h(Switch, { label: "游玩显示工作过程", checked: preferences?.showPlayProcess === true, disabled: preferences === null || busy,
-                    onChange: value => save({ showPlayProcess: value }) }));
+            return h(TavernSettingRow, { title: "调试视图", help: "显示游玩中的思考、工具调用和执行记录，以及轨迹、Token 统计、子代理入口和版本信息。卡片工作台始终显示工作过程。", note: notice },
+                h(Switch, { label: "调试视图", checked: preferences?.debugViewEnabled === true, disabled: preferences === null || busy, onChange: change }));
         }
         function HeaderItemsSettings(props) {
             const h = React.createElement;
@@ -568,8 +566,7 @@
         // @include modules/global-settings.js
         const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
-            // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
-            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
+            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, HeaderItemsSettings,
             PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),

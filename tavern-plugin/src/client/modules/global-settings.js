@@ -1,5 +1,5 @@
 // Settings owns its initial snapshot; each editor saves only its own resource.
-function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
     // the one place that brings back every confirmation hidden with 「以后不再显示」 (confirm-dialog.js hiddenConfirms).
@@ -178,9 +178,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                     sw("showCharacterDesignPanel", "显示人物设计", "在酒馆状态中显示人物档案和手动设计入口，适用于所有对局。", false),
-                    h(DisplayPreferencesSettings),
+                    h(DebugSetting),
                     renderSlot("settings.tavern.appearance", {}),
-                    DebugSetting ? h(DebugSetting) : null,
                     h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
             // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
             // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.

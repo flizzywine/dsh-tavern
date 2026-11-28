@@ -66,6 +66,38 @@ test('显示人物设计默认关闭，可全局开关并通知现有对局刷�
   assert.deepEqual(settingsDocument, { showCharacterDesignPanel: false })
 })
 
+test('调试视图同时切换游玩工作记录和调试界面，保存后重新打开仍生效', async t => {
+  let settingsDocument = { hideContextAndReasoning: false, showPlayProcess: false }
+  const respond = (method, args) => {
+    if (method === 'updateTavernSettings') settingsDocument = applyTavernSettingsPatch(settingsDocument, args.patch)
+    const settings = presentTavernSettings(settingsDocument, {})
+    if (method === 'getDisplayPreferences') return settings
+    if (method === 'getTavernSettings' || method === 'updateTavernSettings') return { settings }
+  }
+  const { page, calls } = await openTavernSettings(t, { respond, displayPreferences: true })
+  const appearance = page.getByRole('region', { name: '显示与交互', exact: true })
+  const toggle = (target, checked) => target.getByRole('switch', { name: '调试视图', exact: true, checked })
+  const waitForDisplay = (target, enabled) => target.waitForFunction(on =>
+    document.body.classList.contains('dsh-fork-debug') === on &&
+    document.documentElement.classList.contains('dsh-tavern-hide-process') !== on, enabled)
+  await toggle(appearance, true).waitFor()
+  await waitForDisplay(page, true)
+  assert.equal(await appearance.getByRole('switch', { name: '游玩显示工作过程', exact: true }).count(), 0)
+  await toggle(appearance, true).press('Space')
+  await toggle(appearance, false).waitFor()
+  await waitForDisplay(page, false)
+  assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { debugViewEnabled: false })
+
+  const { page: reopened } = await openTavernSettings(t, { respond, displayPreferences: true })
+  const saved = toggle(reopened, false)
+  await reopened.getByRole('switch', { name: '调试视图', exact: true }).and(reopened.locator(':enabled')).waitFor()
+  await waitForDisplay(reopened, false)
+  await saved.press('Space')
+  await toggle(reopened, true).waitFor()
+  await waitForDisplay(reopened, true)
+  assert.deepEqual(settingsDocument, { debugViewEnabled: true })
+})
+
 test('候选项点击方式由全局设置保存，重新打开仍然生效', async t => {
   let document = { candidateDismissMode: 'after-fill' }
   const respond = (method, args) => {

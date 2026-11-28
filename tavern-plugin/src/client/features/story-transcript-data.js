@@ -677,7 +677,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const settings = storeOptions || {}
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
 		const preferences = options.displayPreferences || (typeof displayPreferences === 'undefined' ? null : displayPreferences)
-		const showPlayProcess = () => preferences?.snapshot()?.showPlayProcess === true
+		const showPlayProcess = () => preferences?.snapshot()?.debugViewEnabled === true
 		const showDamperStatus = () => preferences?.snapshot()?.showDamperStatus !== false
 		const subscribeProcess = preferences ? preferences.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE
 		const listeners = new Set()
