@@ -58,6 +58,12 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     packageName: 'dsh-tavern-style-recall',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-style-recall'],
   },
+  {
+    folder: 'dsh-tavern-character-design',
+    packageName: 'dsh-tavern-character-design',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-character-design'],
+    defaultDisabled: true,
+  },
 ])
 
 /** 与 image 插件一致：构建输入、测试、仓库元数据都不进插件目录。 */
@@ -236,7 +242,8 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     if (stagedProblem) throw new Error('内置插件复制失败：' + stagedProblem)
     const digest = treeDigest(staging)
     // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
-    const restoreLoadDefault = !release?.defaultDisabled && recorded?.kind === 'builtin' && recorded.defaultDisabled === true
+    const defaultDisabled = definition.defaultDisabled ?? release?.defaultDisabled
+    const restoreLoadDefault = !defaultDisabled && recorded?.kind === 'builtin' && recorded.defaultDisabled === true
     const unchanged = replacing
       && !restoreLoadDefault
       && !installedRuntimeProblem
@@ -249,7 +256,7 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
     const disabledFile = prior && path.join(prior, DISABLED_FILE)
-    if (!prior && release?.defaultDisabled) {
+    if (!prior && defaultDisabled) {
       writeFileSync(path.join(staging, DISABLED_FILE), JSON.stringify({ installedDisabled: true }) + '\n')
     } else if (disabledFile && existsNoFollow(disabledFile)) {
       const marker = lstatSync(disabledFile)

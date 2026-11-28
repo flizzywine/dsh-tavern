@@ -40,30 +40,47 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
 })
 
-test('显示人物设计默认关闭，可全局开关并通知现有对局刷新', async t => {
-  let settingsDocument = {}
-  const respond = (method, args) => {
-    if (method === 'updateTavernSettings') settingsDocument = applyTavernSettingsPatch(settingsDocument, args.patch)
-    if (method === 'getTavernSettings' || method === 'updateTavernSettings') return { settings: presentTavernSettings(settingsDocument, {}) }
+test('人物设计交由插件管理，旧的全局显示设置不会恢复入口', async t => {
+  const settingsDocument = { showCharacterDesignPanel: true }
+  const respond = method => {
+    if (method === 'getTavernSettings') return { settings: presentTavernSettings(settingsDocument, {}) }
   }
-  const { page, calls } = await openTavernSettings(t, { respond })
-  const toggle = (targetPage, checked) => targetPage.getByRole('region', { name: '显示与交互', exact: true })
-    .getByRole('switch', { name: '显示人物设计', exact: true, checked })
-  await toggle(page, false).waitFor()
-  await page.evaluate(() => {
-    window.__characterDesignRefreshes = 0
-    window.addEventListener('dsh-tavern-data-changed', event => {
-      if (event.detail.kinds.includes('sessions')) window.__characterDesignRefreshes++
-    })
+  const { page } = await openTavernSettings(t, { respond })
+  const appearance = page.getByRole('region', { name: '显示与交互', exact: true })
+  await appearance.getByRole('switch', { name: '调试视图', exact: true }).waitFor()
+  assert.equal(await appearance.getByRole('switch', { name: '显示人物设计', exact: true }).count(), 0)
+
+  let characters = [{ name: '守灯人', identity: '渡口向导', aliases: [], sections: [] }]
+  let guidance
+  await page.exposeFunction('characterDesignHost', (name, args) => {
+    if (name.endsWith('/read')) return { characters, task: { status: 'idle' }, foregroundRunning: false }
+    if (name.endsWith('/start')) { guidance = args.guidance; return { status: 'running' } }
+    if (name.endsWith('/remove')) { characters = []; return { worldbookEdited: true } }
+    throw new Error(name)
   })
-  await toggle(page, false).press('Space')
-  await toggle(page, true).waitFor()
-  assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { showCharacterDesignPanel: true })
-  assert.equal(await page.evaluate(() => window.__characterDesignRefreshes), 1)
-  const { page: reopened } = await openTavernSettings(t, { respond })
-  await toggle(reopened, true).press('Space')
-  await toggle(reopened, false).waitFor()
-  assert.deepEqual(settingsDocument, { showCharacterDesignPanel: false })
+  await page.evaluate(() => {
+    window.__ModuleLoader__.load = definition => { window.characterDesign = definition.factory(() => modules.react) }
+  })
+  await page.addScriptTag({ content: await readFile(new URL('../tavern-plugin/packages/dsh-tavern-character-design/client.js', import.meta.url), 'utf8') })
+  await page.evaluate(() => {
+    const target = document.body.appendChild(document.createElement('aside'))
+    window.characterDesign.apply({ effect() {}, tavernUi: {
+      callHost: window.characterDesignHost,
+      watchState() { return () => {} },
+      registerPanel(panel) {
+        modules['react-dom/client'].createRoot(target).render(panel.render({ gameId: 'game', visible: true }))
+      },
+    } })
+  })
+  await page.getByRole('textbox', { name: '设计意见（选填）' }).fill('完善出场人物')
+  await page.getByRole('button', { name: '开始设计', exact: true }).click()
+  await page.getByRole('button', { name: '开始设计', exact: true }).and(page.locator(':enabled')).waitFor()
+  assert.equal(guidance, '完善出场人物')
+  await page.locator('summary').filter({ hasText: '守灯人' }).click()
+  await page.getByRole('button', { name: '删除人物档案', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除', exact: true }).click()
+  await page.getByText('档案已删除。手动编辑过的世界书条目已保留。', { exact: true }).waitFor()
+  await page.getByText('本局还没有人物档案。', { exact: true }).waitFor()
 })
 
 test('调试视图同时切换游玩工作记录和调试界面，保存后重新打开仍生效', async t => {

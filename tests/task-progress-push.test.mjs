@@ -13,8 +13,8 @@ test('进行中的后台任务改为推送优先，2 秒全量轮询不再出现
   assert.equal(source.includes('invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }, 2000)'), false)
   const watch = source.match(/watchTavernState\(/g) || []
   const poll = source.match(/pollTaskWhile\(/g) || []
-  assert.equal(watch.length, 5, '定义处 1 次 + 台账、人物设计、压缩、插件任务各 1 次')
-  assert.equal(poll.length, 5)
+  assert.equal(watch.length, 4, '定义处 1 次 + 台账、压缩、插件任务各 1 次')
+  assert.equal(poll.length, 4)
   assert.equal((source.match(/function pollTaskWhile\(/g) || []).length, 1)
   assert.match(source, /visibleMs[\s\S]{0,80}5000/)
   assert.match(source, /hiddenMs[\s\S]{0,80}30000/)

@@ -88,16 +88,6 @@ export async function runPipelineStages(stages) {
   }
 }
 
-// Manual settlement items: the player starts them; each runs as its own background task in the
-// shared background session (the 'character-design' and 'ledger' roles), not inside a turn's settlement.
-export const CHARACTER_DESIGN_ITEM = Object.freeze({
-  id: 'tavern.character-design',
-  trigger: 'manual',
-  requirement: 'Character design task started manually by the user. With empty design notes, pick the important characters needing a new or fuller design from the current story and existing files; with notes, follow them first. ',
-  protocol: "Load character-design with skill, then check this game's lorebook and existing files by name or alias with character_design_read. If the lorebook already defines a character, character_design_reuse completes it with no new file; call character_design_save only for new characters without a definition or to revise an existing design file. Leave variables, postures and story text untouched.",
-  system() { return this.requirement + this.protocol }
-})
-
 export function createLedgerItem({ rules }) {
   return Object.freeze({
     id: 'tavern.ledger',

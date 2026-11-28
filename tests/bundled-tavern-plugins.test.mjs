@@ -7,7 +7,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
+import { installBundledTavernPlugins, SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
 import { syncBundledTavernPlugins } from '../bin/service-lifecycle.mjs'
 import { createUserPluginInstaller } from '../tavern-plugin/lib/domain/user-plugin-install.js'
 import { DISABLED_FILE, RESTART_FILE, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
@@ -37,6 +37,36 @@ function makeSource(t, { version = '1.0.0', folder = FOLDER, name = folder } = {
   writeFileSync(path.join(dir, 'src', 'client', 'main.js'), '// source\n')
   return { root, dir }
 }
+
+test('人物设计随酒馆安装但默认停用，插件页启用后才进入加载配置', async t => {
+  const name = 'dsh-tavern-character-design'
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-character-design-'))
+  t.after(() => rmSync(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(path.join(profileDir, 'package.json'), '{}')
+  const install = () => installBundledTavernPlugins({ sourceRoot: fileURLToPath(new URL('../', import.meta.url)),
+    dataRoot, profileDir, packageName: name, logger: quiet })[0]
+  const installed = install()
+  assert.equal(installed.action, 'installed', installed.reason)
+  assert.ok(existsSync(path.join(installed.target, 'skills', 'character-design', 'SKILL.md')))
+  const sync = () => syncUserPlugins({ dataRoot, dshHome, logger: quiet })
+  const installer = createUserPluginInstaller({ dataRoot, sync })
+  const patch = path.join(profileDir, 'cordis.patch.yml')
+  const loaded = () => existsSync(patch) && readFileSync(patch, 'utf8').includes('tavern-user-plugin-' + name)
+  await sync()
+  assert.equal((await installer.list())[0].enabled, false)
+  assert.equal(loaded(), false)
+  await installer.enable(name)
+  assert.equal(loaded(), true)
+  assert.equal(install().action, 'skipped')
+  assert.equal((await installer.list())[0].enabled, true)
+  await installer.disable(name)
+  assert.equal(loaded(), false)
+  assert.equal(install().action, 'skipped')
+  assert.equal((await installer.list())[0].enabled, false)
+})
 
 test('服务启动同步函数会更新数据目录下的内置插件并在无改动时安静跳过', t => {
   const source = makeSource(t, { version: '1.0.0' })

@@ -25,8 +25,6 @@ function StatusPanelView(p) {
     }, []);
     const settle = view.settleStatus || "done";
     const guides = view.guides || [];
-    const characters = view.characterDesigns && view.characterDesigns.characters || [];
-    const designTask = view.characterDesignTask || {};
     // Card and world book edits enter an idle game by themselves (upstream auto-reload): the alert says what happened;
     // only a legacy copy or a failed reload offers a button.
     const cardUpdate = ["story", "script"].includes(view.mode || "story") && view.requestMode !== "sillytavern" && view.cardUpdate ? view.cardUpdate : null;
@@ -103,26 +101,6 @@ function StatusPanelView(p) {
                         h("button", { type: "button", className: "fork-status-guide-save", disabled: p.guideBusy || !guideDraftText, onClick: function () { p.addGuide(); } },
                             p.guideBusy ? "添加中…" : "添加")),
                     p.guideError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, p.guideError)) : null)),
-
-            view.showCharacterDesignPanel === true ? section("people", "人物档案",
-                h("button", { type: "button", className: "fork-status-link", disabled: running || ["running", "queued"].includes(designTask.status),
-                    title: "根据当前剧情设计或补充人物档案，可附加要求",
-                    onClick: function () { p.designCharacter(designTask.status === "failed" ? designTask.guidance : ""); } },
-                    designTask.status === "queued" ? "排队中…" : designTask.status === "running" ? "设计中…" : designTask.status === "failed" ? "重试" : "＋ 设计"),
-                h(React.Fragment, null,
-                    designTask.status === "failed" ? h("div", { className: "fork-status-alert", "data-kind": "error", role: "alert" }, h("span", null, designTask.error)) : null,
-                    designTask.status === "done" && designTask.published?.length ? h("p", { role: "status" }, "已写入世界书并同步到本局：" + designTask.published.join("、")) : null,
-                    designTask.status === "done" && designTask.reused?.length ? h("p", { role: "status" }, "已复用本局世界书：" + designTask.reused.join("、") + "，未重复建立档案。") : null,
-                    characters.length ? h("div", { className: "fork-status-people" }, characters.map(function (character, index) {
-                        const summary = character.identity || character.narrativeRole || "";
-                        const aliases = Array.isArray(character.aliases) && character.aliases.length ? character.aliases.join("、") : "";
-                        return h(TavernLazyDetails, { key: character.name || index,
-                            summary: h("summary", null, h("b", null, character.name), summary ? h("span", null, summary) : null),
-                            render: () => h("div", { className: "fork-status-person" },
-                                aliases ? h("p", null, h("em", null, "别名"), aliases) : null,
-                                (character.sections || []).map(function (s) { return h("p", { key: s.key }, h("em", null, s.label), s.text); }),
-                                h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(p.designRemoving) || running || ["running", "queued"].includes(designTask.status), onClick: function () { void p.removeCharacterDesign(character.name); } }, p.designRemoving === character.name ? "删除中…" : "删除这个人物档案")) });
-                    })) : h(EmptyState, { compact: true, noun: "人物档案" }))) : null,
 
             h(TavernPluginTasks, { sessionId: p.props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
             h(TavernPluginStatusSections, { sessionId: p.props.sessionId }),

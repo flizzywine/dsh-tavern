@@ -14,6 +14,8 @@ import { createScriptLibrary } from '../tavern-plugin/lib/domain/script-library.
 import { projectPureWritingRequest } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { projectPriorWritingReferences } from '../tavern-plugin/lib/domain/style-reference-request.js'
 import { createPluginBodyGeneration } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
+import { characterDesignArchive } from '../tavern-plugin/lib/host/character-design.js'
+import * as characterDesign from '../tavern-plugin/packages/dsh-tavern-character-design/lib/index.js'
 import * as stcontext from '../tavern-plugin/packages/dsh-tavern-STcontext/index.mjs'
 import * as styleRecall from '../tavern-plugin/packages/dsh-tavern-style-recall/lib/index.js'
 
@@ -302,6 +304,38 @@ test('正文生成默认值在插件与宿主设置间共用，且仅全局插�
   assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), { mode: 'host', hostRegex: true })
   assert.equal(settings.storyGenerationProvider, '')
   assert.equal(settings.storyGenerationMode, 'host')
+})
+
+test('人物设计插件可读旧档案，卸载后撤销面板接口与后台 Skill', { skip: !cordis }, async t => {
+  let chat = { id: 'chat-1', sessionId: 'game-1', mode: 'story',
+    characterDesignDocument: { characters: [{ name: '守灯人', design: { identity: '渡口向导' } }] } }
+  const skills = new Set()
+  const h = await harness(t, {
+    characterDesignRuntime: { archive: characterDesignArchive, foregroundRunning: () => false,
+      store: {
+        chatForSession: async () => structuredClone(chat),
+        async updateChat(id, mutate) { chat = mutate(structuredClone(chat)); return chat },
+      },
+    },
+    addSkillRoot({ owner, role }) {
+      assert.equal(role, 'background')
+      skills.add(owner)
+      return () => skills.delete(owner)
+    },
+  })
+  const call = (method, args = {}) => h.api.callHandler(characterDesign.name + '/' + method, { gameId: 'game-1', ...args })
+  assert.equal(h.api.characterDesignAvailable(), false)
+  await assert.rejects(call('read'), /插件未加载/)
+  const installed = h.root.plugin(characterDesign)
+  await installed.await()
+  assert.equal(h.api.characterDesignAvailable(), true)
+  assert.equal(skills.has(characterDesign.name), true)
+  assert.deepEqual((await call('read')).characters.map(({ name, identity }) => ({ name, identity })), [{ name: '守灯人', identity: '渡口向导' }])
+  await installed.dispose()
+  assert.equal(h.api.characterDesignAvailable(), false)
+  assert.equal(skills.has(characterDesign.name), false)
+  await assert.rejects(call('remove', { name: '守灯人' }), /插件未加载/)
+  assert.equal(chat.characterDesignDocument.characters[0].name, '守灯人')
 })
 
 test('STcontext 配置就绪后接管发送和重生成，停用后回退宿主并保留偏好', { skip: !cordis }, async t => {

@@ -1,0 +1,19 @@
+.character-design-panel { display: grid; gap: 12px; padding: 12px; overflow-wrap: anywhere; }
+.character-design-panel form, .character-design-panel label { display: grid; gap: 8px; }
+.character-design-panel form > button { justify-self: start; }
+.character-design-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  resize: vertical;
+  border: 1px solid var(--fork-hairline, #aaa);
+  border-radius: 6px;
+  background: var(--fork-floor, transparent);
+  color: inherit;
+  font: inherit;
+}
+.character-design-panel :is(p, h3) { margin: 0; }
+.character-design-panel details { padding: 8px 0; border-bottom: 1px solid var(--fork-hairline, #aaa); }
+.character-design-panel details p { margin: 6px 0; }
+.character-design-panel summary { cursor: pointer; }
+.character-design-panel [role="alert"] { color: var(--dsw-alias-state-error-primary, #b94c40); }

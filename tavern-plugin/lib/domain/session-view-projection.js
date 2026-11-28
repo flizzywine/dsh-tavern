@@ -9,7 +9,6 @@ import { createIncrementalReplyView } from './incremental-reply-view.js'
 import { sessionOpeningDescriptor } from './session-opening.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
-import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
 import playFeatures from '../../shared/play-features.cjs'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
@@ -43,7 +42,7 @@ export function createSessionViewProjection({
   readChanges, scheduleTemplateSync, warmCandidates, requestPerformance, readTavernSettings, readScript,
   scriptContinuity, groupOfMode, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
   liveCardUpdate, activityOf, cardUpdateStatus, agentRegistry, str, sessionResources, worldBooks,
-  sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPhoneChat,
+  sessionDebugEvidence, cardViewOf, projectLedgerTask, projectPhoneChat,
   readPromptTemplateGlobalVariables, sessionStore, readChatCard, workspaceViewOf, helperHistoryAccess,
   readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat,
   readCardStageMode = async () => NO_STAGE, readCardResourceVersions = async () => null,
@@ -235,13 +234,10 @@ export function createSessionViewProjection({
       // The automatic card reload, shown until the next turn.
       cardAutoReload: chat.cardAutoReload && Number(chat.cardAutoReload.turn) === latestStoryTurn ? { at: chat.cardAutoReload.at } : null,
       statusBarPlacement: runtimeSettings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-      showCharacterDesignPanel: runtimeSettings.showCharacterDesignPanel === true,
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
       ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
-      characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
-      characterDesignTask: projectCharacterDesignTask(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns,
       // Stable round ids in save-floor order. Clients derive display ordinals and
@@ -480,7 +476,6 @@ export function createSessionViewProjection({
     const settings = await readTavernSettings()
     return { ...fields, ...streamingRegenerationFields(chat),
       statusBarPlacement: settings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-      showCharacterDesignPanel: settings.showCharacterDesignPanel === true,
       forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
@@ -524,8 +519,6 @@ export function createSessionViewProjection({
       // Header state a background task rewrites without touching any message.
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
       ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
-      characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
-      characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)
     })
     // The banner lasts until the next turn: recompute it from the new latest turn.

@@ -598,6 +598,12 @@
 				assetUrl(file) {
 					return tavernPluginAssetUrl(ownerOf(this), file);
 				},
+				notifyResourceChanges(kinds) {
+					if (!Array.isArray(kinds) || kinds.some(kind => kind !== "cards" && kind !== "worldbooks")) {
+						throw new TypeError("notifyResourceChanges 当前只支持 cards 和 worldbooks");
+					}
+					notifyTavernDataChanged(kinds, "plugin:" + ownerOf(this));
+				},
 				// Where a game stands now (apiVersion 2): latest turn and whether a reply or settlement runs.
 				getTurnState(gameId) {
 					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getTurnState 需要 gameId"));

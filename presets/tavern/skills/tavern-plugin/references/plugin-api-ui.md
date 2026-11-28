@@ -177,6 +177,10 @@ new Audio(ctx.tavernUi.assetUrl('sfx/hit.mp3')).play()
 
 先用当前的值调用一次 `listener(data)`，之后本插件宿主侧每次 `tavern.publishState` 同一个 `name` 时再调用（内容没变不调用）。没有发布过时收到 `null`。返回取消函数，插件卸载时自动取消。
 
+## `notifyResourceChanges(kinds)`
+
+插件通过宿主保存人物卡或世界书后，可调用此方法刷新已打开的资源列表。`kinds` 接受 `cards` 和 `worldbooks`。
+
 ## `getTurnState(gameId)`、`watchTurnState(gameId, listener)`（第 2 版）
 
 `getTurnState` 返回 Promise，结果与宿主侧 `tavern.getTurnState` 相同。`watchTurnState` 先用当前状态调用一次 `listener(state)`，之后每次状态变化（开始或写完正文、结算开始或结束、回退等）再调用；返回取消函数，插件卸载时自动取消。只在这一局在当前页面打开时有通知。

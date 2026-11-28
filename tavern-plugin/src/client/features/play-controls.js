@@ -268,8 +268,6 @@
         }
 
 			function TavernStatusPanel(props) {
-				const [designRemoving, setDesignRemoving] = React.useState("");
-            const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const [error, setError] = usePersistentError("酒馆状态");
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const guideInputRef = React.useRef(null);
@@ -285,9 +283,6 @@
 			const liveState = useLiveTavernView(props.sessionId, stateKey);
 			const view = liveState.view;
 			const loadState = liveState.phase;
-            React.useEffect(function () {
-                if (view?.characterDesignTask?.status === "done" && view.characterDesignTask.published?.length) notifyTavernDataChanged(["worldbooks", "cards"], "character-design");
-            }, [props.sessionId, JSON.stringify(view?.characterDesignTask?.published || [])]);
 			const missingCard = isMissingTavernCardError(liveState.error);
 			const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
 			const readFailed = loadState === "unavailable" && !emptyView;
@@ -385,33 +380,6 @@
 				} catch (retryError) { tavernErrorHub.report("重试后台结算", retryError); }
 				finally { setSettlementRetryBusy(false); }
 			}
-			async function removeCharacterDesign(name) {
-				if (designRemoving || !await askConfirm("会同时移除本局世界书里为它生成的条目（手动改过的条目保留），人物卡的世界书库不变。", { title: "删除人物档案“" + name + "”？", confirmText: "删除", danger: true, hide: "character-design" })) return;
-				setDesignRemoving(name);
-				try {
-					const result = await rpc("removeCharacterDesign", { name: name }, props.sessionId);
-					if (result.worldbookEdited) tavernErrorHub.report("删除人物档案", new Error("档案已删除；本局世界书里“" + name + "”的条目被手动改过，已保留，如需移除请到世界书中处理。"));
-					liveTavernView.invalidate(props.sessionId);
-				} catch (error) { tavernErrorHub.report("删除人物档案", error); }
-				finally { setDesignRemoving(""); }
-			}
-			async function designCharacter(initialValue = "") {
-                await askTavernText({ title: "设计人物", description: "设计意见（选填）。留空则根据当前剧情和已有档案设计人物。", initialValue, allowEmpty: true, maxLength: 4000, confirmLabel: "开始设计",
-                    onSubmit: async guidance => { await rpc("designCharacter", { guidance }, props.sessionId); liveTavernView.invalidate(props.sessionId); }
-                });
-            }
-            React.useEffect(function () {
-                if (!["running", "queued"].includes(view?.characterDesignTask?.status)) return;
-                const refresh = () => liveTavernView.invalidate(props.sessionId);
-                const stopWatch = watchTavernState(props.sessionId, refresh);
-                const stopPoll = pollTaskWhile(refresh);
-                return () => { stopWatch(); stopPoll(); };
-            }, [props.sessionId, view?.characterDesignTask?.status]);
-			function characterDesignTime(ts) {
-				if (!ts) return "";
-				const date = new Date(ts);
-				return (date.getMonth() + 1) + "/" + date.getDate() + " " + String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
-			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status dsh-tavern-status-dashboard" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -425,7 +393,7 @@
 			return h(StatusPanelView, { view: view, running: running, props: props, guideDraft: guideDraft, setGuideDraft: setGuideDraft, guideBusy: guideBusy, guideError: guideError, guideInputRef: guideInputRef,
 				guideNotice, saveGuideLibrary, resourceLinkBusy, currentResourceBinding, noWorldBook, unavailableWorldBook, resourceLinkError, openWorldBookDetail,
                 addGuide: addGuide, removeGuide: removeGuide, cardUpdateBusy: cardUpdateBusy, cardUpdateError: cardUpdateError, applyUpdatedCard: applyUpdatedCard,
-				settlementRetryBusy: settlementRetryBusy, retrySettlement: retrySettlement, latestDebugTurn: latestDebugTurn, designCharacter: designCharacter, designRemoving, removeCharacterDesign });
+				settlementRetryBusy: settlementRetryBusy, retrySettlement: retrySettlement, latestDebugTurn: latestDebugTurn });
 		}
 
 		// @include status-panel.js

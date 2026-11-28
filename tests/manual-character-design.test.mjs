@@ -2,7 +2,8 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createManualCharacterDesign } from '../tavern-plugin/lib/domain/manual-character-design.js'
+import { createManualCharacterDesign } from '../tavern-plugin/packages/dsh-tavern-character-design/lib/task.js'
+import { characterDesignArchive } from '../tavern-plugin/lib/host/character-design.js'
 
 const fields = ['identity', 'narrativeRole', 'coreMotivation', 'innerConflict', 'personality', 'appearance', 'behaviorStyle', 'speechStyle', 'relationships', 'defaultPresentation', 'plotPotential']
 const design = { name: '张三', ...Object.fromEntries(fields.map(key => [key, '完整设计内容'])) }
@@ -12,10 +13,12 @@ function coordinator(read, write) {
     updateChat: async (_id, fn) => { const chat = await fn(structuredClone(read())); write(chat); return chat }
   } })
 }
-function fixture(runAgent, initial = {}, queue = false) {
+function fixture(runAgent, initial = {}, queue = false, signal) {
   let chat = { id: 'chat', sessionId: 'session', messages: [{ role: 'assistant', text: '正文保持原样', variables: [{ hp: 10 }] }], ...initial }
   const tasks = coordinator(() => chat, value => { chat = value })
   const api = createManualCharacterDesign({
+    archive: characterDesignArchive,
+    signal,
     beginTask: queue ? (value, _sessionId, onQueued) => tasks.begin(value, 'character-design', { queue: true, onQueued }) : value => tasks.begin(value, 'character-design'),
     store: { chatForSession: async () => structuredClone(chat), readCard: async () => ({ name: '人物卡' }),
       updateChat: async (_id, update) => { chat = update(structuredClone(chat)); return chat } },
@@ -77,4 +80,22 @@ test('玩家逐条删除人物档案：只删这一个人和本局为它生成�
   assert.deepEqual(run.get().characterDesignDocument.characters, [])
   assert.deepEqual(entries(), ['人物设计 · 李四'], 'a hand-edited entry stays')
   await assert.rejects(run.api.remove({ sessionId: 'session', name: '王五' }), /找不到人物档案/)
+})
+
+test('插件停用取消正在运行的人物设计，不提交已生成的草稿', async () => {
+  const lifetime = new AbortController()
+  const staged = Promise.withResolvers()
+  const run = fixture(async input => {
+    await input.onToolCall({ name: 'character_design_save', arguments: design })
+    staged.resolve()
+    await new Promise(resolve => input.signal.addEventListener('abort', resolve, { once: true }))
+  }, {}, false, lifetime.signal)
+  await run.api.start({ sessionId: 'session' })
+  await staged.promise
+  lifetime.abort(new Error('人物设计插件已停用'))
+  await run.api.wait('chat')
+  assert.equal(run.get().characterDesignDocument, undefined)
+  assert.equal(run.get().openingWorldbookSnapshot, undefined)
+  assert.equal(run.get().characterDesignTask.status, 'failed')
+  assert.match(run.get().characterDesignTask.error, /插件已停用/)
 })

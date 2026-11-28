@@ -16,6 +16,7 @@ import { normalizeGameSettings, coerceSetting, settingValues } from './domain/pl
 import { TAVERN_PLUGIN_API_VERSION } from './domain/plugin-manifest.js'
 import { createWritingPreparation } from './domain/writing-preparation.js'
 import { assertToolParameterKeys } from './domain/tool-schema-keys.js'
+import { CHARACTER_DESIGN_PLUGIN } from './host/character-design.js'
 
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
@@ -228,6 +229,7 @@ export function createTavernPluginApi(deps) {
     ...(deps.regenerateLatest ? { regenerateTurn: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
     ...(deps.damperSettings ? { damperSettings: 1 } : {}),
+    ...(deps.characterDesignRuntime ? { characterDesignRuntime: 1 } : {}),
     ...(deps.narrativeDamper ? { narrativeDamper: 1 } : {}) })
   // 叙事阻尼器设置的宿主实现（lib/domain/damper-settings.js）；缺失时如实报「不支持」，不假装成功。
   function requireDamperSettings() {
@@ -1220,6 +1222,15 @@ export function createTavernPluginApi(deps) {
     async getCardImage({ gameId } = {}) {
       const game = await requireGame(gameId)
       return (await deps.readCardImage?.(game.sessionId)) ?? null
+    },
+
+    // The bundled authoring plugin needs the same coordinator and transactions as other save writers.
+    async characterDesignRuntime() {
+      const owner = ownerOf(this)
+      if (owner !== CHARACTER_DESIGN_PLUGIN || await accessScope(owner) || !deps.characterDesignRuntime) {
+        throw new Error('人物设计运行接口仅供全局内置人物设计插件使用')
+      }
+      return deps.characterDesignRuntime
     },
 
     // This game's character design archive (人物设计档案): the one text and pictures share.
@@ -2690,6 +2701,7 @@ export function createTavernPluginApi(deps) {
   }
 
   return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolInstructionSections, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+    characterDesignAvailable: () => handlers.get(CHARACTER_DESIGN_PLUGIN + '/read')?.owner === CHARACTER_DESIGN_PLUGIN,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

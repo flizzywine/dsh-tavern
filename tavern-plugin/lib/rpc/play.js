@@ -8,6 +8,7 @@ import { rollbackAvailability } from '../domain/rollback-surface.js'
 import { applyPolishEdits, composePolishEdits } from '../domain/polish-review.js'
 import { randomUUID } from 'node:crypto'
 import playFeatures from '../../shared/play-features.cjs'
+import { CHARACTER_DESIGN_PLUGIN } from '../host/character-design.js'
 
 export const PLUGIN_REGENERATION_TARGET = Symbol('plugin regeneration target')
 
@@ -16,7 +17,7 @@ export const PLUGIN_REGENERATION_TARGET = Symbol('plugin regeneration target')
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings, conversationGuides, ctx,
-    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline,
+    ledgerEditor, manualLedger, messageDeletion, notifyPluginTimeline,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
@@ -103,11 +104,12 @@ export function createPlayHandlers(deps) {
       return sessionViews.response({ ...(args || {}), storyTranscript: 1 })
     },
     async designCharacter(args) {
-      return await manualCharacterDesign.start(args || {})
+      if (!pluginApi.characterDesignAvailable()) throw new Error('请先启用人物设计插件')
+      return await pluginApi.callHandler(CHARACTER_DESIGN_PLUGIN + '/start', { gameId: args?.sessionId, guidance: args?.guidance })
     },
     async removeCharacterDesign(args) {
-      if (agentRegistry.get(str(args?.sessionId))?.phase?.kind === 'running') throw new Error('前台正在生成，请完成后再删除人物档案。')
-      return await manualCharacterDesign.remove(args || {})
+      if (!pluginApi.characterDesignAvailable()) throw new Error('请先启用人物设计插件')
+      return await pluginApi.callHandler(CHARACTER_DESIGN_PLUGIN + '/remove', { gameId: args?.sessionId, name: args?.name })
     },
     async consolidateLedger(args) {
       if (!playFeatures.storyLedger) throw new Error('游玩台账已停用')
@@ -384,7 +386,8 @@ export function createPlayHandlers(deps) {
       const runs = backgroundAgentRunner.runs(args && args.sessionId)
         .filter(run => playFeatures.storyLedger || run.task !== 'ledger')
         .map(run => ({ ...run, name: names[run.task] || run.task }))
-      const catalog = describeTasks([...registered, ...(pluginApi?.taskCatalog?.() || [])], workflow?.table() || [], event => STORY_EVENTS[event] || event)
+      const available = registered.filter(item => item.task !== 'character-design' || pluginApi?.characterDesignAvailable?.())
+      const catalog = describeTasks([...available, ...(pluginApi?.taskCatalog?.() || [])], workflow?.table() || [], event => STORY_EVENTS[event] || event)
       const moments = storyEvents?.history(args && args.sessionId) || []
       const turns = buildRunTree({ moments, jobRuns: workflow?.runs(args && args.sessionId) || [], runs, catalog })
       return { runs, turns, catalog, members: listMembers(), moments, locks: backgroundAgentRunner.locks(args && args.sessionId) }

@@ -189,12 +189,12 @@
 
 - **用途：** 重要人物需要登场、补全或提前储备时，后台可建立完整人物方案；已有档案优先复用、补充，避免反复重造同一人物。
 - **设计内容：** 身份、剧情作用、动机、内在矛盾、性格、外貌、行为与说话方式、关系立场、默认衣着及后续剧情可能性。
-- **使用方式：** 属于所有人物卡后台结算中的按需能力，没有单独的玩家操作按钮；后台独立保存完整档案，酒馆状态提供只读查看，MVU 卡再按当前人物卡的变量结构单独提交适用状态。
+- 在「设置 → DSH Tavern → 插件」启用随酒馆安装的人物设计插件。打开游玩会话后，从右侧栏「＋ → 插件 → 人物设计」输入设计意见、发起后台任务或查看已有档案。插件默认停用。
 - **本局独立：** 人物档案和变量属于当前对话，不修改导入人物卡的原版；同一卡的新对话可以有不同的人物设计。完整档案不作为额外设计说明注入前台正文 Agent。
 - **边界：** 普通卡也能保存和复用人物设计，但不会因此自动获得 MVU 状态栏或变量系统；只为有持续剧情价值的重要人物按需建档，不给每个路人强制建档。
 - **设计不是剧情事实：** 可以设计人物的稳定性格、外貌与默认形象；是否在场、当前位置、关系进展及已经发生的事件仍以正文为准，不能把未来可能性写成既成事实。
 
-这一项独立于卡片工作台的“按个人喜好改卡”，也独立于“长期偏好”。展示时可配一组演示：人物出现 → 后台设计并结算 → 卡片状态中出现对应人物信息；具体展示取决于该卡的状态栏。
+设计完成后可在插件面板查看档案，并从本局世界书按姓名或别名召回设定。
 
 ### 互联网搜索：按需查阅外部资料
 
@@ -315,7 +315,7 @@
 | D07 | 压缩长对话上下文 | 界面：压缩操作 | 协调前台与后台压缩、展示执行结果；部分失败应按提示处理，不宣传为无损永久记忆。 |
 | D08 | 正则美化与 HTML 面板 | 自动：人物卡消息展示 | 人物卡正则处理、正文内 HTML 展示；展示能力与完整脚本运行能力分开说明。 |
 | D09 | Tavern Helper 与卡内脚本支持范围 | 自动 / 指南 | 已实现桥接、变量和界面联动；按实际脚本依赖判断，不承诺所有手机、数据库或酒馆插件可用。 |
-| D10 | 人物档案设计 | 界面：酒馆状态 → 人物设计档案 → 设计人物 | 直接显示在酒馆状态里。手动提出要求，为本局创建、补充和查看人物档案；空闲时执行，失败可重试。展开某个人物可单独删除，同时移除本局世界书里为它生成的条目（手动改过的保留），人物卡的世界书库不变；模型没有删除权限。 |
+| D10 | 人物档案设计 | 启用插件后从右侧栏「＋ → 插件 → 人物设计」进入 | 在面板里为本局创建、补充、查看和删除人物档案。空闲时执行，失败可重试。删除档案时会移除本局自动生成且尚未手动修改的世界书条目。 |
 | D11 | 酒馆生态兼容总览 | 指南：资源导入与运行支持 | 统一索引人物卡 PNG / JSON、世界书、预设导入、正则、MVU 与前端美化。逐项区分导入、编辑、展示和运行支持；链接具体教程及状态栏掉格式时的 MVU 转换。不是兼容模式，不承诺所有酒馆插件或原版运行语义可用。 |
 
 ### E. 长期偏好与长期偏好
@@ -470,7 +470,7 @@
 | 工作台与资源引用 | 任务选择、中央创作对话、右侧四库 | 有旧 workbench、libraries、editor 图，需更新旧文案 |
 | MVU 与正则美化 | 正文回执、右侧常驻状态栏；正文内 HTML 效果 | 有旧 MVU、regex 图，需复核 |
 | 长期偏好 | 右侧栏入口 → 访谈 → 草案 / 确认文本 → 新游戏默认开关 | 需要补拍；开场准备不再展示长期偏好 |
-| 后台人物设计 | 现有后台 Agent 发现需要 → 加载 Skill → 保存本局人物档案 | 普通卡与 MVU 卡共用；酒馆状态展示档案，玩家可逐条删除，MVU 状态另由变量结算维护 |
+| 后台人物设计 | 玩家从插件面板发起 → 后台 Agent 加载 Skill → 保存本局人物档案 | 普通卡与 MVU 卡共用。插件面板显示人物档案并支持逐条删除。 |
 | 互联网搜索 | 酒馆设置开关 → 新游戏 → 实际搜索调用与结果 | 需要在搜索能力可用时补拍；不能用开关截图代替真实搜索结果 |
 | 场景插画 | 开启配置、手动触发、图片版本、造型参考与重试保存 | 需要补拍 |
 | 预设、世界书与剧本绑定 | 库内操作入口 → 编辑 / 关联 → 保存后结果 | 需要按具体页面补拍 |
@@ -512,7 +512,7 @@
 - [界面入口与交互](../tavern-plugin/lib/client.js)、[服务端工具与操作](../tavern-plugin/lib/index.js)
 - [发布能力开关](../tavern-plugin/lib/domain/release-capabilities.js)
 - [历史检索](../tavern-plugin/lib/domain/history-recall.js)、[长期偏好](../tavern-plugin/lib/domain/user-preference-profile.js)
-- [后台人物设计 Skill](../presets/tavern-background/skills/character-design/SKILL.md)、[人物档案工具与即时保存](../tavern-plugin/lib/domain/character-design-document.js)、[独立采样阶段](../tavern-plugin/lib/domain/character-design-stage.js)
+- [人物设计插件](../tavern-plugin/packages/dsh-tavern-character-design/)、[后台人物设计 Skill](../tavern-plugin/packages/dsh-tavern-character-design/skills/character-design/SKILL.md)、[人物档案工具与即时保存](../tavern-plugin/lib/domain/character-design-document.js)
 - [后台任务与搜索授权](../tavern-plugin/lib/background-agent-runner.js)、[联网设置测试](../tests/tavern-settings.test.mjs)、[前台搜索授权测试](../tests/turn-orchestration.test.mjs)
 - [生图渠道目录](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-channels.js)、[绘图风格](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-style.js)
 - [内置卡片工作台 Skill](../presets/tavern/skills/)、[兼容模式停用记录](https://github.com/flizzywine/dsh-tavern/wiki/%E8%AE%BE%E8%AE%A1%EF%BC%9Asillytavern-compatibility-mode)

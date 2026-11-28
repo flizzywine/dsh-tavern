@@ -21,7 +21,7 @@ const settingOn = (deps, name) => async () => (await deps.readTavernSettings())[
 function definitions(deps) {
   return [
     { key: 'settlement', name: '变量结算', member: 'background',
-      does: `按本轮正文更新变量（MVU 状态栏）${playFeatures.postureSummary ? '和人物姿势' : ''}；开启后台人物设计时，顺带为新出场的人物写档案。`,
+      does: `按本轮正文更新变量（MVU 状态栏）${playFeatures.postureSummary ? '和人物姿势' : ''}。`,
       reads: '本轮正文、上一轮变量', writes: `本轮回复上的变量（MVU）${playFeatures.postureSummary ? '、人物姿势' : ''}、结算状态`,
       // The reply and regeneration flows queue it themselves, since they wait for its outcome
       // (and skip it while a regeneration's temporary turn is open): declared, not run here.

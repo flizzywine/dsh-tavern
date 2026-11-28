@@ -110,7 +110,7 @@ import { createScriptNavigation } from './domain/script-navigation.js'
 import { createSessionInventory } from './domain/session-inventory.js'
 import { createSessionViewSync } from './domain/session-view-sync.js'
 import { createCharacterDesignPublisher } from './domain/character-design-worldbook.js'
-import { createManualCharacterDesign } from './domain/manual-character-design.js'
+import { characterDesignArchive } from './host/character-design.js'
 import { prepareTemplateHistory, synchronizeTemplateHistory } from './domain/template-history.js'
 import { createServerTemplateSync, serverTemplateSyncState } from './domain/server-template-sync.js'
 import { createServerTemplateRuntime } from './domain/server-template-runtime.js'
@@ -1746,7 +1746,6 @@ export async function apply(ctx) {
     sessionDebugEvidence,
     cardViewOf,
     projectLedgerTask: chat => manualLedger.project(chat),
-    projectCharacterDesignTask: chat => manualCharacterDesign.project(chat),
 
     readPromptTemplateGlobalVariables,
     readGlobalVariablesVersion: promptTemplateGlobalVariables.version,
@@ -2210,18 +2209,6 @@ export async function apply(ctx) {
     // transitions so an open panel does not need a two-second full-view poll.
     onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
   })
-  const manualCharacterDesign = createManualCharacterDesign({
-    publishWorldbook: publishCharacterDesign,
-    store: { chatForSession, updateChat, readCard: readChatCard,
-      readWorldBook: (chat, card) => worldBooks.bound(chat.cardPath, card, chat) },
-    runAgent: input => backgroundAgentRunner.run(input), selection: backgroundModelSelection,
-    beginTask: async (chat, sessionId, onQueued) => {
-      if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再设计人物。')
-      return await backgroundTasks.begin(chat, 'character-design', { queue: true, onQueued })
-    },
-    withForegroundAgent: withForegroundTaskAgent,
-    onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
-  })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   await stageRuntime.start({hostLibrary, contextHost, dataRoot, uploads, activeStageSkin, workbenchAuthority,
@@ -2611,6 +2598,28 @@ export async function apply(ctx) {
     writeDefaultPlayerName: async playerName => (await updateTavernSettings({ defaultPlaySettings: { playerName } })).defaultPlaySettings.playerName,
     writePlayerName: setPlayerName,
     readCard: readPluginCard,
+    characterDesignRuntime: Object.freeze({
+      archive: characterDesignArchive,
+      publishWorldbook: publishCharacterDesign,
+      store: Object.freeze({
+        chatForSession: async gameId => {
+          if (typeof gameId !== 'string' || !gameId) return null
+          const chat = await chatForSession(gameId)
+          return chat && ['story', 'script'].includes(chat.mode || 'story') ? chat : null
+        },
+        updateChat,
+        readCard: readChatCard,
+        readWorldBook: (chat, card) => worldBooks.bound(chat.cardPath, card, chat)
+      }),
+      runAgent: input => backgroundAgentRunner.run(input), selection: backgroundModelSelection,
+      foregroundRunning: chat => agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' || chat.regenInProgress === true,
+      beginTask: async (chat, sessionId, onQueued, signal) => {
+        if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再设计人物。')
+        return await backgroundTasks.begin(chat, 'character-design', { queue: true, onQueued, signal })
+      },
+      withForegroundAgent: withForegroundTaskAgent,
+      onStatus: sessionId => sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }),
+    }),
     readCharacterDesigns: async sessionId => projectCharacterDesignDocument((await chatForSession(sessionId))?.characterDesignDocument),
     saveCharacterDesign: async (sessionId, input) => {
       const chat = await chatForSession(sessionId)
@@ -3771,7 +3780,7 @@ export async function apply(ctx) {
       agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
       pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
       candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings,
-      conversationGuides, ctx, ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion,
+      conversationGuides, ctx, ledgerEditor, manualLedger, messageDeletion,
       notifyPluginTimeline, pluginSettlementProgress, readBackgroundSuppression, readTavernSettings, reconcileStory,
       reconcileWhenIdle, regenBody, requestPerformance, retrySettlement, rollbackTurn,
       rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals, sessionStateForSession,

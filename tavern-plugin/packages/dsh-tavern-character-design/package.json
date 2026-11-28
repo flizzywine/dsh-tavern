@@ -1,0 +1,9 @@
+{
+  "name": "dsh-tavern-character-design",
+  "version": "1.0.0",
+  "description": "根据当前剧情设计人物档案，并将设定发布到本局的世界书。",
+  "type": "module",
+  "exports": { ".": "./lib/index.js", "./client": "./client.js" },
+  "dsh": { "client": { "platform": "web", "inject": ["dsh-tavern-plugin"] } },
+  "license": "AGPL-3.0-only"
+}

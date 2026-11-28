@@ -13,7 +13,7 @@ export function projectionFixture(overrides = {}) {
     cardUpdateStatus: async () => ({ available: false }), agentRegistry: { get() {} }, str: value => String(value ?? ''),
     sessionResources: { issue: (id, revision, kind) => ({ id, revision, kind }) }, worldBooks: { bound: async () => null },
     sessionDebugEvidence: () => ({ loaded: false, events: [], nodes: [] }), cardViewOf: value => value,
-    projectLedgerTask: () => null, projectCharacterDesignTask: () => null, projectPhoneChat: () => null,
+    projectLedgerTask: () => null, projectPhoneChat: () => null,
     readPromptTemplateGlobalVariables: async () => ({}), sessionStore: { get: () => ({ events }) },
     readChatCard: async () => card, workspaceViewOf: () => ({}), helperHistoryAccess: { issue: value => value }, ...overrides
   }

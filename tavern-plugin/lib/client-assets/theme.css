@@ -521,15 +521,6 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 .fork-status-guide-row > .fork-status-guide-save:hover:not(:disabled) { border-color: color-mix(in srgb, var(--fork-accent) 55%, var(--fork-hairline)); color: var(--fork-accent); }
 .fork-status-guide-row > .fork-status-guide-save:disabled { cursor: default; opacity: .45; }
 @media (hover: none) { .fork-status-guide-row > textarea.fork-status-guide-input, .fork-status-guide-row > .fork-status-guide-save { min-height: 38px; } }
-.fork-status-people { display: flex; flex-direction: column; }
-.fork-status-people details > summary { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; list-style: none; cursor: pointer; font-size: var(--fork-fs-meta); }
-.fork-status-people details > summary::-webkit-details-marker { display: none; }
-.fork-status-people details > summary:hover { background: var(--fork-hover); }
-.fork-status-people details > summary b { flex: none; color: var(--fork-ink); font-weight: 500; }
-.fork-status-people details > summary span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fork-ink-3); }
-.fork-status-person { padding: 4px 0 8px 10px; border-left: 2px solid var(--fork-hairline); margin: 2px 0 6px; }
-.fork-status-person p { margin: 0 0 4px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
-.fork-status-person em { margin-right: 6px; color: var(--fork-ink-3); font-style: normal; }
 .fork-status-foot { display: flex; align-items: flex-start; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--fork-hairline); }
 .fork-status-foot > .fork-status-menu { margin-right: auto; }
 .fork-status-menu > summary { padding: 1px 6px; border-radius: 6px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); line-height: 20px; list-style: none; cursor: pointer; }

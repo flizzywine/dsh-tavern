@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createManualLedger} from '../tavern-plugin/lib/domain/manual-ledger.js'
-import {createManualCharacterDesign} from '../tavern-plugin/lib/domain/manual-character-design.js'
+import {createManualCharacterDesign} from '../tavern-plugin/packages/dsh-tavern-character-design/lib/task.js'
+import {characterDesignArchive} from '../tavern-plugin/lib/host/character-design.js'
 import { withHostAgent } from '../tavern-plugin/lib/host/sessions.js'
 
 function chatRow(){
@@ -30,6 +31,7 @@ for (const [createTask, statusField] of [
   } }
   const withForegroundAgent = (id, work) => withHostAgent(host, id, work)
   const api = createTask({
+    archive: characterDesignArchive,
     store: {
       chatForSession: async () => structuredClone(chat), readCard: async () => ({ name: '人物卡' }),
       updateChat: async (_id, mutate) => { chat = mutate(structuredClone(chat)); return chat }
