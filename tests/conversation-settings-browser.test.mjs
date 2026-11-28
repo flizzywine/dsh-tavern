@@ -138,7 +138,7 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
     playerName: '阿良',
     preset: { id: 'presets/reborn.json', name: 'Reborn2.4.2' },
     model: { provider: 'reapi', model: 'deepseek/deepseek-v4.1-flash-thinking-max' },
-    backgroundTasks: { variables: true, posture: false, styleReference: false },
+    backgroundTasks: { variables: true, posture: false },
     webSearchEnabled: false,
     disabledTools: ['web_fetch']
   }
@@ -181,7 +181,7 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
           playerName: '默认旅人',
           preset: null,
           model: null,
-          backgroundTasks: { variables: true, posture: true, styleReference: true },
+          backgroundTasks: { variables: true, posture: true },
           webSearchEnabled: true,
           disabledTools: []
         }

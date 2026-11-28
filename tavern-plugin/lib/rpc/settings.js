@@ -218,7 +218,7 @@ export function createSettingsHandlers(deps) {
       const patch = {
         defaultPlaySettings: {
           playerName,
-          backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
+          backgroundTasks: { posture: tasks.posture !== false, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
           candidateTabs: conversationUsesExpandedCandidates(chat, currentSettings.candidateTabs),
           webSearchEnabled: chat.webSearchEnabled === true
         },

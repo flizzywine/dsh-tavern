@@ -19,7 +19,7 @@ export function createPlayHandlers(deps) {
     ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
-    retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
+    rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
     templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession, withForegroundTaskAgent } = deps
   // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
@@ -217,9 +217,6 @@ export function createPlayHandlers(deps) {
       notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
       return { view }
     },
-    async retryStyleReference(args) {
-      return { styleReference: await retryStyleReference(args?.sessionId, { target: 'next', guidance: args?.guidance }) }
-    },
     // 精修: apply the review of the latest reply (the background pre-review when it read this
     // text, a review now otherwise); with guidance, a second edit then follows only the guidance.
     // Both land as one body edit; the record keeps the original for the comparison and its undo.
@@ -282,7 +279,6 @@ export function createPlayHandlers(deps) {
       try {
         if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
         autoChoices.cancel(sessionId)
-        if (args?.restyle === true) await retryStyleReference(sessionId, { target: 'regenerate', guidance: args.styleGuidance })
         await requestPerformance.stage('regen.reconcile', () => reconcileStory(sessionId))
         polishPrereview.cancel(sessionId)
         // fresh：长按发送键 1 秒的直接重生成，跳过「正文被改过就带着它改写」的判断，

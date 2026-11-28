@@ -1,7 +1,6 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
-import { foregroundStyleReferenceEnabled } from './style-reference.js'
-import { stripStyleReferenceMarkup, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
+import { stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader, chatStampPath } from './chat-persistence.js'
@@ -255,8 +254,7 @@ const FRAME_INSTRUCTION_KIND = Object.freeze({
   guide: 'foreground.guide',
   card: 'foreground.card-context',
   'card-instruction': 'foreground.writing-rules',
-  script: 'foreground.script-reference',
-  'style-reference': 'foreground.script-reference'
+  script: 'foreground.script-reference'
 })
 
 function presetMiddleInstructions(snapshot) {
@@ -833,7 +831,7 @@ export function createTurnOrchestrator(options) {
       const macroState = templateMacros && state.macroState?.userName !== plannedUserName
         ? { ...templateMacros, userName: state.macroState?.userName } : templateMacros
       return planner.plan({ purpose: 'body', card, chat: macroState ? { ...state, macroState } : state, userText: runtimeUserText,
-        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state),
+        sessionId: input.sessionId, nativeTurn: turn, scriptReference, variableUpdate: variableUpdateFor(state),
         worldBookContext, worldBookTitleHints: foregroundWorldBook?.titleHints })
     }
     const plan = await planBody(chat)
@@ -1530,7 +1528,6 @@ export function createTurnOrchestrator(options) {
     const names = mode === 'script'
       ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
       : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
-    if (foregroundStyleReferenceEnabled(chat)) names.push(STYLE_REFERENCE_TOOL_NAME)
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
     const visible = names.filter(name => !disabled.has(name))

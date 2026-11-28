@@ -114,7 +114,6 @@ import { createManualCharacterDesign } from './domain/manual-character-design.js
 import { prepareTemplateHistory, synchronizeTemplateHistory } from './domain/template-history.js'
 import { createServerTemplateSync, serverTemplateSyncState } from './domain/server-template-sync.js'
 import { createServerTemplateRuntime } from './domain/server-template-runtime.js'
-import { createForegroundStyleReferenceTool, foregroundStyleReferenceEnabled, foregroundStyleReferencePrompt, foregroundStyleReferenceTurnSection, rememberStyleReference } from './domain/style-reference.js'
 import { STYLE_REFERENCE_TOOL_NAME } from './domain/style-reference-protocol.cjs'
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
@@ -314,7 +313,7 @@ import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { installWorldbookHost } from './host/worldbook.js'
 import { hasWorldbookCooldownHistory } from './domain/worldbook-auto-injection.js'
-import { WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
+import { pluginToolModeAllows, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -2191,14 +2190,6 @@ export async function apply(ctx) {
     if (!session?.id || backgroundAgentRunner.owns(session.id)) return
     polishPrereview.cancel(session.id)
   })
-  // Store a preference; the foreground chooses its reference when it next writes.
-  async function retryStyleReference(sessionId, { guidance = '' } = {}) {
-    const chat = await chatForSession(str(sessionId))
-    if (!foregroundStyleReferenceEnabled(chat)) throw Error('请先开启本局文风联想')
-    if (agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw Error('前台正在生成，请完成后再修改文风要求')
-    await updateChatHeader(chat.id, ['styleReferenceGuidance'], current => ({ ...current, styleReferenceGuidance: str(guidance).slice(0, 500) || '请换一种贴合当前场景的笔调参考。' }), { source: 'foreground.style-guidance' })
-    return null
-  }
   const publishCharacterDesign = createCharacterDesignPublisher({ worldBooks, readCard })
   const characterDesignDocuments = createCharacterDesignDocumentTools({
     publishWorldbook: publishCharacterDesign,
@@ -2455,6 +2446,7 @@ export async function apply(ctx) {
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     scriptLibrary,
+    toolInstructions: true,
     // A new turn sees the plugin manager's switch as soon as it is written,
     // even when the host has not disposed the old plugin fiber yet.
     writingPluginEnabled: folder => !existsSync(path.join(dataRoot, 'plugins', folder, DISABLED_FILE)),
@@ -3277,8 +3269,6 @@ export async function apply(ctx) {
       }
     }
     if (mode !== 'story') return sections
-    const styleReference = foregroundStyleReferenceTurnSection(header)
-    if (styleReference) sections.push(styleReference)
     if (header?.backgroundTasks?.foregroundCandidates === true) {
       const candidateExtras = await Promise.resolve(pluginApi.candidate?.sections?.({ gameId: str(input.gameId), turn: input.turn })).catch(() => []) || []
       for (const extra of candidateExtras) {
@@ -3682,9 +3672,10 @@ export async function apply(ctx) {
       // host registry: plugin tools that opted into play, plus any other
       // non-Tavern tool currently registered.
       try {
+        const mode = await turnOrchestrator.modeFor(sessionId)
         return (typeof ctx.tools?.schemas === 'function' ? ctx.tools.schemas() : [])
           .filter(tool => tool && typeof tool.name === 'string' && !controlledToolNames.has(tool.name))
-          .filter(tool => { const modes = pluginApi.toolModesFor(tool.name); return !modes || modes.includes('play') })
+          .filter(tool => pluginToolModeAllows(pluginApi.toolModesFor(tool.name), mode))
           .map(extraToolEntry)
           .sort((left, right) => left.name.localeCompare(right.name))
       } catch { return [] }
@@ -3782,7 +3773,7 @@ export async function apply(ctx) {
       candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings,
       conversationGuides, ctx, ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion,
       notifyPluginTimeline, pluginSettlementProgress, readBackgroundSuppression, readTavernSettings, reconcileStory,
-      reconcileWhenIdle, regenBody, requestPerformance, retrySettlement, retryStyleReference, rollbackTurn,
+      reconcileWhenIdle, regenBody, requestPerformance, retrySettlement, rollbackTurn,
       rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals, sessionStateForSession,
       sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str, templateHistoryFrom,
       turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession, withForegroundTaskAgent,
@@ -4070,12 +4061,12 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STYLE_REFERENCE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       writingPreparation: pluginApi.writingPreparation,
       // Input side: replay past bodies as calls of the submission tool.
-      styleReferencePrompt: chat => foregroundStyleReferencePrompt(chat, runtimePrompt('style-reference-recall'), runtimePrompt('style-reference')),
+      pluginToolInstructions: pluginApi.toolInstructionSections,
       foregroundCandidatePrompt: async chat => chat?.backgroundTasks?.foregroundCandidates === true
         ? foregroundCandidatePrompt(chat, await readExpandedCandidates(chat)) : '',
       bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
@@ -4235,11 +4226,6 @@ export async function apply(ctx) {
       isBackground: function (sessionId) { return backgroundAgentRunner.owns(sessionId) }
     })))
     tools.register(defineTool(createStoryContextTool()))
-    tools.register(defineTool(createForegroundStyleReferenceTool({
-      chatForSession,
-      isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
-      save: (chat, reference, turn) => updateChatHeader(chat.id, ['styleReferences'], current => ({ ...current, styleReferences: rememberStyleReference(current.styleReferences, reference, turn) }), { source: 'foreground.style-reference' })
-    })))
     registerGameplayTools({
       modTools,
       authorizeMod: (modId,chat)=>ctx.get('tavernManagedModules')?.enabled({modId,cardPath:chat.cardPath}) ?? false,

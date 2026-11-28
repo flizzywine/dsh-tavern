@@ -32,10 +32,6 @@ export async function load(url, context, next) {
     replace('    await options.waitReconcile?.(input.sessionId)', mark('prepare-start') + '\n    await options.waitReconcile?.(input.sessionId)')
     replace('    if (chat !== undefined) await options.beforeNextTurn?.(chat)', '    if (chat !== undefined) await options.beforeNextTurn?.(chat)\n' + mark('prepare-background-waited'))
     replace('    if (chat !== undefined) await options.syncWorldBook?.(chat)', '    if (chat !== undefined) await options.syncWorldBook?.(chat)\n' + mark('prepare-worldbook-synced'))
-  } else if (url.endsWith('/style-reference.js')) {
-    replace('    const taskRun = await beginTask(chat)', mark('style-reference-start') + '\n    const taskRun = await beginTask(chat)\n' + mark('style-reference-begun'))
-    replace("      if (!submitted) throw new Error('文风联想 Agent 未提交结果')", mark('style-reference-agent-done') + "\n      if (!submitted) throw new Error('文风联想 Agent 未提交结果')")
-    replace("      if (completed.status !== 'committed')", mark('style-reference-committed') + "\n      if (completed.status !== 'committed')")
   } else if (url.endsWith('/background-task-coordinator.js')) {
     replace('      async commit(input = {}) {', '      async commit(input = {}) {\n' + mark('commit-start') + '\ntry {')
     replace('      },\n      async fail(trace)', '} finally {' + mark('commit-return') + '}\n      },\n      async fail(trace)')

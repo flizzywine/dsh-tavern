@@ -75,7 +75,7 @@ async function loadCordis() {
 const cordis = await loadCordis()
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
 
-test('文风联想按卡绑定剧本库原文，只有开启后才选段，正文与纯净写作可用', { skip: !cordis }, async t => {
+test('文风联想全局共用一本小说，默认关闭，前台联想与后台选段互斥', { skip: !cordis }, async t => {
   const cards = { one: 'cards/a.json', another: 'cards/a.json', other: 'cards/b.json' }
   const source = 'materials/夜雨.txt'
   const chunks = Array.from({ length: 20 }, (_, order) => ({ id: 'chunk-' + order, order,
@@ -83,11 +83,15 @@ test('文风联想按卡绑定剧本库原文，只有开启后才选段，正�
   let book = { path: source, title: '夜雨.txt', chunks }
   const scriptLibrary = createScriptLibrary({ fileResources: { list: async () => book ? [source] : [] },
     readScript: async path => path === source ? book : undefined })
-  let stored = null
+  let stored = { bindings: { [cards.one]: { source, enabled: true } } }
   let answer = request => JSON.stringify([request.chunks[0].id])
   const runs = []
+  let tool, activate
   const h = await harness(t, {
     scriptLibrary,
+    toolInstructions: true,
+    tools: { register(definition, { when }) { tool = definition; activate = when } },
+    data: createPluginData({ store: memoryStore() }),
     resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
     cardPathOf: async gameId => cards[gameId],
     cardScope: async () => new Map([['card-plugin', { cards: [cards.one] }]]),
@@ -113,21 +117,23 @@ test('文风联想按卡绑定剧本库原文，只有开启后才选段，正�
   await assert.rejects(otherPlugin.getGameCardId({ gameId: 'other' }), { code: 'TAVERN_PLUGIN_SCOPE' })
   const rpc = (action, args) => h.api.callHandler(styleRecall.name + '/' + action, args)
   const turn = (gameId = 'one', options = {}) => h.api.turnContext({ gameId, turn: 8, storyTurn: 3, input: '描写长街雨水', ...options })
+  const exec = gameId => ({ agent: { session: { id: gameId } } })
+  const novel = (source, enabled) => ({ source, enabled, mode: 'novel', guidance: '' })
 
-  assert.deepEqual(await rpc('settings', { gameId: 'one' }), {
-    sources: [{ path: source, title: book.title }], binding: { source: '', enabled: false }
+  assert.deepEqual(await rpc('settings', {}), {
+    sources: [{ path: source, title: book.title }], settings: novel('', false), foregroundAvailable: true, reference: null
   })
-  await assert.rejects(rpc('save', { gameId: 'one', source: 'materials/不存在.txt', enabled: true }), /找不到/)
+  assert.deepEqual((await rpc('settings', { gameId: 'one' })).settings, novel('', false), '升级时等玩家选择全局小说')
+  await assert.rejects(rpc('save', { source: 'materials/不存在.txt', enabled: true }), /找不到/)
   assert.deepEqual(await turn(), [])
-  await Promise.all([
-    rpc('save', { gameId: 'one', source, enabled: true }),
-    rpc('save', { gameId: 'other', source, enabled: false })
-  ])
-  assert.deepEqual((await rpc('settings', { gameId: 'another' })).binding, { source, enabled: true })
   assert.deepEqual(await turn('other'), [])
+  await rpc('save', { source, enabled: true })
+  assert.equal(await activate(exec('one')), false, '小说选段不提供前台工具')
+  assert.deepEqual((await rpc('settings', { gameId: 'other' })).settings, novel(source, true))
   assert.deepEqual(await turn('one', { target: 'call' }), [])
   const [section] = await turn()
-  assert.deepEqual(runs, ['one'])
+  assert.deepEqual(await turn('other'), [section], '另一张人物卡使用同一本全局小说')
+  assert.deepEqual(runs, ['one', 'other'])
   assert.equal(section.writingReference, true)
   assert.match(section.text, /文风参考[\s\S]*雨水从长街尽头的挑檐滴落/)
   assert.doesNotMatch(section.text, /晨雾/)
@@ -142,6 +148,21 @@ test('文风联想按卡绑定剧本库原文，只有开启后才选段，正�
   const projected = projectPriorWritingReferences([nativeFrame, player, nativeFrame])
   assert.equal(projected[0].content[0].text, '其他插件内容')
   assert.equal(projected[2], nativeFrame)
+
+  await rpc('save', { source, enabled: true, mode: 'foreground', guidance: '写得克制一些' })
+  assert.deepEqual(await turn(), [])
+  assert.deepEqual(runs, ['one', 'other'])
+  assert.deepEqual(h.api.toolModesFor(tool.name), ['story'])
+  assert.equal(await activate(exec('another')), true)
+  assert.equal(await activate(exec('other')), true)
+  assert.equal(await activate(exec('unknown')), false)
+  assert.deepEqual(await h.api.toolInstructionSections('one', []), [])
+  assert.match((await h.api.toolInstructionSections('one', [tool.name]))[0].text, /写得克制一些/)
+  await assert.rejects(tool.execute({ quote: '示例' }, exec('unknown')), /未开启/)
+  assert.match(await tool.execute({ quote: '一阵雨落在深巷。', book: '《夜雨》' }, exec('one')), /继续写正文/)
+  assert.deepEqual((await rpc('settings', { gameId: 'one' })).reference, { quote: '一阵雨落在深巷。', book: '夜雨', author: '' })
+  assert.equal((await rpc('settings', { gameId: 'another' })).reference, null)
+  await rpc('save', { source, enabled: true })
 
   answer = () => '["不存在的片段"]'
   assert.deepEqual(await turn(), [])
@@ -160,10 +181,10 @@ test('文风联想按卡绑定剧本库原文，只有开启后才选段，正�
   assert.deepEqual(await pending, [])
   book = undefined
   assert.deepEqual(await turn(), [])
-  await rpc('save', { gameId: 'one', source, enabled: false })
-  assert.deepEqual((await rpc('settings', { gameId: 'another' })).binding, { source, enabled: false })
-  await rpc('save', { gameId: 'one', source: '', enabled: false })
-  assert.deepEqual(Object.keys(stored.bindings), [cards.other])
+  await rpc('save', { source, enabled: false })
+  assert.deepEqual((await rpc('settings', { gameId: 'another' })).settings, novel(source, false))
+  await rpc('save', { source: '', enabled: false })
+  assert.deepEqual(stored.bindings, { [cards.one]: { source, enabled: true } })
   await fiber.dispose()
   assert.deepEqual(await turn(), [])
 })
@@ -174,6 +195,7 @@ function turnMaterial(overrides = {}) {
 
 async function harness(t, overrides = {}) {
   const root = new cordis.Context()
+  if (overrides.tools) root.provide('tools', overrides.tools)
   // Test installation is the trusted source, independent of production API inference.
   const identities = new Map()
   const cardOwners = await overrides.cardScope?.() || new Map()
@@ -858,7 +880,7 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   assert.deepEqual(h.api.toolModesFor('wrongbook_lookup'), ['card'])
   assert.equal(h.api.toolModesFor('narrative_anchor_read'), null, '没声明的插件工具保持原样')
   assert.throws(() => tavern.toolModes({ name: 'tavern_read_variables', modes: ['card'] }), /插件自己注册/)
-  assert.throws(() => tavern.toolModes({ name: 'x_tool', modes: ['story'] }), /play、card/)
+  assert.throws(() => tavern.toolModes({ name: 'x_tool', modes: ['background'] }), /play、card/)
   tavern.toolSkills({ name: 'wrongbook_lookup', skills: ['wrongbook', 'wrongbook'] })
   assert.deepEqual(h.api.toolSkillsFor('wrongbook_lookup'), ['wrongbook'])
   assert.equal(h.api.toolSkillsFor('narrative_anchor_read'), null, '没声明的插件工具始终提供')

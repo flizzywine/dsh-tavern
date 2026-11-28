@@ -83,22 +83,6 @@ function StatusPanelView(p) {
             view.mode === "script" && view.scriptProgress ? h(ScriptNavigation, { sessionId: p.props.sessionId, cursor: view.scriptProgress.cursor, total: view.scriptProgress.totalChunks, chunkSize: view.scriptProgress.chunkSize,
                     busy: running || view.activity?.busy || view.regenInProgress }) : null,
 
-            view.styleReferenceEnabled && view.styleReference ? h(packUi.StageSection, { title: "最近一次文风联想", foldKey: "style-reference" },
-                h("div", { className: "dsh-tavern-style-head" },
-                    // The writer skipped the call on the latest reply: say so, with the turn the passage is from.
-                    Number(view.latestAssistantTurn) > Number(view.styleReference.afterTurn) ? h("span", { className: "dsh-tavern-style-missed", title: "最新一轮正文写作时没有调用文风联想" }, "本轮未联想 · 第 " + view.styleReference.afterTurn + " 轮") : null,
-                    view.styleReference.book ? h("span", { className: "dsh-tavern-style-source", title: "《" + view.styleReference.book + "》" + (view.styleReference.author || "") }, "《" + view.styleReference.book + "》" + (view.styleReference.author || "")) : null,
-                    p.styleEditing ? null : h("button", { type: "button", disabled: p.styleBusy || running || view.regenInProgress, onClick: () => p.setStyleEditing(true) }, p.styleBusy ? "保存中…" : "设置下轮偏好")),
-                h("blockquote", { className: "dsh-tavern-style-reference" + (p.styleExpanded ? " is-expanded" : ""), role: "button", tabIndex: 0,
-                    "aria-expanded": p.styleExpanded, title: p.styleExpanded ? "收起全文" : "展开全文", onClick: () => p.setStyleExpanded(value => !value),
-                    onKeyDown: event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); p.setStyleExpanded(value => !value); } } }, view.styleReference.quote),
-                p.styleEditing ? h("div", { className: "dsh-tavern-guide-add" },
-                    h(TextArea, { rows: 2, maxLength: 500, autoFocus: true, value: p.styleDraft, "aria-label": "下轮文风偏好", placeholder: "要求（可选），例如：要金庸的打斗描写；不要鲁迅", onChange: p.setStyleDraft }),
-                    h("div", { className: "dsh-tavern-style-actions" },
-                        h("button", { type: "button", disabled: p.styleBusy, onClick: () => { p.setStyleEditing(false); p.setStyleDraft(""); } }, "取消"),
-                        h("button", { type: "button", disabled: p.styleBusy || running || view.regenInProgress, onClick: p.retryStyleReference }, p.styleBusy ? "保存中…" : "设置下轮偏好"))) : null,
-                p.styleError ? h("div", { className: "fork-status-alert", "data-kind": "error", role: "alert" }, p.styleError) : null) : null,
-
             section("guide", "Guide", h("span", { className: "fork-status-count", title: "Guide 会注入之后的正文、候选与变量结算" }, guides.length ? String(guides.length) : ""),
                 h(React.Fragment, null,
                     guides.length ? h("ul", { className: "fork-status-guides" }, guides.map(function (guide, index) {

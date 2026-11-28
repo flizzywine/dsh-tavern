@@ -16,7 +16,7 @@ import {
   STORY_SUBMIT_TOOL_NAME,
   buildStorySubmitWireSchema
 } from './story-tool-submission.js'
-import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools, pluginToolModeAllows } from './foreground-tools.js'
 import { projectEnvelopeRequest, projectHistoryAsToolCalls } from './history-tool-call.js'
 import { isAutoToolOnlyModel } from './tool-protocol-enforcement.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
@@ -27,9 +27,8 @@ import { frameUserInput } from './agent-input-frame.js'
 import { hasProviderContent } from './provider-message-content.js'
 import { appendSessionEvent } from './session-events.js'
 import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
-import { foregroundStyleReferenceEnabled } from './style-reference.js'
 import { projectPriorWritingReferences, projectWithoutStyleReference } from './style-reference-request.js'
-import { STYLE_REFERENCE_SECTION, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
+import { STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
 import systemPromptSections from './system-prompt-sections.cjs'
 
 const { buildSystemSectionSpans } = systemPromptSections
@@ -424,7 +423,6 @@ export function createNativePlayOrchestrationStrategy(options) {
         step: Math.max(1, Number(payload.step) || 1),
         scope: 'foreground',
         snapshot: snapshot || null,
-        styleReferenceEnabled: foregroundStyleReferenceEnabled(input.chat),
         // Resolved here because the request projection below is synchronous.
         historyToolCall: submitOffered,
         storyOutputToolCall: outputWanted && submitVisible,
@@ -517,8 +515,9 @@ export function createNativePlayOrchestrationStrategy(options) {
     const nativeMessages = currentMessages.some(isNativeStablePrefix) ? currentMessages.filter(message => !isNativeStablePrefix(message)) : currentMessages
     const nativeRequest = nativeMessages === optionsValue.messages
       ? optionsValue : Object.assign({}, optionsValue, { messages: nativeMessages })
-    const baseRequest = staged.scope === 'foreground' && staged.styleReferenceEnabled === false
-      ? projectWithoutStyleReference(nativeRequest) : nativeRequest
+    const baseRequest = staged.scope === 'foreground' ? projectWithoutStyleReference(nativeRequest, {
+      keepCurrentTools: nativeRequest.tools?.some(tool => tool.name === STYLE_REFERENCE_TOOL_NAME)
+    }) : nativeRequest
     // 前台正文的 front 已由 assembleSystemPrompt 写入原生 system prompt；后台任务不走该钩子，须保留完整前／后段。
     const projectionSnapshot = staged.scope === 'background'
       ? staged.snapshot
@@ -681,7 +680,6 @@ export function createNativePlayOrchestrationStrategy(options) {
     }
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
-    const group = mode === 'card' ? 'card' : 'play'
     // Some hosts supply tool schemas separately from the waterfall assembly.
     // Missing metadata must not assert that the host offers no tools.
     const knownTools = Array.isArray(assembly.tools) || Array.isArray(input.toolDefinitions)
@@ -693,7 +691,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       if (options.controlledToolNames.has(schema.name)) return visible.has(schema.name)
       if (!unlocked.has(schema.name)) return false
       const modes = options.pluginToolModes ? options.pluginToolModes(schema.name) : null
-      return !modes || modes.includes(group)
+      return pluginToolModeAllows(modes, mode)
     })
     // Record the plugin/extra tools before applying the per-game switches: the
     // settings panel must keep listing a tool the player has switched off.
@@ -741,10 +739,9 @@ export function createNativePlayOrchestrationStrategy(options) {
       }
     }
     if (playMode) {
-      const styleReference = finalTools.some(tool => tool.name === STYLE_REFERENCE_TOOL_NAME)
-        ? options.styleReferencePrompt?.(input.chat) : ''
-      if (styleReference) sections.push({ name: STYLE_REFERENCE_SECTION, text: styleReference })
-      const seriesPrompt = JSON.stringify([frontTexts.get(input.sessionId), styleReference || ''])
+      const instructions = await options.pluginToolInstructions?.(input.sessionId, finalTools.map(tool => tool.name)) || []
+      sections.push(...instructions)
+      const seriesPrompt = JSON.stringify([frontTexts.get(input.sessionId), instructions])
       renderedSeriesPrompts.set(input.sessionId, createHash('sha256').update(seriesPrompt).digest('hex'))
     }
     if (mode === 'story' && options.foregroundCandidatePrompt) {

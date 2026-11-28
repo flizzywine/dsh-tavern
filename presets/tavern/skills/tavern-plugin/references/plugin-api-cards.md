@@ -83,9 +83,11 @@ ctx.tavern.toolNetwork({ name: 'reference_lookup', capability: 'search' })
 
 此接口只声明插件自己的工具，不能覆盖 `web_search`、`web_fetch` 等内置工具。返回注销函数，卸载插件时也会自动清理。无需读取 Tavern 的存储文件。`toolModes` 与联网声明独立，可同时使用。
 
-### `toolModes({ name, modes })`
+### `toolModes({ name, modes, instruction? })`
 
-插件用 DSH 的 `tools` 服务注册的工具，默认在游玩和卡片工作台的对话里都会出现。用这个接口限定它出现在哪：`modes` 取 `play`（游玩时写正文的请求）、`card`（卡片工作台），一项或两项。
+插件用 DSH 的 `tools` 服务注册的工具，默认在游玩和卡片工作台的对话里都会出现。`modes` 接受 `play`（游玩）和 `card`（卡片工作台）。检查 `capabilities.toolInstructions === 1` 后，还可用 `story`（自由游玩）或 `script`（剧本游玩）限定游玩模式。
+
+`instruction` 可为字符串或接收 `{ gameId }` 的函数。宿主仅在该工具出现在原生正文请求中时加入这段系统说明，空字符串会跳过。此选项也用 `capabilities.toolInstructions === 1` 检查支持。
 
 ```js
 ctx.tavern.toolModes({ name: 'wrongbook_lookup', modes: ['card'] })  // 只给卡片工作台用

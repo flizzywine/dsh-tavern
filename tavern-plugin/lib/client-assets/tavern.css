@@ -966,17 +966,6 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-guide-list { display: flex; flex-direction: column; gap: 6px; }
 .dsh-tavern-guide-item { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-guide-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
-.dsh-tavern-style-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 6px; }
-.dsh-tavern-style-head > .dsh-tavern-status-label { margin: 0; flex-shrink: 0; }
-.dsh-tavern-style-missed { margin-left: 6px; font-size: 11px; font-weight: normal; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-style-source { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-style-retry { margin-left: auto; flex-shrink: 0; font: inherit; font-size: 12px; color: var(--dsw-alias-label-tertiary); background: transparent; border: 0; padding: 0; cursor: pointer; }
-.dsh-tavern-style-retry:hover:not(:disabled) { color: var(--dsw-alias-label-primary); text-decoration: underline; text-underline-offset: 3px; }
-.dsh-tavern-style-retry:disabled { opacity: .55; cursor: default; }
-.dsh-tavern-style-reference { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.7; white-space: pre-wrap; cursor: pointer;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.dsh-tavern-style-reference.is-expanded { display: block; -webkit-line-clamp: unset; }
-.dsh-tavern-style-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .dsh-tavern-guide-add { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .dsh-tavern-guide-add textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 54px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-script-preview { display: flex; flex-direction: column; gap: 7px; }

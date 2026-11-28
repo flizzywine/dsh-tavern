@@ -6,7 +6,6 @@ import { createScopedMessages } from './scoped-messages.js'
 import { createSessionStateView, settlementTurn } from './chat-session-state.js'
 import { rescueHistoryNotice } from './chat-history-rescue.js'
 import { createIncrementalReplyView } from './incremental-reply-view.js'
-import { foregroundStyleReferenceEnabled, latestStyleReference } from './style-reference.js'
 import { sessionOpeningDescriptor } from './session-opening.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
@@ -239,8 +238,6 @@ export function createSessionViewProjection({
       showCharacterDesignPanel: runtimeSettings.showCharacterDesignPanel === true,
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
-      styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
       ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
@@ -523,8 +520,6 @@ export function createSessionViewProjection({
       playerName: str(chat.macroState?.userName).trim() || '你',
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
-      styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       // Header state a background task rewrites without touching any message.
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,

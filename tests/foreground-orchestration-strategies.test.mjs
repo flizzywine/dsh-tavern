@@ -8,7 +8,6 @@ import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationS
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
-import { foregroundStyleReferenceEnabled, foregroundStyleReferencePrompt, foregroundStyleReferenceTurnSection } from '../tavern-plugin/lib/domain/style-reference.js'
 import { STYLE_REFERENCE_TOOL_NAME } from '../tavern-plugin/lib/domain/style-reference-protocol.cjs'
 
 function userMessage(text) {
@@ -45,19 +44,20 @@ function strategies(overrides = {}) {
   return { value: createForegroundOrchestrationStrategies(options), calls, chats }
 }
 
-test('关闭文风联想后，发送与重复重写都清理历史提示和工具记录', async () => {
+test('文风插件接手前台工具后，保留本轮调用并清理旧提示和旧调用', async () => {
   const style = { name: STYLE_REFERENCE_TOOL_NAME }
   const other = { name: 'tavern_read_variables' }
   const chat = { mode: 'story', backgroundTasks: { styleReference: true } }
   const strategy = createNativePlayOrchestrationStrategy({
     modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
-    visibleTools: async () => [other.name, ...(foregroundStyleReferenceEnabled(chat) ? [style.name] : [])],
-    controlledToolNames: new Set([style.name, other.name]),
-    styleReferencePrompt: value => foregroundStyleReferencePrompt(value, '选择范文', '借鉴笔调'),
+    visibleTools: async () => [other.name],
+    controlledToolNames: new Set([other.name]),
+    pluginToolModes: name => name === style.name ? ['story'] : null,
+    pluginToolInstructions: (_gameId, names) => names.includes(style.name) ? [{ name: 'tavern-plugin:style:instruction', text: '插件范文说明' }] : [],
     prepareTurn: async ({ userText }) => ({ frame: { userInput: { projectedText: userText } } }),
     appendFrame: ({ messages }) => ({ messages, receipt: {} }), recordFrame() {}
   })
-  const reminder = foregroundStyleReferenceTurnSection(chat).text
+  const reminder = '<style_reference_reminder>旧功能要求</style_reference_reminder>'
   const call = (id, name) => ({ type: 'tool-call', id, name, arguments: '{}' })
   const result = (toolCallId, text) => ({ role: 'tool', toolCallId, content: [{ type: 'text', text }] })
   const priorInput = userMessage('上一轮玩家输入')
@@ -80,7 +80,7 @@ test('关闭文风联想后，发送与重复重写都清理历史提示和工�
   ]
   const saved = structuredClone(history)
   const current = userMessage('继续')
-  const oldSystem = foregroundStyleReferencePrompt(chat, '选择范文', '借鉴笔调')
+  const oldSystem = '<foreground_style_reference>旧功能要求</foreground_style_reference>'
   const assembly = () => strategy.assembleSystemPrompt({ tools: [style, other] }, { chat, sessionId: 'game' })
   async function prepare(turn, incoming) {
     const assembled = await assembly()
@@ -89,31 +89,33 @@ test('关闭文风联想后，发送与重复重写都清理历史提示和工�
   }
   const { assembled, step } = await prepare(2, current)
   assert.deepEqual(assembled.tools, [style, other])
-  assert.ok(assembled.sections.some(section => section.text === oldSystem))
+  assert.ok(assembled.sections.some(section => section.text === '插件范文说明'))
   assert.equal(step.startsRequestSeries, true)
 
   const oldRequest = {
     sessionId: 'game', messages: history, system: oldSystem + '\n\n人物卡',
     tools: [style, other], toolHistory: { tools: [style, other], updates: [] }
   }
-  assert.equal(strategy.projectRequest(oldRequest), null, '开启时允许回放文风工具')
+  const currentCall = { role: 'assistant', content: [call('current', style.name)] }
+  const currentResult = result('current', '本轮范文')
+  const activeProjection = strategy.projectRequest({ ...oldRequest, messages: [...history, current, currentCall, currentResult] })
+  assert.doesNotMatch(JSON.stringify(activeProjection.messages), /旧范文|旧功能要求/)
+  assert.deepEqual(activeProjection.messages.slice(-2), [currentCall, currentResult])
+  assert.ok(activeProjection.tools.includes(style))
   for (const turn of [3, 4, 5, 6]) {
-    // Either of the two controls can remove the tool.
-    chat.backgroundTasks.styleReference = turn === 3
-    chat.disabledForegroundTools = turn === 3 ? [style.name] : []
+    chat.disabledForegroundTools = [style.name]
     const reroll = turn > 3
     const incoming = reroll ? pluginMessage('user', '改写这一轮', 'dsh-tavern-regen') : current
     const off = await prepare(turn, incoming)
     assert.deepEqual(off.assembled.tools, [other])
-    assert.equal(off.assembled.sections.some(section => section.name === 'tavern:foreground-style-reference'), false)
-    assert.equal(foregroundStyleReferenceTurnSection(chat), null)
+    assert.equal(off.assembled.sections.some(section => section.text === '插件范文说明'), false)
     assert.equal(off.step.startsRequestSeries, turn === 3 ? true : undefined)
     const messages = [...history, current]
     if (reroll) {
       messages.push({ role: 'assistant', content: [{ type: 'text', text: '上一次尝试' }] }, ...off.step.messages,
         { ...pluginMessage('user', reminder, 'dsh-tavern', 'foreground-frame'), id: 'cached-frame' })
     }
-    const projected = strategy.projectRequest({ ...oldRequest, messages })
+    const projected = strategy.projectRequest({ ...oldRequest, tools: off.assembled.tools, messages })
     const wire = JSON.stringify(projected)
     assert.doesNotMatch(wire, /style_reference|旧范文|先用文风工具|上一次尝试/)
     assert.match(wire, /保留设定/)

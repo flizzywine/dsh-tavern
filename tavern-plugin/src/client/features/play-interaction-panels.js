@@ -258,7 +258,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             const timer = setInterval(() => setReviewSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
             return () => clearInterval(timer);
         }, [reviewing]);
-        const styleState = useLiveTavernView(props.sessionId, "regen-style");
         const statusView = useLiveTavernView(props.sessionId, "regen-status");
         const wasRegenerating = React.useRef(false);
         // rpc 的响应可能迟迟不回（结算拖住、连接断了），正文却已经写进存档。视图看得到
@@ -292,7 +291,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             }, 30000);
             return function () { clearTimeout(timer); };
         }, [panel, props.sessionId, statusView.view]);
-        const styleEnabled = styleState.view?.styleReferenceEnabled === true;
         const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
         React.useEffect(function () { if (opened) setGuidance(interactions.guidance(props.sessionId)); }, [opened, props.sessionId]);
         const h = React.createElement;
@@ -301,7 +299,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const loadingText = reviewing
             ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "")
             : panel && panel.phase === "loading"
-                ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "")
+                ? (panel.rewrite ? "正在按意见改写正文…" : "")
                 : "";
         // 重新生成一提交，宿主就把会话报成运行中（页面上的发送键要立刻换成停止）；
         // 这次还在等正文落盘的面板不能跟着消失，否则「正在重新生成正文…」只剩一瞬。
@@ -310,7 +308,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         // 正文区也在等新正文），表单留在原地只会让人再点一次「生成并替换正文」。
         if (panel.phase === "loading" && !loadingText) return null;
         function generate() {
-            return interactions.regenerateBody(panel, guidance, { restyle: styleEnabled && Boolean(guidance.trim()) });
+            return interactions.regenerateBody(panel, guidance);
         }
         // 精修: like a regeneration, the panel waits and closes once the polished reply is in;
         // the comparison and its undo live on the 精修 page.

@@ -1,7 +1,7 @@
 {
   "name": "dsh-tavern-style-recall",
-  "version": "1.0.0",
-  "description": "为人物卡绑定剧本库里的小说，由后台 Agent 为每轮正文挑选文风参考。",
+  "version": "1.1.0",
+  "description": "全局配置文风联想，可绑定剧本库里的小说，或由前台模型自行联想范文。",
   "type": "module",
   "exports": { ".": "./lib/index.js", "./client": "./client.js" },
   "dsh": { "client": { "platform": "web", "inject": ["dsh-tavern-plugin"] } },

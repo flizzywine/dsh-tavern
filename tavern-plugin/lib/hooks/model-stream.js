@@ -7,7 +7,6 @@ import { installCompactionRequestProjection } from '../domain/compaction-request
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
 import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
-import { foregroundStyleReferenceEnabled } from '../domain/style-reference.js'
 import { projectWithoutStyleReference } from '../domain/style-reference-request.js'
 import legacySeeds from '../domain/session-seed-trajectory.cjs'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
@@ -133,9 +132,9 @@ export function registerModelStreamHooks({
       : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks', 'disabledForegroundTools'])
+    const head = await chatHeaderForSession(str(request.sessionId), [])
     if (!usesStoryCompaction(head)) return { request: routed }
-    if (foreground && !foregroundStyleReferenceEnabled(head)) routed = projectWithoutStyleReference(routed)
+    if (foreground) routed = projectWithoutStyleReference(routed)
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.

@@ -162,11 +162,11 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         guide.set(null);
         if (panel.previous) candidates.set(panel.previous);
     }
-    async function regenerateBody(panel, guidance, { restyle = false } = {}) {
+    async function regenerateBody(panel, guidance) {
         if (!panel || regeneration.getSnapshot() !== panel || pendingBodies.has(panel.sessionId)) return;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(panel.sessionId, text); else guidanceBySession.delete(panel.sessionId);
-        const loading = regeneration.set({ ...panel, phase: "loading", error: "", rewrite: text !== "", restyle });
+        const loading = regeneration.set({ ...panel, phase: "loading", error: "", rewrite: text !== "" });
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
             // The page cannot see the save's busy marker until something refreshes it, and
@@ -175,7 +175,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             notifyRegenerating(panel.sessionId, true);
             let sessionRunning = false;
             try {
-                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                const result = await rpc("regenBody", { guidance: text }, panel.sessionId);
                 sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);

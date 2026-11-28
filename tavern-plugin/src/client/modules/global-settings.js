@@ -80,7 +80,6 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
             h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
                 TAVERN_PLAY_FEATURES.postureSummary ? toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true) : null,
-                toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 children,
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                 toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),

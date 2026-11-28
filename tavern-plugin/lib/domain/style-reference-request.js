@@ -55,24 +55,26 @@ function isStyleDeclaration(tool) {
   return tool?.name === STYLE_REFERENCE_TOOL_NAME
 }
 
-/** Remove inactive style instructions and tool exchanges from a request copy. */
-export function projectWithoutStyleReference(request) {
+/** Retire the legacy system instructions and exchanges from earlier turns. */
+export function projectWithoutStyleReference(request, { keepCurrentTools = false } = {}) {
   const source = request.messages ?? []
+  const input = keepCurrentTools ? source.findLastIndex(isTurnInput) : -1
   const styleCallIds = new Set()
-  for (const message of source) {
+  for (const [index, message] of source.entries()) {
+    if (input >= 0 && index >= input) break
     if (message.role !== 'assistant') continue
     for (const block of message.content ?? []) {
       if (isStyleCall(block)) styleCallIds.add(block.id)
     }
   }
-  const messages = source.map(message => projectMessage(message, styleCallIds))
+  const messages = source.map((message, index) => input >= 0 && index >= input ? message : projectMessage(message, styleCallIds))
   const messagesChanged = messages.some((message, index) => message !== source[index])
   const system = typeof request.system === 'string' ? stripStyleReferenceMarkup(request.system) : request.system
-  const tools = request.tools?.some(isStyleDeclaration)
+  const tools = !keepCurrentTools && request.tools?.some(isStyleDeclaration)
     ? request.tools.filter(tool => !isStyleDeclaration(tool)) : request.tools
   const history = request.toolHistory
-  const staleHistory = history?.tools?.some(isStyleDeclaration) ||
-    history?.updates?.some(update => update.additions?.some(isStyleDeclaration))
+  const staleHistory = !keepCurrentTools && (history?.tools?.some(isStyleDeclaration) ||
+    history?.updates?.some(update => update.additions?.some(isStyleDeclaration)))
   if (!messagesChanged && system === request.system && tools === request.tools && !staleHistory) return request
 
   const projected = { ...request }

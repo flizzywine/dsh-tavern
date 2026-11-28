@@ -276,11 +276,6 @@
 			const [guideBusy, setGuideBusy] = React.useState(false);
             const [guideNotice, setGuideNotice] = React.useState("");
 			const [guideError, setGuideError] = usePersistentError("Guide");
-            const [styleDraft, setStyleDraft] = React.useState("");
-            const [styleBusy, setStyleBusy] = React.useState(false);
-            const [styleError, setStyleError] = React.useState("");
-            const [styleEditing, setStyleEditing] = React.useState(false);
-            const [styleExpanded, setStyleExpanded] = React.useState(false);
 			const [settlementRetryBusy, setSettlementRetryBusy] = React.useState(false);
 			const [cardUpdateBusy, setCardUpdateBusy] = React.useState(false);
             const [cardUpdateError, setCardUpdateError] = React.useState("");
@@ -353,15 +348,6 @@
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
 			}
-            async function retryStyleReference() {
-                setStyleBusy(true); setStyleError("");
-                try {
-                    await rpc("retryStyleReference", { guidance: styleDraft.trim() }, props.sessionId);
-                    liveTavernView.invalidate(props.sessionId);
-                    setStyleDraft(""); setStyleEditing(false); setStyleExpanded(false);
-                } catch (err) { setStyleError(String(err && err.message || err)); }
-                finally { setStyleBusy(false); }
-            }
             async function saveGuideLibrary() {
                 if (guideBusy || !(view.guides || []).length) return;
                 const name = await askTavernText({ title: "Guide 方案名称", initialValue: "本局 Guide", maxLength: 80 });
@@ -438,7 +424,6 @@
 			// rendering moved to status-panel.js (StatusPanelView).
 			return h(StatusPanelView, { view: view, running: running, props: props, guideDraft: guideDraft, setGuideDraft: setGuideDraft, guideBusy: guideBusy, guideError: guideError, guideInputRef: guideInputRef,
 				guideNotice, saveGuideLibrary, resourceLinkBusy, currentResourceBinding, noWorldBook, unavailableWorldBook, resourceLinkError, openWorldBookDetail,
-                styleDraft, setStyleDraft, styleBusy, styleError, retryStyleReference, styleEditing, setStyleEditing, styleExpanded, setStyleExpanded,
                 addGuide: addGuide, removeGuide: removeGuide, cardUpdateBusy: cardUpdateBusy, cardUpdateError: cardUpdateError, applyUpdatedCard: applyUpdatedCard,
 				settlementRetryBusy: settlementRetryBusy, retrySettlement: retrySettlement, latestDebugTurn: latestDebugTurn, designCharacter: designCharacter, designRemoving, removeCharacterDesign });
 		}

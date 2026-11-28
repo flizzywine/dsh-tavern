@@ -53,7 +53,7 @@ const MAX_TASK_TITLE = 40
 const MAX_TASK_DESCRIPTION = 500
 const MAX_CARD_OPERATIONS = 200
 const MAX_CARD_VALUE = 2 * 1024 * 1024
-const TOOL_MODES = ['play', 'card']
+const TOOL_MODES = ['play', 'card', 'story', 'script']
 const TASK_PHASES = Object.freeze({ before: '结算前', parallel: '与结算同时', after: '结算后' })
 const MAX_PUBLISHED_STATE = 256 * 1024
 const MAX_PUBLISHED_ENTRIES = 2000
@@ -221,6 +221,7 @@ export function createTavernPluginApi(deps) {
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, worldbookStrategyControl: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
     ...(deps.scriptLibrary ? { scriptLibrary: 1 } : {}),
+    ...(deps.toolInstructions ? { toolInstructions: 1 } : {}),
     ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
@@ -1369,10 +1370,11 @@ export function createTavernPluginApi(deps) {
       return register.call(this, toolNetworks, name, { owner: ownerOf(this), capability }, 'tavern.toolNetwork()', '工具 ' + name + ' 的联网能力已被声明')
     },
 
-    toolModes({ name, modes } = {}) {
+    toolModes({ name, modes, instruction } = {}) {
       if (typeof name !== 'string' || !name || (deps.isControlledTool && deps.isControlledTool(name))) throw new TypeError('toolModes 只能设置插件自己注册的工具')
-      if (!Array.isArray(modes) || !modes.length || modes.some(mode => !TOOL_MODES.includes(mode))) throw new TypeError('modes 只能是 play、card 中的一项或两项')
-      return register.call(this, toolScopes, name, { owner: ownerOf(this), modes: [...new Set(modes)] }, 'tavern.toolModes()', '工具 ' + name + ' 的可见范围已被设置')
+      if (!Array.isArray(modes) || !modes.length || modes.some(mode => !TOOL_MODES.includes(mode))) throw new TypeError('modes 只能包含 play、card、story 或 script')
+      if (instruction !== undefined) textOrFunction(instruction)
+      return register.call(this, toolScopes, name, { owner: ownerOf(this), name, modes: [...new Set(modes)], text: instruction }, 'tavern.toolModes()', '工具 ' + name + ' 的可见范围已被设置')
     },
 
     // A task-only tool stays out of the request until one of these Skills is loaded in the
@@ -2511,6 +2513,16 @@ export function createTavernPluginApi(deps) {
     return entry ? entry.modes.slice() : null
   }
 
+  async function toolInstructionSections(gameId, names) {
+    const entries = names.flatMap(name => {
+      const entry = toolScopes.get(name)
+      return entry?.text === undefined ? [] : [[name, entry]]
+    })
+    if (!entries.length) return []
+    const { disabled } = await choicesFor(gameId)
+    return (await collectSections(new Map(entries), { gameId }, '工具说明', disabled)).map(({ name, text }) => ({ name, text }))
+  }
+
   /** Seam: the Skills that unlock a plugin-registered DSH tool; null when it is always offered. */
   function toolSkillsFor(name) {
     const entry = toolSkillGates.get(name)
@@ -2674,7 +2686,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolInstructionSections, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
