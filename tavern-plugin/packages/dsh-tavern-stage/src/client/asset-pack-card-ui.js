@@ -2221,7 +2221,7 @@ function StagePromptsView({ctx,prompts,onFold,focusToggle}) {
     h(PromptStage,{title:'正文模型',tokens:storyTokens,help:'这里只列正文实际使用的舞台能力快照，会话开始和压缩后首轮更新，其余回合保持不变。'},
       !story?h(Loading,{shape:'fields',count:4}):!storyRows.length?h(EmptyState,{compact:true,text:'对话气泡关闭，不加入内容',icon:'off'}):
       h('ul',{className:'ap-prompt-rows','aria-label':'正文模型提示词'},storyRows.map(row=>h(PromptRow,{key:row.id,row,
-        note:row.leftover?'旧条目':row.voice?'含双语台词规则':null,help:row.figure&&row.recalled&&!row.leftover?FIGURE_RECALL_HELP:undefined,actions:storyActions(row)})))),
+        note:row.leftover?'旧条目':null,help:row.figure&&row.recalled&&!row.leftover?FIGURE_RECALL_HELP:undefined,actions:storyActions(row)})))),
     h(PromptStage,{title:'导演模型',tokens:ctx.active.stage?directorTokens:null,help:'正文写完后发给导演的全部内容，导演按它安排背景、人物、BGM 和演出。'},body),
     // the judge request in three rows (剧情 / 待判断素材 / 拼接与封装), its
     // pencil on the stage head.
