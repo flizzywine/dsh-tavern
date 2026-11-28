@@ -221,7 +221,7 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, worldbookStrategyControl: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
-    ...(deps.scriptLibrary ? { scriptLibrary: 1 } : {}),
+    ...(deps.scriptLibrary ? { scriptLibrary: 1, scriptLibraryRead: 1 } : {}),
     ...(deps.toolInstructions ? { toolInstructions: 1 } : {}),
     ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
@@ -1274,6 +1274,22 @@ export function createTavernPluginApi(deps) {
       if (!Number.isInteger(limit) || limit < 1 || limit > 12) throw new RangeError('limit 必须是 1–12 的整数')
       if (selection !== 'candidates' && selection !== 'best-match') throw new TypeError('selection 必须是 candidates 或 best-match')
       return await deps.scriptLibrary.searchSource({ path, query, limit, selection })
+    },
+
+    async getScriptSourceInfo({ path } = {}) {
+      if (await accessScope(ownerOf(this))) throw Object.assign(new Error('剧本库仅向全局插件开放'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      if (!deps.scriptLibrary?.inspectSource) throw Object.assign(new Error('当前版本不支持剧本库信息读取'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      if (typeof path !== 'string' || !path) throw new TypeError('path 需要使用 listScriptSources 返回的路径')
+      return await deps.scriptLibrary.inspectSource({ path })
+    },
+
+    async readScriptRange({ path, start = 0, count = 8 } = {}) {
+      if (await accessScope(ownerOf(this))) throw Object.assign(new Error('剧本库仅向全局插件开放'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      if (!deps.scriptLibrary?.readSourceRange) throw Object.assign(new Error('当前版本不支持剧本库顺序读取'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      if (typeof path !== 'string' || !path) throw new TypeError('path 需要使用 listScriptSources 返回的路径')
+      if (!Number.isInteger(start) || start < 0) throw new RangeError('start 必须是不小于 0 的整数')
+      if (!Number.isInteger(count) || count < 1 || count > 20) throw new RangeError('count 必须是 1–20 的整数')
+      return await deps.scriptLibrary.readSourceRange({ path, start, count })
     },
 
     // A card's full JSON as Tavern plays it (its working copy), read-only.
