@@ -67,7 +67,9 @@ function galRestorePosition(saved, turn, pageCount, textDigest, pages = []) {
 function galPositionReady(saved, turn, parts, pages, digestOf = () => galTextDigest(parts)) {
     if (!turn || !parts.length || !pages.length || parts.some(part => part.streaming || part.unloaded) || pages.some(page => page.pending)) return false;
     if (!saved || saved.turn !== turn) return true;
-    if (saved.textDigest !== digestOf()) return false;
+    // The text is complete here (not streaming / unloaded / pending): a different digest means the round was edited or
+    // swiped since the bookmark, which galRestorePosition drops to page 0 - so the restore finishes instead of waiting forever.
+    if (saved.textDigest !== digestOf()) return true;
     if (saved.anchor) return galPositionAnchors(pages).some(item => item.para === saved.anchor.para && item.offset <= saved.anchor.offset && saved.anchor.offset < item.offset + item.length);
     return pages.length >= (saved.pageCount || saved.page + 1);
 }
