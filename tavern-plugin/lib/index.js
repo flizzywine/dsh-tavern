@@ -164,7 +164,7 @@ import { createSceneWorldbooks } from './domain/scene-worldbook.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
-import { createCardOrganization } from './domain/card-organization.js'
+import { createCardOrganization, createScriptOrganization } from './domain/card-organization.js'
 import { countGamesByCard, lastPlayedByCard, orderCardsForLibrary } from './domain/card-list-order.js'
 import { createCardPreparation,rawData } from './domain/card-preparation.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
@@ -527,6 +527,7 @@ export async function apply(ctx) {
   ctx.effect(() => () => templateSync.dispose())
   ctx.effect(() => () => fullTemplateRuntime.dispose())
   const cardOrganization = createCardOrganization(profileData)
+  const scriptOrganization = createScriptOrganization(profileData)
   const worldbookRecallLog = createWorldbookRecallLog({ store: profileData })
   const guideLibrary = createGuideLibrary({ store: profileData })
   const regexLibrary = createRegexLibrary({ store: profileData })
@@ -1198,6 +1199,7 @@ export async function apply(ctx) {
     castAssets,
     cardPlugins,
     cardOrganization,
+    scriptOrganization,
     resources: fileResources,
     presets: runtimePresets,
     chats: { readIndex, updateIndex, updateRefs: (chatId, mutate) => updateChatHeader(chatId, ['cardPath', 'runtimePresetPath', 'runtimePresetSnapshot', 'workspace'], mutate, { source: 'resource-graph' }) },
@@ -1316,14 +1318,13 @@ export async function apply(ctx) {
     }
   }
   async function listTavernResources() {
-    const cards = await listCards()
-    const sources = await listSources()
+    const [cards, sources] = await Promise.all([listCards(), listSources()])
     return {
       cards,
-      resources: sources.map(function (source) {
+      resources: await scriptOrganization.project(sources.map(function (source) {
         const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
         return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }
-      })
+      }))
     }
   }
   async function replaceCardVariables(cardPath, variables) {
@@ -3748,7 +3749,7 @@ export async function apply(ctx) {
       agentRegistry, bindScript, chatForSession, chatHeaderForSession, ctx, dataRoot, deletePreset, deleteResource,
       deleteScript, exportSettingsBundle, fileResources, groupOfMode, guideLibrary, importPreset, importScript,
       importSettingsBundle, importSource, listTavernResources, presetLibrary, previewPreset, readScript,
-      readTavernSettings, renameResource, runtimePresets, scriptContinuity, scriptNavigation, sessionActivity,
+      readTavernSettings, renameResource, resourceGraph, runtimePresets, scriptContinuity, scriptNavigation, scriptOrganization, sessionActivity,
       skillImportFiles, str, tavernSkills, updateChat, updateTavernSettings, worldBooks,
       get invalidateTavernSkills() { return invalidateTavernSkills }, frameStorage,
     }),

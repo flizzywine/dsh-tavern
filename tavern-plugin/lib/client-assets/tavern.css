@@ -6495,8 +6495,9 @@ body .ap-ui.dsh-card-detail button.dsh-card-play:focus-visible { outline: 2px so
 .dsh-card-side { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding-bottom: 2px; }
 /* the library's own tags: one quiet line, · between them, that wraps at any count; a click edits them. */
 .dsh-card-detail .dsh-tavern-card-detail-tags { display: block; width: 100%; padding: 0; }
-body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-block; width: auto; max-width: 100%; min-height: 30px; margin-left: -6px; padding: 3px 6px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); line-height: 1.6; text-align: left; cursor: pointer; }
-.ap-ui.dsh-card-detail button.dsh-tavern-card-tagline:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-resource-row > .dsh-tavern-card-detail-tags { padding: 0; margin-top: -8px; }
+body :is(.ap-ui.dsh-card-detail, .dsh-tavern-resource-row) button.dsh-tavern-card-tagline { display: inline-block; width: auto; max-width: 100%; min-height: 30px; margin-left: -6px; padding: 3px 6px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); line-height: 1.6; text-align: left; cursor: pointer; }
+:is(.ap-ui.dsh-card-detail, .dsh-tavern-resource-row) button.dsh-tavern-card-tagline:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
 .dsh-tavern-card-tagline > .ap-glyph { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; color: var(--fork-ink-3); }
 .dsh-tavern-card-tagline-tag { display: inline-block; white-space: nowrap; }
 .dsh-tavern-card-tagline-tag + .dsh-tavern-card-tagline-tag::before { content: "·"; margin: 0 7px; color: var(--fork-ink-3); }

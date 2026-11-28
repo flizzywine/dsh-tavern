@@ -60,4 +60,25 @@ test('SillyTavern JSONL 导入剧本库后可预览、绑定，原始 JSONL 保�
   const { path } = results[winner].value.source
   assert.equal((await host.rpc('getResource', { path })).text, '守门人：' + JSON.parse(competingSources[winner]).mes)
   assert.equal(await readFile(join(home, 'profile-data/tavern/data/originals', path), 'utf8'), competingSources[winner])
+
+  await t.test('剧本分组与人物卡标签独立保存，剧本改名继承分组，删除后清除归属', async () => {
+    const file = { name: '分组样本.txt', text: '一段原文。' }
+    const { source: added } = await host.rpc('importSource', { payload: file })
+    const renameFile = '分组样本改名.txt'
+    const getTags = async path => (await host.rpc('listResources')).resources.find(item => item.path === path)?.tags
+    assert.deepEqual((await host.rpc('getScriptOrganization')).tags, [])
+    await host.rpc('organizeScripts', { action: 'create', name: '小说' })
+    await host.rpc('organizeScripts', { action: 'create', name: '参考' })
+    await host.rpc('organizeScripts', { action: 'scripts', paths: [added.path], addTags: ['小说', '参考'] })
+    assert.deepEqual(await getTags(added.path), ['小说', '参考'])
+    assert.deepEqual((await host.rpc('getCardOrganization')).tags, [])
+    const { resource: renamed } = await host.rpc('renameResource', { path: added.path, name: renameFile })
+    assert.deepEqual(await getTags(renamed.path), ['小说', '参考'])
+    await host.rpc('organizeScripts', { action: 'delete', tag: '小说' })
+    assert.deepEqual(await getTags(renamed.path), ['参考'])
+    assert.equal((await host.rpc('getResource', { path: renamed.path })).text, file.text)
+    await host.rpc('deleteResource', { path: renamed.path })
+    const { source: again } = await host.rpc('importSource', { payload: { ...file, name: renameFile } })
+    assert.deepEqual(await getTags(again.path), [])
+  })
 })

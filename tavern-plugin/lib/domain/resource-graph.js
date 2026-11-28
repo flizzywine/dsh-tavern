@@ -36,6 +36,7 @@ export function createResourceGraph(options = {}) {
       await options.cardPlugins?.movePath(renamed.oldPath, renamed.path)
       await checkpoint(operation, 'card-assets-moved')
     }
+    if (kind === 'source') await options.scriptOrganization?.movePath(renamed.oldPath, renamed.path)
     if (kind === 'preset' && presets && typeof presets.rename === 'function') await presets.rename(renamed.oldPath, renamed.path)
     const replacements = new Map([[renamed.oldPath, renamed.path]])
     if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
@@ -83,6 +84,7 @@ export function createResourceGraph(options = {}) {
     await resources.remove(normalized)
     await checkpoint(operation, 'resource-removed')
     if (resourceKind(normalized) === 'card') await options.cardOrganization?.movePath(normalized, null)
+    if (resourceKind(normalized) === 'source') await options.scriptOrganization?.movePath(normalized, null)
     if (resourceKind(normalized) === 'preset' && presets && typeof presets.remove === 'function') await presets.remove(normalized)
     committed({ kind: resourceKind(normalized), path: normalized })
     const index = await chats.readIndex()
@@ -155,8 +157,16 @@ export function createResourceGraph(options = {}) {
     return await start({ schemaVersion: 1, kind: 'remove', path: normalizeResourcePath(path, expectedKind), expectedKind: str(expectedKind), stage: 'prepared' })
   }
 
+  function organizeScripts(input) {
+    return serialize(async function () {
+      const previous = await operations.read()
+      if (previous) await execute(previous)
+      return await options.scriptOrganization.update(input, await resources.list('source'))
+    })
+  }
+
   /** Resolves once every queued operation, including background reference updates, has settled. */
   function idle() { return tail.catch(function () {}).then(function () {}) }
 
-  return Object.freeze({ recover, rename, remove, idle })
+  return Object.freeze({ recover, rename, remove, organizeScripts, idle })
 }

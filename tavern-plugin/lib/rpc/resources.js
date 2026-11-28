@@ -15,8 +15,8 @@ export function createResourceHandlers(deps) {
   const { agentRegistry, bindScript, chatForSession, chatHeaderForSession, ctx, dataRoot, deletePreset,
     deleteResource, deleteScript, exportSettingsBundle, fileResources, groupOfMode, guideLibrary,
     importPreset, importScript, importSettingsBundle, importSource, listTavernResources, presetLibrary,
-    previewPreset, readScript, readTavernSettings, renameResource, runtimePresets,
-    scriptContinuity, scriptNavigation, sessionActivity, skillImportFiles, str, tavernSkills, updateChat,
+    previewPreset, readScript, readTavernSettings, renameResource, resourceGraph, runtimePresets,
+    scriptContinuity, scriptNavigation, scriptOrganization, sessionActivity, skillImportFiles, str, tavernSkills, updateChat,
     updateTavernSettings, worldBooks } = deps
   async function skillsWithWritingDefaults() {
     const [skills, settings] = await Promise.all([tavernSkills.list(), readTavernSettings()])
@@ -41,6 +41,12 @@ export function createResourceHandlers(deps) {
     },
     async listResources(args) {
       return await listTavernResources()
+    },
+    async getScriptOrganization() {
+      return { tags: (await scriptOrganization.read()).tags }
+    },
+    async organizeScripts(args) {
+      return { tags: (await resourceGraph.organizeScripts(args || {})).tags }
     },
     async getResource(args) {
       const resourcePath = normalizeResourcePath(args && args.path, 'source')

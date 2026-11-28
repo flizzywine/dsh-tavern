@@ -10,7 +10,7 @@ function nodes(tree) {
 }
 const text = node => nodes(node).flatMap(item => item.children || []).filter(child => typeof child === 'string').join('')
 
-// useCardOrganization rendered with stub hooks: every popup is open, so its rows are in the tree.
+// useLibraryOrganization rendered with stub hooks: every popup is open, so its rows are in the tree.
 function harness(cards, { batch = {} } = {}) {
   const state = [], effects = [], calls = [], stored = new Map()
   let cursor = 0, first = true
@@ -36,8 +36,8 @@ function harness(cards, { batch = {} } = {}) {
     notifyTavernDataChanged() {},
     rpc: async (method, input) => { calls.push({ method, input }); return { tags: ['同人', '待玩'] } }
   }
-  const { useCardOrganization, TavernCardTagChecklist } = vm.runInNewContext(source + '; ({ useCardOrganization, TavernCardTagChecklist })', context)
-  const render = () => { cursor = 0; const result = useCardOrganization(cards, false, async () => {}, error => { throw Error(error) }, batch, 'library'); first = false; return result }
+  const { useLibraryOrganization, TavernCardTagChecklist } = vm.runInNewContext(source + '; ({ useLibraryOrganization, TavernCardTagChecklist })', context)
+  const render = () => { cursor = 0; const result = useLibraryOrganization(cards, false, async () => {}, error => { throw Error(error) }, batch, 'library'); first = false; return result }
   return { render, calls, stored, effects, TavernCardTagChecklist, flush: async () => { if (first) render(); effects.forEach(effect => effect()); await new Promise(resolve => setImmediate(resolve)) } }
 }
 

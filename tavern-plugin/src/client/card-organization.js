@@ -1,6 +1,4 @@
-// The card list's own organization (人物卡库 and the 游玩 card picker): tags, 收藏, filter, search, sort, columns and the
-// selection bar's tag / star actions. Tags and stars are local (rpc organizeCards, domain/card-organization.js); a card
-// can carry several tags. The filter is one pick at a time (owner 11-24): 全部, 收藏, 未打标签 or one tag.
+// Shared library search, tag filters and editing. Card grids also have stars, sort, columns and multi-selection.
 const TAVERN_CARD_SORTS = [
   { value: 'auto', label: '自动' }, { value: 'played', label: '最近游玩' },
   { value: 'name', label: '名字' }, { value: 'imported', label: '导入时间' }
@@ -15,7 +13,7 @@ function filterOrganizedCards(cards, filter, query, sort = 'auto') {
   const needle = query.trim().toLocaleLowerCase();
   const list = cards.filter(card => {
     const tags = card.tags || [];
-    return (!needle || [card.displayName, card.name, card.path].join(' ').toLocaleLowerCase().includes(needle))
+    return (!needle || [card.displayName, card.name, card.title, card.path].join(' ').toLocaleLowerCase().includes(needle))
       && (!filter || (filter === TAVERN_CARD_FAVORITES ? card.starred : filter === TAVERN_CARD_UNTAGGED ? !tags.length : tags.includes(filter.slice(4))));
   });
   if (sort === 'played') return list.slice().sort((a, b) => (Number(b.lastPlayedAt) || 0) - (Number(a.lastPlayedAt) || 0));
@@ -31,7 +29,7 @@ function readTavernCardSort(place) {
 
 // The tag checklist of a card menu, the detail page's ＋ and the selection bar: one row per tag (✓ when `state(tag)` is
 // true, – when some of the selected cards have it), then a box that creates a tag and puts it on at once.
-function TavernCardTagChecklist({ tags, state, onToggle, onCreate, disabled, title, onBack }) {
+function TavernCardTagChecklist({ tags, state, onToggle, onCreate, disabled, title, onBack, tagLabel = '标签' }) {
   const h = React.createElement, [draft, setDraft] = React.useState('');
   return h(React.Fragment, null,
     title ? h('div', { className: 'dsh-tavern-card-tag-title' }, onBack ? h('button', { type: 'button', 'aria-label': '返回', onClick: onBack }, '‹') : null, h('span', null, title)) : null,
@@ -40,10 +38,10 @@ function TavernCardTagChecklist({ tags, state, onToggle, onCreate, disabled, tit
       return h('button', { key: tag, type: 'button', role: 'menuitemcheckbox', className: 'fork-inline-option ap-menu-item dsh-tavern-card-tag-option', 'aria-checked': on === 'mixed' ? 'mixed' : Boolean(on), disabled,
         onClick: () => onToggle(tag, on !== true) }, h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, on === true ? '✓' : on === 'mixed' ? '–' : ''), h('span', null, tag));
     }),
-    h('input', { className: 'dsh-tavern-card-tag-new', value: draft, maxLength: 40, disabled, placeholder: '新建标签，回车添加', 'aria-label': '新建标签',
+    h('input', { className: 'dsh-tavern-card-tag-new', value: draft, maxLength: 40, disabled, placeholder: '新建' + tagLabel + '，回车添加', 'aria-label': '新建' + tagLabel,
       onChange: event => setDraft(event.target.value),
       onKeyDown: event => {
-        if (event.key !== 'Enter' || !draft.trim()) return;
+        if (event.key !== 'Enter' || event.nativeEvent?.isComposing || !draft.trim()) return;
         event.preventDefault();
         const name = draft.trim();
         setDraft('');
@@ -51,8 +49,15 @@ function TavernCardTagChecklist({ tags, state, onToggle, onCreate, disabled, tit
       } }));
 }
 
-function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 'library') {
-  const askConfirm = useTavernConfirm();
+function useLibraryOrganization(cards, busy, refresh, onError, batch = {}, place = 'library', sessionId) {
+  const scripts = place === 'scripts';
+  const itemLabel = scripts ? '剧本' : '人物卡';
+  const tagLabel = scripts ? '分组' : '标签';
+  const untaggedLabel = scripts ? '未分组' : '未打标签';
+  const manageLabel = '管理' + tagLabel;
+  const filterByLabel = '按' + tagLabel + '筛选';
+  const itemAction = scripts ? 'scripts' : 'cards';
+  const askConfirm = useTavernConfirm(sessionId);
   const h = React.createElement;
   const [tags, setTags] = React.useState([]);
   const [query, setQuery] = React.useState('');
@@ -81,22 +86,22 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
   const running = React.useRef(false);
   React.useEffect(function () {
     let active = true;
-    rpc('getCardOrganization', {}).then(result => {
+    rpc(scripts ? 'getScriptOrganization' : 'getCardOrganization', {}, sessionId).then(result => {
       if (!active) return;
       const next = result.tags || [];
       setTags(next);
       setFilter(previous => previous.startsWith('tag:') && !next.includes(previous.slice(4)) ? '' : previous);
     }, error => { if (active) onError(String(error.message || error)); });
     return () => { active = false; };
-  }, [cards]);
+  }, [cards, sessionId]);
   async function change(input) {
     if (running.current || busy) return;
     running.current = true; setSaving(true);
     try {
-      const result = await rpc('organizeCards', input);
+      const result = await rpc(scripts ? 'organizeScripts' : 'organizeCards', input, sessionId);
       setTags(result.tags || []);
       await refresh();
-      notifyTavernDataChanged(['cards'], 'card-organization');
+      notifyTavernDataChanged([itemAction], scripts ? 'script-organization' : 'card-organization');
     } finally { running.current = false; setSaving(false); }
   }
   function submit(input) { void change(input).catch(error => onError(String(error.message || error))); }
@@ -105,7 +110,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
     try { window.localStorage.setItem('dsh-tavern-card-sort-' + place, value); } catch (_) {}
   }
   async function nameTag(tag) {
-    await askTavernText({ title: tag !== undefined ? '重命名标签' : '新建标签', maxLength: 40, initialValue: tag || '',
+    await askTavernText({ title: (tag !== undefined ? '重命名' : '新建') + tagLabel, maxLength: 40, initialValue: tag || '',
       onSubmit: async name => {
         await change({ action: tag !== undefined ? 'rename' : 'create', tag, name });
         if (tag !== undefined) setFilter(previous => previous === 'tag:' + tag ? 'tag:' + name : previous);
@@ -116,12 +121,12 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
   function createAndTag(paths, name) {
     void (async () => {
       if (!tags.includes(name)) await change({ action: 'create', name });
-      if (paths.length) await change({ action: 'cards', paths, addTags: [name] });
+      if (paths.length) await change({ action: itemAction, paths, addTags: [name] });
     })().catch(error => onError(String(error.message || error)));
   }
   const disabled = busy || saving;
-  const visible = filterOrganizedCards(cards, filter, deferredQuery, sort);
-  const filterLabel = !filter ? '全部' : filter === TAVERN_CARD_FAVORITES ? '收藏' : filter === TAVERN_CARD_UNTAGGED ? '未打标签' : filter.slice(4);
+  const visible = filterOrganizedCards(cards, filter, deferredQuery, scripts ? 'auto' : sort);
+  const filterLabel = !filter ? '全部' : filter === TAVERN_CARD_FAVORITES ? '收藏' : filter === TAVERN_CARD_UNTAGGED ? untaggedLabel : filter.slice(4);
   function option(condition, label) {
     const on = filter === condition;
     return h('button', { key: condition || 'all', type: 'button', role: 'menuitemradio', className: 'fork-inline-option', 'aria-checked': on,
@@ -139,48 +144,49 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
     const sortLabel = TAVERN_CARD_SORTS.find(item => item.value === sort).label;
     const glyph = name => h(packUi.Glyph, { name });
     return h(React.Fragment, null,
-      h('div', { className: 'ap-ui ap-pack-toolbar dsh-tavern-card-organization', ref: measure },
-        h(packUi.PackSearchBox, { label: '搜索人物卡', placeholder: '搜索', value: query, onChange: setQuery }),
+      h('div', { className: 'ap-ui ap-pack-toolbar dsh-tavern-card-organization', ref: scripts ? undefined : measure },
+        h(packUi.PackSearchBox, { label: '搜索' + itemLabel, placeholder: '搜索', value: query, onChange: setQuery }),
         h('span', { className: 'fork-inline-anchor dsh-tavern-card-filter', ref: filterPop.root, onKeyDown: filterPop.keys },
-          popupButton(filterPop, { className: 'ap-kind-menu', 'data-on': filter ? true : undefined, 'aria-label': '按标签筛选：' + filterLabel, title: '按标签筛选：' + filterLabel },
+          popupButton(filterPop, { className: 'ap-kind-menu', 'data-on': filter ? true : undefined, 'aria-label': filterByLabel + '：' + filterLabel, title: filterByLabel + '：' + filterLabel },
             glyph('filter'), filter ? h('span', { className: 'dsh-tavern-card-filter-label' }, filterLabel) : null),
-          filterPop.open ? filterPop.layer({ className: 'fork-inline-pop dsh-tavern-card-filter-pop', role: 'menu', 'aria-label': '按标签筛选', onKeyDown: inlineMenuKeys },
-            option('', '全部'), option(TAVERN_CARD_FAVORITES, '收藏'), option(TAVERN_CARD_UNTAGGED, '未打标签'),
+          filterPop.open ? filterPop.layer({ className: 'fork-inline-pop dsh-tavern-card-filter-pop', role: 'menu', 'aria-label': filterByLabel, onKeyDown: inlineMenuKeys },
+            option('', '全部'), scripts ? null : option(TAVERN_CARD_FAVORITES, '收藏'), option(TAVERN_CARD_UNTAGGED, untaggedLabel),
             tags.length ? h('div', { className: 'dsh-tavern-card-menu-divider', role: 'separator' }) : null,
             tags.map(tag => option('tag:' + tag, tag)),
             h('div', { className: 'dsh-tavern-card-menu-divider', role: 'separator' }),
             // The two tag actions are quieter rows under the conditions, their names in the same column as the tags.
             h('button', { type: 'button', role: 'menuitem', className: 'fork-inline-option dsh-tavern-card-filter-action', disabled, onClick: () => { filterPop.close(false); void nameTag(); } },
-              h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, '＋'), h('span', null, '新建标签')),
+              h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, '＋'), h('span', null, '新建' + tagLabel)),
             tags.length ? h('button', { type: 'button', role: 'menuitem', className: 'fork-inline-option dsh-tavern-card-filter-action', onClick: () => { filterPop.close(false); setManaging(true); } },
-              h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }), h('span', null, '管理标签')) : null) : null),
-          h('span', { className: 'fork-inline-anchor', ref: sortPop.root, onKeyDown: sortPop.keys },
+              h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }), h('span', null, manageLabel)) : null) : null),
+          scripts ? null : h('span', { className: 'fork-inline-anchor', ref: sortPop.root, onKeyDown: sortPop.keys },
             popupButton(sortPop, { className: 'ap-icon-button', 'data-on': sort !== 'auto' ? true : undefined, 'aria-label': '排序：' + sortLabel, title: '排序：' + sortLabel }, glyph('sort')),
             sortPop.open ? sortPop.layer({ className: 'fork-inline-pop', role: 'menu', 'aria-label': '排序', onKeyDown: inlineMenuKeys },
               TAVERN_CARD_SORTS.map(item => h('button', { key: item.value, type: 'button', role: 'menuitemradio', className: 'fork-inline-option', 'aria-checked': sort === item.value,
                 onClick: () => { setSort(item.value); sortPop.close(true); } },
                 h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, sort === item.value ? '✓' : ''), h('span', null, item.label)))) : null),
-          fit > 2 ? h('span', { className: 'dsh-tavern-card-columns', role: 'group', 'aria-label': '每行张数' },
+          !scripts && fit > 2 ? h('span', { className: 'dsh-tavern-card-columns', role: 'group', 'aria-label': '每行张数' },
             h('button', { type: 'button', className: 'ap-icon-button', 'aria-label': '每行少一张', title: '每行少一张', disabled: columns <= 2, onClick: () => setColumns(columns - 1) }, glyph('minus')),
             h('output', { 'aria-live': 'polite', title: '每行 ' + columns + ' 张' }, String(columns)),
             h('button', { type: 'button', className: 'ap-icon-button', 'aria-label': '每行多一张', title: '每行多一张', disabled: columns >= fit, onClick: () => setColumns(columns + 1) }, glyph('plus'))) : null,
           typeof batch.begin === 'function' ? h('button', { type: 'button', className: 'ap-icon-button', 'aria-pressed': Boolean(batch.managing), disabled: busy,
             'aria-label': '多选', title: '多选（也可以 Ctrl+点卡片）', onClick: () => batch.managing ? batch.reset() : batch.begin() }, glyph('select')) : null,
         extra || null),
-      managing ? h('dialog', { className: 'dsh-tavern-group-manager', 'aria-label': '管理标签',
+      managing ? h('dialog', { className: 'dsh-tavern-group-manager', 'aria-label': manageLabel,
         ref: element => { if (element && !element.open) element.showModal(); },
         onCancel: () => setManaging(false), onClick: event => { if (event.target === event.currentTarget && !disabled) setManaging(false); }
       }, h('div', { className: 'dsh-tavern-group-manager-content' },
-        h('div', { className: 'dsh-tavern-group-manager-head' }, h('h3', null, '管理标签'),
+        h('div', { className: 'dsh-tavern-group-manager-head' }, h('h3', null, manageLabel),
           h('button', { className: 'dsh-tavern-btn', onClick: () => setManaging(false) }, '关闭')),
         tags.length ? tags.map(tag => h('div', { key: tag, className: 'dsh-tavern-group-manager-row' },
           h('span', null, tag),
-          h('button', { className: 'dsh-tavern-btn', disabled, 'aria-label': '重命名标签：' + tag, onClick: () => nameTag(tag) }, '重命名'),
-          h('button', { className: 'dsh-tavern-btn danger', disabled, 'aria-label': '删除标签：' + tag, onClick: async () => {
-            if (await askConfirm('只去掉这个标签，人物卡不受影响。', { title: '删除标签“' + tag + '”？', confirmText: '删除', danger: true, hide: 'card-tag' })) submit({ action: 'delete', tag });
-          } }, '删除'))) : h(EmptyState, { compact: true, noun: '标签' }),
+          h('button', { className: 'dsh-tavern-btn', disabled, 'aria-label': '重命名' + tagLabel + '：' + tag, onClick: () => nameTag(tag) }, '重命名'),
+          h('button', { className: 'dsh-tavern-btn danger', disabled, 'aria-label': '删除' + tagLabel + '：' + tag, onClick: async () => {
+            const message = scripts ? '其中的剧本会保留。' : '只去掉这个标签，人物卡不受影响。';
+            if (await askConfirm(message, { title: '删除' + tagLabel + '“' + tag + '”？', confirmText: '删除', danger: true, hide: scripts ? 'script-group' : 'card-tag' })) submit({ action: 'delete', tag });
+          } }, '删除'))) : h(EmptyState, { compact: true, noun: tagLabel }),
         h('div', { className: 'dsh-tavern-group-manager-footer' },
-          h('button', { type: 'button', className: 'dsh-tavern-card-tag-add', disabled, 'aria-label': '新建标签', title: '新建标签', onClick: () => nameTag() }, '＋')))) : null);
+          h('button', { type: 'button', className: 'dsh-tavern-card-tag-add', disabled, 'aria-label': '新建' + tagLabel, title: '新建' + tagLabel, onClick: () => nameTag() }, '＋')))) : null);
   }
   // The selection bar's own actions: 标签 (on for all / off for all / – some) and 收藏.
   function batchActions() {
@@ -207,26 +213,27 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
   function batchBar() { return batch.managing ? batch.toolbar(visible, batchActions()) : null; }
   // A card's tag checklist (its menu's 标签 page, the detail page's ＋).
   function tagChecklist(card, extra = {}) {
-    return h(TavernCardTagChecklist, Object.assign({ tags, disabled, state: tag => (card.tags || []).includes(tag),
-      onToggle: (tag, on) => submit({ action: 'cards', paths: [card.path], [on ? 'addTags' : 'removeTags']: [tag] }),
+    return h(TavernCardTagChecklist, Object.assign({ tags, disabled, tagLabel, state: tag => (card.tags || []).includes(tag),
+      onToggle: (tag, on) => submit({ action: itemAction, paths: [card.path], [on ? 'addTags' : 'removeTags']: [tag] }),
       onCreate: name => createAndTag([card.path], name) }, extra));
   }
   function toggleStar(card) { submit({ action: 'cards', paths: [card.path], starred: !card.starred }); }
   function untag(card, tag) { submit({ action: 'cards', paths: [card.path], removeTags: [tag] }); }
-  return { visible, columns, tags, toolbar, batchBar, tagChecklist, toggleStar, untag, disabled };
+  return { visible, columns, tags, toolbar, batchBar, tagChecklist, toggleStar, untag, disabled, tagLabel };
 }
 
 // The detail page's tags: one quiet line (# 同人 · 长篇世界观 · 待玩, or 「添加标签」) that wraps at any count; a click opens
 // the same checklist as the card's menu, where tags are ticked on and off.
-function TavernCardDetailTags({ card, organization }) {
+function TavernLibraryItemTags({ card, organization }) {
   const h = React.createElement, popup = useInlinePopup({ focusSelector: 'input' });
   if (!card) return null;
   const tags = card.tags || [];
+  const { tagLabel } = organization, editLabel = (tags.length ? '修改' : '添加') + tagLabel;
   return h('span', { className: 'fork-inline-anchor dsh-tavern-card-detail-tags', ref: popup.root, onKeyDown: popup.keys },
     h('button', { ref: popup.trigger, type: 'button', className: 'dsh-tavern-card-tagline' + (tags.length ? '' : ' is-empty'), disabled: organization.disabled,
-      'aria-label': tags.length ? '标签：' + tags.join('、') + '，修改标签' : '添加标签', title: tags.length ? '修改标签' : '添加标签', 'aria-haspopup': 'menu', 'aria-expanded': popup.open,
+      'aria-label': tags.length ? tagLabel + '：' + tags.join('、') + '，' + editLabel : editLabel, title: editLabel, 'aria-haspopup': 'menu', 'aria-expanded': popup.open,
       onClick: () => popup.setOpen(!popup.open) },
       h(packUi.Glyph, { name: 'hash' }),
-      tags.length ? tags.map(tag => h('span', { key: tag, className: 'dsh-tavern-card-tagline-tag' }, tag)) : h('span', null, '添加标签')),
-    popup.open ? popup.layer({ className: 'fork-inline-pop dsh-tavern-card-tag-pop', role: 'menu', 'aria-label': '标签', onKeyDown: inlineMenuKeys }, organization.tagChecklist(card)) : null);
+      tags.length ? tags.map(tag => h('span', { key: tag, className: 'dsh-tavern-card-tagline-tag' }, tag)) : h('span', null, editLabel)),
+    popup.open ? popup.layer({ className: 'fork-inline-pop dsh-tavern-card-tag-pop', role: 'menu', 'aria-label': tagLabel, onKeyDown: inlineMenuKeys }, organization.tagChecklist(card)) : null);
 }

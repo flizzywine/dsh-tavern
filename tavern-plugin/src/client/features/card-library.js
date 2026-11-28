@@ -104,7 +104,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 			const [loading, setLoading] = React.useState(false);
 						const [busy, setBusy] = React.useState(false);
 			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refreshCards, props.archiveSession);
-			const organization = useCardOrganization(cards, busy, refreshCards, error => setError(error), cardBatch);
+			const organization = useLibraryOrganization(cards, busy, refreshCards, error => setError(error), cardBatch);
 			const [error, setError] = usePersistentError("人物卡库");
 			const dshExport = useDshCardExport({ sessionId: props.scope && props.scope.sessionId || "" });
 			// 更新 (card-update-dialog.js): a card replaced or put back is read again.
@@ -265,7 +265,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 					exportFormats: dshExport.open ? null : cardExportFormats(listedCard?.hasImage, exportCardFile, encryptCurrentCard),
 					manageSaves: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-manage-saves", { detail: { path: card.path } })); },
 					attach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null };
-				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, displayName: listedCard?.displayName, organizationSettings: listedCard ? h(TavernCardDetailTags, { card: listedCard, organization }) : null, hasImage: listedCard?.hasImage, busy: busy, sessionId: props.scope && props.scope.sessionId || "", onBack: clearCard, onOpenWorldBook: props.openWorldBook, onRename: listedCard ? function () { actions.rename(listedCard); } : null, menu: listedCard ? function (close) { return h(TavernCardMenu, { card: listedCard, actions, organization, close, detail: detailMenu }); } : null, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element, cardUpdate.input, cardUpdate.element);
+				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, displayName: listedCard?.displayName, organizationSettings: listedCard ? h(TavernLibraryItemTags, { card: listedCard, organization }) : null, hasImage: listedCard?.hasImage, busy: busy, sessionId: props.scope && props.scope.sessionId || "", onBack: clearCard, onOpenWorldBook: props.openWorldBook, onRename: listedCard ? function () { actions.rename(listedCard); } : null, menu: listedCard ? function (close) { return h(TavernCardMenu, { card: listedCard, actions, organization, close, detail: detailMenu }); } : null, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element, cardUpdate.input, cardUpdate.element);
 			}
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.

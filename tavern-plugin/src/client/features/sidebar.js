@@ -179,8 +179,8 @@
 			const [cardImportStatus, setCardImportStatus] = React.useState("");
 			const cardImporting = React.useRef(false);
 			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refresh, props.archiveSession);
-			const organization = useCardOrganization(cards, busy, refresh, error => setError(error), cardBatch, "play");
-			const workbenchOrganization = useCardOrganization(cards, busy, refresh, error => setError(error), {}, "workbench");
+			const organization = useLibraryOrganization(cards, busy, refresh, error => setError(error), cardBatch, "play");
+			const workbenchOrganization = useLibraryOrganization(cards, busy, refresh, error => setError(error), {}, "workbench");
 			const playExport = useDshCardExport({ sessionId: "" });
 			const [error, setError] = usePersistentError("左侧栏操作");
 			const [uiMode, setUiMode] = React.useState("play");
