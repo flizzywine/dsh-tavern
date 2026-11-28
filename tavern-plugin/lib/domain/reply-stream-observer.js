@@ -59,8 +59,10 @@ export function createReplyStreamObserver({begin, signal, warn = () => {}, minIn
   else signal?.addEventListener('abort', cancel, {once:true})
   const ready = Promise.resolve().then(() => cancelled ? null : begin?.(lifetime.signal)).then(value => {
     observer = value
-    // A late initializer must not resurrect a finished or cancelled request.
-    if (closed) release()
+    // A late initializer must not resurrect a cancelled request. One that arrives after a successful request
+    // (a fast reply, or a tool-call step, ending before the observer was ready) still gets the whole text and,
+    // when the reply stopped on its own, its finish(): the round's work it admitted is the same as if it had been on time.
+    if (cancelled) release()
     else flush(true)
   }).catch(fail)
   return {ready,
@@ -73,12 +75,11 @@ export function createReplyStreamObserver({begin, signal, warn = () => {}, minIn
     finish(completed, stopped = false) {
       closed = true
       clearTimer()
-      lifetime.abort()
       signal?.removeEventListener('abort', cancel)
       if (!completed) cancel()
       else if (stopped) { final = true; flush(true) }
-      // A successful request leaves admitted presentation work running. Pending
-      // snapshots still drain; the owner controls that work's longer lifetime.
+      // A successful request leaves admitted presentation work running, including work whose initializer is still
+      // starting (its lifetime is not aborted). Pending snapshots still drain; the owner controls that work's longer lifetime.
     },
     cancel}
 }
