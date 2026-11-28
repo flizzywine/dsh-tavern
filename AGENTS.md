@@ -22,6 +22,10 @@ DSH Tavern 的长期目标是在现有酒馆内容生态上，发挥 Agent 能�
 - 默认推送到 `origin`（`flizzywine/dsh-tavern`）。仅在用户点名时操作 `bigmalove/dsh-tavern` 的分叉。同步分叉用 merge，rebase 或强推须经用户明确同意。
 - 推送 `main` 前运行 `git fetch origin` 和 `git log --oneline HEAD..origin/main`。若远端仅多出运行清单提交，rebase 到 `origin/main` 再推送。出现其他远端提交时先告知用户。
 
+## 本地同步
+
+- 用户说“同步到 CLI”时，在仓库根目录直接运行 `node bin/dev-sync-cli.mjs`。脚本将当前本地运行时改动同步到已安装的 CLI，并启动服务。命令报错时按报错排查，成功后核对服务端口。
+
 ## 发布与 CDN
 
 - 构建、更新安装入口或排查 CDN 时，查阅 [发布工作流](.github/workflows/publish-runtime-manifest.yml)。`runtime-archive-<分支>` 只放安装入口、清单和 `runtime.zip`，清单固定引用不可变的压缩包提交。修改入口时核对安装和应用内更新。验证入口与清单同批发布，文件字节数和 SHA-256 与清单一致。
