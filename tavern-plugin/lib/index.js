@@ -312,7 +312,7 @@ import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { installWorldbookHost } from './host/worldbook.js'
 import { hasWorldbookCooldownHistory } from './domain/worldbook-auto-injection.js'
-import { QUERY_LOREBOOK_TOOL, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
+import { normalizeDisabledForegroundTools, QUERY_LOREBOOK_TOOL, USE_SKILL_TOOL, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
 import { playPluginTools } from './domain/play-request-policy.js'
 import {
   createBackgroundTaskCoordinator,
@@ -2501,7 +2501,7 @@ export async function apply(ctx) {
     settingsChanged: (gameId, plugin) => sessionSignals.publish(gameId, { kind: 'plugin-settings', version: plugin + ':' + Date.now() + ':' + Math.random().toString(36).slice(2) }),
     // A plugin published new state for its page side (tavernUi.watchState re-reads it).
     publishState: (gameId, plugin, name) => sessionSignals.publish(gameId, { kind: 'plugin-state:' + plugin + ':' + name, version: Date.now() + ':' + Math.random().toString(36).slice(2) }),
-    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat([STYLE_REFERENCE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', QUERY_LOREBOOK_TOOL, ...WORLDBOOK_ACCESS_TOOLS.filter(name => name !== 'read'), WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'web_search', 'web_fetch', 'skill']).filter(Boolean),
+    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat([STYLE_REFERENCE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', QUERY_LOREBOOK_TOOL, USE_SKILL_TOOL, ...WORLDBOOK_ACCESS_TOOLS.filter(name => name !== 'read'), WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'web_search', 'web_fetch', 'skill']).filter(Boolean),
     media: pluginMedia,
     data: pluginData,
     projectGameForeground(gameId, projection) {
@@ -4086,7 +4086,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', QUERY_LOREBOOK_TOOL, ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', ...WORKBENCH_RUNTIME_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', QUERY_LOREBOOK_TOOL, ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, USE_SKILL_TOOL, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', ...WORKBENCH_RUNTIME_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       writingPreparation: pluginApi.writingPreparation,
@@ -4262,6 +4262,12 @@ export async function apply(ctx) {
     })
     registerSkillTools({
       chatForSession,
+      async playSkillAvailable(agent) {
+        const sessionId = agent?.session?.id
+        if (!sessionId || backgroundAgentRunner.owns(sessionId)) return false
+        const chat = await chatHeaderForSession(sessionId, ['mode', 'disabledForegroundTools'])
+        return Boolean(chat && groupOfMode(chat.mode) === 'play' && !normalizeDisabledForegroundTools(chat.disabledForegroundTools).includes(USE_SKILL_TOOL))
+      },
       skillEnabledFor,
       skillRoleFor,
       tavernSkills,

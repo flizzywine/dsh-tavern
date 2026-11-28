@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { appendWritingSkillState } from '../tavern-plugin/lib/domain/skill-visibility.js'
+import { USE_SKILL_TOOL } from '../tavern-plugin/lib/domain/foreground-tools.js'
 import { Session } from './fixtures/dsh-session-host.mjs'
 
 const ordinary = { id: 'ordinary', source: { kind: 'plugin' } }
@@ -16,6 +17,12 @@ test('开关只在影响已加载的 Skill 或已声明的停用时才通知', (
   assert.deepEqual(appendWritingSkillState([ordinary], 'story', { session, disabledWritingSkills: ['never-loaded'] }), [ordinary])
   // A model-loaded skill that is then disabled must be revoked.
   session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'skill', arguments: { name: 'loaded-style' } }] } }, { surfaceOp: 'append' })
+  session.append('assistant/message', { turn: 1, step: 2, message: { role: 'assistant', content: [
+    { type: 'tool-call', id: 'c2', name: USE_SKILL_TOOL, arguments: JSON.stringify({ action: 'load', name: 'modern-style' }) },
+    { type: 'tool-call', id: 'c3', name: USE_SKILL_TOOL, arguments: JSON.stringify({ action: 'read_reference', name: 'reference-only', path: 'references/rules.md' }) }
+  ] } }, { surfaceOp: 'append' })
+  assert.deepEqual(appendWritingSkillState([ordinary], 'story', { session,
+    disabledWritingSkills: ['modern-style', 'reference-only'] }).at(-1).source.disabledWritingSkills, ['modern-style'])
   const revoked = appendWritingSkillState([ordinary], 'story', { session, disabledWritingSkills: ['loaded-style', 'never-loaded'] })
   assert.deepEqual(revoked.at(-1).source.disabledWritingSkills, ['loaded-style'])
   session.append('user/message', revoked.at(-1), { surfaceOp: 'append' })

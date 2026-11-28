@@ -1,31 +1,64 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { USE_SKILL_TOOL } from '../domain/foreground-tools.js'
+
+const textOutput = {
+  schema: { type: 'object', additionalProperties: false, properties: { content: { type: 'string', required: true } } },
+  render: (_args, value) => [{ type: 'text', text: value.content }]
+}
 
 export function registerSkillTools({
   chatForSession,
+  playSkillAvailable = () => false,
   skillEnabledFor,
   skillRoleFor,
   tavernSkills,
   tools,
 }) {
+  async function readReference({ name, path }, { agent }) {
+    const role = await skillRoleFor(agent)
+    const skill = await tavernSkills.read(name)
+    if (!role || !skill?.modelInvocable || !skill.agents.includes(role) || !await skillEnabledFor(skill, agent)) throw new Error('此 Skill 未分配给当前 Agent')
+    return { content: await tavernSkills.readReference(name, path) }
+  }
+
+  tools.register(defineTool({
+    name: USE_SKILL_TOOL,
+    description: '加载或查阅当前游玩的 Skill。load 按目录里的准确名称加载正文；read_reference 按正文指引读取 references/*.md（旧 Skill 中的 tavern_read_skill_reference 指同一操作）。',
+    parameters: {
+      action: { type: 'string', enum: ['load', 'read_reference'], required: true },
+      name: { type: 'string', required: true, description: 'Skill 的准确名称' },
+      path: { type: 'string', description: 'read_reference 必填，例如 references/dialogue.md' }
+    },
+    output: textOutput,
+    isConcurrencySafe: ({ action }) => action === 'read_reference',
+    async execute(args, exec) {
+      if (!await playSkillAvailable(exec.agent)) throw new Error('本局未开放「使用 Skill」')
+      if (args.action === 'read_reference') {
+        if (!args.path?.trim()) throw new Error('读取 Skill 参考需要填写 path')
+        return readReference(args, exec)
+      }
+      const native = typeof tools.executable === 'function' ? tools.executable('skill', exec.agent) : tools.get('skill', exec.agent)
+      if (!native) throw new Error('当前 Agent 没有可用的 DSH Skill 加载器')
+      const input = { name: args.name }
+      const value = await native.execute(input, exec)
+      return { content: native.output.render(input, value).filter(block => block.type === 'text').map(block => block.text).join('') }
+    }
+  }))
+
   tools.register(defineTool({
     name: 'tavern_read_skill_reference',
     description: '按需读取当前 Agent 可用 Skill 内的 references/*.md。先用原生 skill 工具读取入口，再按入口指引读取相关参考文件。',
     parameters: { name: { type: 'string', required: true }, path: { type: 'string', required: true, description: 'Skill 内的相对路径，例如 references/dialogue.md' } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { content: { type: 'string', required: true } } }, render: (_args, value) => [{ type: 'text', text: value.content }] },
+    output: textOutput,
     isConcurrencySafe: () => true,
-    async execute(args, exec) {
-      const role = await skillRoleFor(exec.agent)
-      const skill = await tavernSkills.read(args.name)
-      if (!role || !skill?.modelInvocable || !skill.agents.includes(role) || !await skillEnabledFor(skill, exec.agent)) throw new Error('此 Skill 未分配给当前 Agent')
-      return { content: await tavernSkills.readReference(args.name, args.path) }
-    }
+    execute: readReference
   }))
 
   tools.register(defineTool({
     name: 'tavern_read_skill',
     description: '卡片工作台编辑已有用户 Skill 时使用。按名称读取当前 SKILL.md 和参考文件，省略名称则列出可编辑的用户 Skill。',
     parameters: { name: { type: 'string', description: '要编辑的 Skill 名称' } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { content: { type: 'string', required: true } } }, render: (_args, value) => [{ type: 'text', text: value.content }] },
+    output: textOutput,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       if (await skillRoleFor(exec.agent) !== 'card') throw new Error('请在卡片工作台读取待编辑的 Skill')

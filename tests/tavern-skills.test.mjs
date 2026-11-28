@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createFileSymlink } from './helpers/file-symlink.mjs'
 
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
 import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
 import { registerSkillTools } from '../tavern-plugin/lib/tools/skills.js'
+import { USE_SKILL_TOOL } from '../tavern-plugin/lib/domain/foreground-tools.js'
 
 async function harness(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-skills-'))
@@ -16,6 +18,40 @@ async function harness(t) {
   const builtin = path.join(root, 'builtin')
   return { root, user, builtin, skills: createTavernSkillModule({ directory: user, builtInDirectory: builtin }) }
 }
+
+test('游玩通过一个工具保留 DSH 的正文加载和 Tavern 的受限参考读取', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const { skills } = await harness(t)
+  await skills.write({ name: 'dialogue', purpose: 'writing', description: '争执场景', body: '按场景展开',
+    references: [{ path: 'references/dialogue.md', content: '参考写法' }] })
+  const definitions = new Map()
+  const tools = { register: tool => definitions.set(tool.name, tool), get: name => definitions.get(name) }
+  const agent = { session: { id: 'play' } }
+  const signal = new AbortController().signal
+  const { apply } = await import(new URL('../../dsh-tool-skill/lib/index.js', pathToFileURL(process.env.DSH_BOOT_MODULE)))
+  let enabled = true
+  let available = true
+  const nativeSkill = { name: 'dialogue', provider: 'tavern', content: '按场景展开', invocation: { modelInvocable: true } }
+  apply({ tools, on() {}, workingDirectory: { ensure: async () => '/game' }, skills: {
+    async list(lookup) {
+      assert.equal(lookup.scope, agent)
+      assert.equal(lookup.signal, signal)
+      return enabled ? [nativeSkill] : []
+    },
+    async get() { return nativeSkill }
+  } })
+  registerSkillTools({ tools, tavernSkills: skills, playSkillAvailable: async () => available,
+    skillRoleFor: async () => 'foreground', skillEnabledFor: async () => enabled })
+  const call = (action, path) => definitions.get(USE_SKILL_TOOL).execute({ action, name: 'dialogue', ...(path ? { path } : {}) }, { agent, signal })
+  assert.match((await call('load')).content, /<skill_content name="dialogue"[\s\S]*按场景展开/)
+  assert.deepEqual(await call('read_reference', 'references/dialogue.md'), { content: '参考写法' })
+  await assert.rejects(call('read_reference'), /需要填写 path/)
+  await assert.rejects(call('read_reference', '../dialogue.md'), /相对/)
+  enabled = false
+  await assert.rejects(call('load'), /unknown|no longer available/)
+  await assert.rejects(call('read_reference', 'references/dialogue.md'), /未分配/)
+  available = false
+  await assert.rejects(call('load'), /本局未开放/)
+})
 
 test('运行时升级后残留的长期偏好 Skill 不会被列出或加载', async t => {
   const { builtin, skills } = await harness(t)

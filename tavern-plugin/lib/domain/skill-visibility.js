@@ -2,6 +2,7 @@ import { promptSection } from './prompt-section.js'
 import { randomUUID } from 'node:crypto'
 import { canonicalTavernSkillName } from './tavern-skills.js'
 import { isProducerSource } from './message-source.js'
+import { USE_SKILL_TOOL } from './foreground-tools.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -24,9 +25,10 @@ function stateOf(message) {
 function loadedSkills(message) {
   if (message?.source?.kind === 'skill-invocation' && typeof message.source.name === 'string') return [message.source.name]
   return (Array.isArray(message?.content) ? message.content : []).flatMap(block => {
-    if (block?.type !== 'tool-call' || block.name !== 'skill') return []
+    if (block?.type !== 'tool-call' || !['skill', USE_SKILL_TOOL].includes(block.name)) return []
     let args = block.arguments
     if (typeof args === 'string') { try { args = JSON.parse(args) } catch { return [] } }
+    if (block.name === USE_SKILL_TOOL && args?.action !== 'load') return []
     return typeof args?.name === 'string' ? [args.name] : []
   })
 }

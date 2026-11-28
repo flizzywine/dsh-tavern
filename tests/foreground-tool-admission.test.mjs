@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { USE_SKILL_TOOL } from '../tavern-plugin/lib/domain/foreground-tools.js'
 import { filterPlayMessages } from '../tavern-plugin/lib/domain/play-request-policy.js'
 import { registerModelStreamHooks } from '../tavern-plugin/lib/hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
@@ -34,14 +35,14 @@ test('native host adapter receives only the approved foreground tools', { skip: 
   h.ctx.on('agent/error', payload => errors.push(payload.error?.stack || JSON.stringify(payload)))
   await useNativeTools(h.target.agent.ctx)
   const chat = { mode: 'story', messages: [] }
-  let approved = ['submit_story']
+  let approved
   const strategies = createForegroundOrchestrationStrategies({ nativePlay: {
     modeFor: async () => 'story', visibleTools: async () => approved,
-    resolvePreset: async () => null, controlledToolNames: new Set(['submit_story', 'edit']),
+    resolvePreset: async () => null, controlledToolNames: new Set(['submit_story', 'edit', USE_SKILL_TOOL, 'skill', 'tavern_read_skill_reference']),
     playPluginToolNames: async () => new Set(['declared_play_tool']),
     storyOutputToolCall: async () => true
   } })
-  for (const name of ['submit_story', 'edit', 'read', 'future_host_tool', 'declared_play_tool']) h.ctx.tools.register({ name, description: name,
+  for (const name of ['submit_story', 'edit', 'read', 'future_host_tool', 'declared_play_tool', USE_SKILL_TOOL, 'skill', 'tavern_read_skill_reference']) h.ctx.tools.register({ name, description: name,
     parameters: { type: 'object', properties: {} }, output: { schema: { type: 'string' }, render: value => value }, execute: async () => 'ok'
   })
   h.ctx.systemPrompt.section({ name: 'future:section', order: 0, text: 'FUTURE_HOST_SECTION' })
@@ -51,6 +52,8 @@ test('native host adapter receives only the approved foreground tools', { skip: 
     if (decision.kind !== 'enter') return decision
     return { ...decision, messages: [...decision.messages, {
       id: crypto.randomUUID(), role: 'user', source: { kind: 'future-host-notice' }, content: [{ type: 'text', text: 'FUTURE_HOST_INJECTED_CONTEXT' }]
+    }, {
+      id: crypto.randomUUID(), role: 'user', source: { kind: 'skill-catalog' }, content: [{ type: 'text', text: 'Call the `skill` tool' }]
     }] }
   })
   registerTurnLifecycleHooks({ ctx: h.ctx, foregroundStrategies: strategies,
@@ -64,20 +67,22 @@ test('native host adapter receives only the approved foreground tools', { skip: 
     backgroundAgentRunner: { owns: () => false, requestContext: () => undefined },
     requestCoordinates: new Map(), str: value => String(value || ''),
     chatForSession: async () => undefined,
-    chatHeaderForSession: async (_id, fields) => fields.length === 1 && fields[0] === 'mode' ? { mode: 'story' } : undefined,
+    chatHeaderForSession: async (_id, fields) => fields[0] === 'mode' ? chat : undefined,
     sessionStore: h.ctx.sessions, agentRegistry: h.ctx.agents
   })
-  for (const names of [['submit_story'], []]) {
+  for (const names of [['submit_story', USE_SKILL_TOOL], []]) {
     approved = names
-    chat.disabledForegroundTools = names.length ? [] : ['declared_play_tool']
+    chat.disabledForegroundTools = names.length ? [] : ['declared_play_tool', 'skill']
     h.target.agent.followup({ id: crypto.randomUUID(), role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'human' } })
     await h.target.agent.whenIdle()
   }
   assert.deepEqual(errors, [])
   assert.equal(received.length, 2)
-  assert.deepEqual(new Set((received[0].tools || []).map(tool => tool.name)), new Set(['submit_story', 'declared_play_tool']))
+  assert.deepEqual(new Set((received[0].tools || []).map(tool => tool.name)), new Set(['submit_story', 'declared_play_tool', USE_SKILL_TOOL]))
   assert.deepEqual(received[1].tools || [], [])
   assert.match(JSON.stringify(received[0].messages), /submit_story/)
+  assert.match(JSON.stringify(received[0].messages), /Call the `tavern_use_skill` tool/)
+  assert.doesNotMatch(JSON.stringify(received[1].messages), /skill-catalog|Call the `skill` tool/)
   for (const request of received) {
     assert.doesNotMatch(JSON.stringify(request.messages), /FUTURE_HOST/)
     assert.match(JSON.stringify(request.messages), /继续/)

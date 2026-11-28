@@ -1,6 +1,7 @@
 import { createConversationBackgroundSettings } from '../tavern-plugin/lib/domain/conversation-background-settings.js'
 import { projectChatBackgroundConfig } from '../tavern-plugin/lib/domain/chat-session-state.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { USE_SKILL_TOOL } from '../tavern-plugin/lib/domain/foreground-tools.js'
 import { STORY_GENERATE_TOOL_NAME } from '../tavern-plugin/lib/domain/story-tool-submission.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -97,22 +98,27 @@ test('只有插件工具调用需要前台开关，旧开关不阻止插件直�
   assert.equal((await turns.callableTools('game')).includes(STORY_GENERATE_TOOL_NAME), true)
 })
 
-test('自由和剧本游玩只开放一个世界书工具，旧存档的关闭状态沿用', async () => {
-  let chat = { id: 'game', mode: 'story', disabledForegroundTools: ['worldbook_grep', 'read_lorebook'] }
+test('自由和剧本游玩各只开放一个世界书和 Skill 工具，旧存档的关闭状态沿用', async () => {
+  let chat = { id: 'game', mode: 'story', disabledForegroundTools: ['worldbook_grep', 'read_lorebook', 'tavern_read_skill_reference'] }
   const settings = createConversationBackgroundSettings({
     readConfig: async () => chat, readChat: async () => chat, isPlayMode: mode => ['story', 'script'].includes(mode),
     updateChat: async (_id, mutation) => chat = mutation(chat), modelCatalog: async () => []
   })
   const turns = createTurnOrchestrator({ store: { chatForSession: async () => chat }, frameBuilder: { build() {} } })
   const worldbookTools = names => names.filter(name => /lorebook|worldbook|^read$/.test(name))
+  const skillTools = names => names.filter(name => name.includes('skill'))
   const savedConfig = await settings.read('game')
-  assert.deepEqual(savedConfig.disabledForegroundTools, ['query_lorebook'])
+  assert.deepEqual(savedConfig.disabledForegroundTools, ['query_lorebook', USE_SKILL_TOOL])
   assert.deepEqual(worldbookTools(await turns.visibleTools('game')), [])
+  assert.deepEqual(skillTools(await turns.visibleTools('game')), [])
   assert.deepEqual(savedConfig.foregroundTools.filter(tool => worldbookTools([tool.name]).length).map(tool => [tool.name, tool.label]),
     [['query_lorebook', '查询世界书']])
+  assert.deepEqual(savedConfig.foregroundTools.filter(tool => skillTools([tool.name]).length).map(tool => [tool.name, tool.label]),
+    [[USE_SKILL_TOOL, '使用 Skill']])
   await settings.save({ sessionId: 'game', disabledForegroundTools: [] })
   for (const mode of ['story', 'script']) {
     chat.mode = mode
     assert.deepEqual(worldbookTools(await turns.callableTools('game')), ['query_lorebook'])
+    assert.deepEqual(skillTools(await turns.callableTools('game')), [USE_SKILL_TOOL])
   }
 })

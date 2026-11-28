@@ -115,10 +115,10 @@ export function registerModelStreamHooks({
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
   installPlayContextPolicy(ctx, {
-    async modeFor(id) {
+    async stateFor(id) {
       if (backgroundAgentRunner.owns(id)) return null
-      const head = await chatHeaderForSession(str(id), ['mode'])
-      return head ? head.mode || 'story' : null
+      const head = await chatHeaderForSession(str(id), ['mode', 'disabledForegroundTools'])
+      return head ? { ...head, mode: head.mode || 'story' } : null
     },
     systemSectionsFor: foregroundStrategies.systemSectionsFor
   })

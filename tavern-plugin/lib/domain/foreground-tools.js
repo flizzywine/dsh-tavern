@@ -2,6 +2,7 @@ export const READ_LOREBOOK_TOOL = 'read_lorebook'
 export const LIST_LOREBOOK_TOOL = 'list_lorebook'
 export const GREP_LOREBOOK_TOOL = 'grep_lorebook'
 export const QUERY_LOREBOOK_TOOL = 'query_lorebook'
+export const USE_SKILL_TOOL = 'tavern_use_skill'
 export const WORKBENCH_READ_LOREBOOK_TOOL = 'tavern_read_lorebook'
 export const WORKBENCH_UPDATE_LOREBOOK_TOOL = 'tavern_update_lorebook'
 export const WORKBENCH_RUNTIME_TOOLS = Object.freeze(['tavern_read_runtime_health', 'working_directory'])
@@ -30,8 +31,7 @@ export function lorebookQueryAction(name, args) {
 export const FOREGROUND_TOOL_CATALOG = Object.freeze([
   { name: 'tavern_generate_body', label: '插件生成正文', description: '调用选定插件生成正文；需全局选择插件生成方式。', modes: ['story', 'script'] },
   { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量和结算状态。' },
-  { name: 'skill', label: '加载 Skill', description: '按需加载写作或任务 Skill。' },
-  { name: 'tavern_read_skill_reference', label: '读取 Skill 参考', description: '读取已加载 Skill 的参考文件。' },
+  { name: USE_SKILL_TOOL, label: '使用 Skill', description: '按需加载 Skill 正文或读取当前可用 Skill 的参考文件。', modes: ['story', 'script'] },
   { name: QUERY_LOREBOOK_TOOL, label: '查询世界书', description: '读取条目正文、搜索全文或分页浏览本局世界书标题。', modes: ['story', 'script'] },
   { name: 'tavern_recall_history', label: '召回历史', description: '按关键词或轮次检索已压缩的历史正文。' },
   { name: 'web_search', label: '联网搜索', description: '联网查找资料；还需本局开启「联网搜索」。' },
@@ -50,8 +50,11 @@ const TOOL_NAME = /^[A-Za-z0-9_.:-]{1,120}$/
 export function normalizeDisabledForegroundTools(value) {
   if (!Array.isArray(value)) return []
   return [...new Set(value.filter(name => typeof name === 'string' && TOOL_NAME.test(name) && !SETTINGS_BOUND_STORY_TOOLS.has(name))
-    // A partially disabled legacy trio becomes a disabled unified tool.
-    .map(name => lorebookQueryAction(name) ? QUERY_LOREBOOK_TOOL : lorebookToolName(name)))].slice(0, 200)
+    .map(name => {
+      // Preserve a previous opt-out when either legacy Skill tool was disabled.
+      if (name === 'skill' || name === 'tavern_read_skill_reference') return USE_SKILL_TOOL
+      return lorebookQueryAction(name) ? QUERY_LOREBOOK_TOOL : lorebookToolName(name)
+    }))].slice(0, 200)
 }
 
 /** The mode's tools, in catalog order, for the per-game settings panel. */
