@@ -3,10 +3,11 @@
 // Host-side inert authoring contract; no executable assets or player state.
 const schema=require('../schema/performance.schema.json');
 const {validateSkinSchema}=require('./skin-overlay.cjs');
-const {validateStageSkin}=require('./stage-skin.cjs');
+const {validateStageSkin,stageSkinRetiredSourceKind}=require('./stage-skin.cjs');
 function check(ok,message) {if(!ok)throw Object.assign(new Error(message),{code:'INVALID_PERFORMANCE'});}
 function validateStagePerformance(document) {
     check(new TextEncoder().encode(JSON.stringify(document)).length<=131072,'Performance document exceeds 128 KiB');
+    stageSkinRetiredSourceKind(document?.theme?.license,'theme.license');
     try {validateSkinSchema(schema,document);} catch(error) {throw Object.assign(new Error(error.message),{code:'INVALID_PERFORMANCE'});}
     // levels/overlays use the shared skin format, not another renderer.
     if(document.theme) validateStageSkin(document.theme);
