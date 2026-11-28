@@ -52,6 +52,7 @@ function htmlToPlainText(value) {
     .replace(/<!--([\s\S]*?)-->/g, '')
     .replace(/<head\b[^>]*>[\s\S]*?<\/head\s*>/gi, '')
     .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title\s*>/gi, '')
   let plain = ''
 
   for (let index = 0; index < text.length;) {
@@ -99,6 +100,15 @@ function exportMessageText(value, options = {}) {
   return cleanMessageText(htmlToPlainText(text))
 }
 
+function exportStoryText(value, cardName) {
+  const text = exportMessageText(value, { legacyPresentation: true })
+  if (cardName === '') return text
+  const [firstLine] = text.split('\n', 1)
+  const heading = firstLine.match(/^#{1,6}\s+(.+?)(?:\s+#+)?$/)
+  if (firstLine === cardName || heading?.[1] === cardName) return text.slice(firstLine.length).trimStart()
+  return text
+}
+
 function safeFilename(value) {
   const name = str(value)
     .replace(/[\u0000-\u001f<>:"/\\|?*]/g, ' ')
@@ -133,6 +143,7 @@ export function createConversationMarkdownExport(chat, options = {}) {
   const source = chat !== null && typeof chat === 'object' ? chat : {}
   const images = options.images instanceof Map ? options.images : new Map()
   const title = safeFilename(options.title || source.title || (source.cardName ? source.cardName + '的对话' : '对话记录'))
+  const cardName = str(source.cardName).trim()
   const sections = []
   for (const message of Array.isArray(source.messages) ? source.messages : []) {
     if (message === null || typeof message !== 'object') continue
@@ -140,7 +151,7 @@ export function createConversationMarkdownExport(chat, options = {}) {
       const text = exportMessageText(message.text)
       if (text !== '') sections.push(text.split('\n').map(line => line === '' ? '>' : '> ' + line).join('\n'))
     } else if (message.role === 'assistant') {
-      const text = exportMessageText(message.text, { legacyPresentation: true })
+      const text = exportStoryText(message.text, cardName)
       // An image is a path, { path, anchor }, or a list of them (pictures added to the
       // turn): each placed after its anchor's paragraph as in play, else after the text.
       const entry = images.get(storyTurn(message))
