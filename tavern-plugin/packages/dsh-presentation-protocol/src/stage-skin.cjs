@@ -6,6 +6,13 @@ const skinNumber = (min,max,integer = false) => value => Number.isFinite(value) 
 const skinEnum = values => value => values.includes(value);
 // Source kinds only; work names and attribution belong in license.notes.
 const STAGE_SKIN_SOURCE_KINDS = ['official-asset','ai-generated','original'];
+// Retired work-title kinds and the source kind that replaced each (pack install retired-source-kinds migrates them).
+const STAGE_SKIN_RETIRED_SOURCE_KINDS = Object.freeze({'witch-runes':'official-asset','magia-record':'official-asset'});
+// A retired kind names its replacement before the generic shape check refuses the document.
+function stageSkinRetiredSourceKind(license,at) {
+    const kind=Array.isArray(license?.derived) ? license.derived.find(value => Object.hasOwn(STAGE_SKIN_RETIRED_SOURCE_KINDS,value)) : undefined;
+    if (kind !== undefined) throw Object.assign(new Error(at + '.derived ' + JSON.stringify(kind) + ' is a retired source kind: replace it with ' + JSON.stringify(STAGE_SKIN_RETIRED_SOURCE_KINDS[kind]) + ' (the work title belongs in license.notes), then export the pack again'),{code:'INVALID_SKIN'});
+}
 const skinArray = (item,min,max) => value => Array.isArray(value) && value.length >= min && value.length <= max && value.every(item);
 const skinObject = (fields,required = []) => value => value !== null && typeof value === 'object' && !Array.isArray(value) && required.every(key => Object.hasOwn(value,key)) && Object.keys(value).every(key => Object.hasOwn(fields,key) && fields[key](value[key]));
 // textStyle.highlight: words of the story text drawn in an ink (display only; text-marks.cjs finds them). One word: its text (1-16 chars),
@@ -1117,6 +1124,7 @@ function validateStageSkin(value, at = 'art') {
     if (rollProblem) throw Object.assign(new Error(at + '.backlog.roll' + rollProblem),{code:'INVALID_SKIN'});
     const word=value?.config?.title?.word;
     if (typeof word === 'string' && !skinConfigWordOne(word)) throw Object.assign(new Error('config.title.word ' + JSON.stringify(word) + ' is not one word: the CONFIG title is 设置 - omit title.word, or name one replacement word without Latin letters, spaces or separators and never paired with 设置'),{code:'INVALID_SKIN'});
+    stageSkinRetiredSourceKind(value?.license,'license');
     if (!stageSkinShape(value) || new TextEncoder().encode(JSON.stringify(value)).length > (value.overlay || value.levels ? 262144 : 32768)) throw Object.assign(new Error('Invalid dsh.skin/1 document'),{code:'INVALID_SKIN'});
     if ((value.overlay || value.levels) && typeof module !== 'undefined' && typeof window === 'undefined') require('./skin-overlay.cjs').validateSkinOverlay(value);
     const spinner=value.art?.spinner;
@@ -1272,4 +1280,4 @@ const BUILTIN_STAGE_SKINS = Object.freeze(Object.fromEntries([
     // Film subtitles stay 新晰黑 in every built-in (migrated from the old per-theme table).
     nameplate:{shape:'plain',paint:{bg,fg}},font:{...(stage ? {body:stage} : {}),film:'neo-xihei-screen'},textFx:{reveal:'type'},
     ui:{bg,fg,fgMuted,accent,onAccent:bg,border,radius,...(veil ? {veil} : {})}}])));
-if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,stageSkinForDevice,STAGE_PORTRAIT_SOURCES,stageSkinPortraitOrder,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SCROLLBAR_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};
+if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,STAGE_SKIN_RETIRED_SOURCE_KINDS,stageSkinRetiredSourceKind,stageSkinForDevice,STAGE_PORTRAIT_SOURCES,stageSkinPortraitOrder,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SCROLLBAR_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};
