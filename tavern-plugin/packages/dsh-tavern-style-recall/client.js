@@ -139,11 +139,13 @@ window.__ModuleLoader__.load({
         console.warn('[dsh-tavern-style-recall] 样式加载失败', error.message)
       }
       try {
-        ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
-          name: 'settings.section', id: name, order: 116, label: () => '文风联想'
-        }, () => h(Panel, { ui: ctx.tavernUi }))))
+        ctx.effect(() => ctx.slots.inject('plugins.item', () => ctx.slots.register({
+          name: 'plugins.item', id: name, order: 116, label: () => '文风联想'
+        }, ({ view }) => view === 'summary'
+          ? '从小说中选段，或由正文模型自行联想范文。'
+          : h(Panel, { ui: ctx.tavernUi }))))
       } catch (error) {
-        console.warn('[dsh-tavern-style-recall] 全局设置注册失败', error.message)
+        console.warn('[dsh-tavern-style-recall] 插件管理页注册失败', error.message)
       }
       try {
         ctx.tavernUi.registerPanel({ id: 'style-recall', title: '文风联想',

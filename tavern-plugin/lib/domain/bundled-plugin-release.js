@@ -30,6 +30,24 @@ export function bundledPluginRuntimeFiles(packageName) {
   return releaseSources.get(packageName)?.runtimeFiles || standardRuntimeFiles
 }
 
+// Keep the verified upstream archive intact. Adapt its known legacy UI registration on installation.
+export function moveStcontextSettingsToPluginManager(client) {
+  const lineBreak = client.includes('\r\n') ? '\r\n' : '\n'
+  const legacy = [
+    "        ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({",
+    "          name: 'settings.section', id: 'dsh-tavern-stcontext', order: 115, label: () => 'STcontext',",
+    "        }, () => h(Panel, { settingsPage: true }))), 'STcontext: settings section');",
+  ]
+  const registration = [
+    "        ctx.effect(() => ctx.slots.inject('plugins.item', () => ctx.slots.register({",
+    "          name: 'plugins.item', id: 'dsh-tavern-stcontext', order: 115, label: () => 'STcontext',",
+    "        }, ({ view }) => view === 'summary'",
+    "          ? '导入 SillyTavern 预设，用于生成和重生成正文。'",
+    "          : h(Panel, { settingsPage: true, manageDefaults: true }))), 'STcontext: plugin configuration');",
+  ]
+  return client.replace(legacy.join(lineBreak), registration.join(lineBreak))
+}
+
 // Validate names before the installer resolves any of them on disk or in an archive.
 export function bundledPluginVendorHashes(manifestBytes) {
   let hashes

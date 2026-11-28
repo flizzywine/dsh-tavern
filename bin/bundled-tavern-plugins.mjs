@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { comparePluginVersions } from '../tavern-plugin/lib/domain/plugin-manifest.js'
-import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
+import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem, moveStcontextSettingsToPluginManager } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
 
 /**
  * 随酒馆发行、但身份是「酒馆插件」的内置插件（第一个是剧情罗盘）。
@@ -240,6 +240,12 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     if (staged?.name !== definition.packageName || String(staged?.version ?? '').trim() !== bundled.version) throw new Error('内置插件复制后的包名或版本校验失败')
     const stagedProblem = runtimeProblem(staging, definition)
     if (stagedProblem) throw new Error('内置插件复制失败：' + stagedProblem)
+    if (definition.packageName === 'dsh-tavern-STcontext') {
+      const clientFile = path.join(staging, 'client.js')
+      const client = readFileSync(clientFile, 'utf8')
+      const adapted = moveStcontextSettingsToPluginManager(client)
+      if (adapted !== client) writeFileSync(clientFile, adapted)
+    }
     const digest = treeDigest(staging)
     // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
     const defaultDisabled = definition.defaultDisabled ?? release?.defaultDisabled

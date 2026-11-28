@@ -69,7 +69,8 @@ test('STcontext 手动检查和更新只接受官方附件，核对包内运行�
   }
 
   await t.test('保留已停用、官方来源和实际入口', async t => {
-    const { dir, installer, requests, digest } = await fixture(t)
+    const upstreamClient = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-STcontext/client.js', import.meta.url), 'utf8')
+    const { dir, installer, requests, digest } = await fixture(t, files => { files['client.js'] = upstreamClient })
     const [check] = await installer.checkUpdates()
     assert.equal(check.status, 'available')
     assert.equal(check.target, 'v0.8.3:' + digest)
@@ -83,6 +84,9 @@ test('STcontext 手动检查和更新只接受官方附件，核对包内运行�
     assert.ok(record.runtimeImports.includes('lib/generation.mjs'))
     assert.equal(await readFile(path.join(dir, 'NOTICE'), 'utf8'), 'release notice')
     assert.equal(await readFile(path.join(dir, 'lib/vendor/quickjs.wasm'), 'utf8'), 'quickjs.wasm')
+    const client = await readFile(path.join(dir, 'client.js'), 'utf8')
+    assert.match(client, /slots\.inject\('plugins\.item'/)
+    assert.doesNotMatch(client, /slots\.inject\('settings\.section'/)
   })
 
   for (const [label, change, reason, status] of [

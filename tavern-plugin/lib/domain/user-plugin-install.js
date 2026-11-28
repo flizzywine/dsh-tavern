@@ -9,7 +9,7 @@ import { DISABLED_FILE, readEnabledBindings, RESTART_FILE, scanUserPlugins, STAT
 import { parse } from 'acorn'
 import { pluginDataFile } from './plugin-data-store.js'
 import { comparePluginVersions, pluginManifestProblem } from './plugin-manifest.js'
-import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem } from './bundled-plugin-release.js'
+import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem, moveStcontextSettingsToPluginManager } from './bundled-plugin-release.js'
 // The first-party mods (one per tavern-plugin/mods folder); their managed copies are listed as built in.
 import { firstPartyManifestIds } from '../mod-system-distributions.js'
 
@@ -469,6 +469,12 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         await mkdir(path.dirname(file), { recursive: true })
         if (typeof data === 'function') await pipeline(await data(), createWriteStream(file, { flags: 'wx' }))
         else await writeFile(file, data)
+      }
+      if (source.kind === 'builtin' && pkg.name === 'dsh-tavern-STcontext') {
+        const clientFile = path.join(staging, 'client.js')
+        const client = await readFile(clientFile, 'utf8')
+        const adapted = moveStcontextSettingsToPluginManager(client)
+        if (adapted !== client) await writeFile(clientFile, adapted)
       }
       // 来源记录：warning 只是这一次安装的附注，没有内容就不落盘。
       const record = { ...source, version: String(pkg.version || ''), replaced: wasInstalled, installedAt: now().toISOString() }
