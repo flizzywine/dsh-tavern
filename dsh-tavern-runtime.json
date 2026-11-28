@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e9948553b8f15d2d9b3ecb7b909f970882ae77ee",
-  "releaseSequence": 2294,
+  "revision": "70e086d2aca5af8d558560fff48bbf27b77dd3cc",
+  "releaseSequence": 2295,
   "version": "3.5.0",
   "files": [
     {
@@ -2141,8 +2141,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/figure-recall.js",
-      "sha256": "7f923a86356ee654acf5d619a67a5f6d6bc70aab6fca8e78934ec09ddad8bf6a",
-      "size": 1301
+      "sha256": "4355791610cf654137eaa1b2ef95b44c3f18d637af44a0222125f1179ad3fba5",
+      "size": 1260
     },
     {
       "path": "tavern-plugin/lib/domain/figure-scale.js",
@@ -2171,8 +2171,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
-      "sha256": "ca983fabe8d91a62bc146a4e2227979dbfc666e143e8f8bd61f01038cf43bc6f",
-      "size": 17926
+      "sha256": "671e3d71beef03aede0cfcda025a686dd33d35ccf7197016928b4dbaa44781a5",
+      "size": 17885
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-compaction.js",
@@ -3730,6 +3730,11 @@
       "size": 2666
     },
     {
+      "path": "tavern-plugin/lib/domain/stage-judge-recall.js",
+      "sha256": "3acc3d05aca1407da58231691562f22a284ba99bc788ffe60dd28f64ab158564",
+      "size": 2809
+    },
+    {
       "path": "tavern-plugin/lib/domain/stage-narration.cjs",
       "sha256": "8786e607b7b1920e74aad14c2abce806058790f28192e27b26cba92eef073533",
       "size": 1431
@@ -4596,8 +4601,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "ad0c2e39a4c8dd0eb5c8a91be568089dbc750f02ea46f044212ac3ca3afdea88",
-      "size": 276588
+      "sha256": "ee283093513ae6031e6f8cec42311047c38004945775070fce1f5f923daba5d3",
+      "size": 277189
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9176,8 +9181,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js",
-      "sha256": "2a83bac78baf90d99bf849fc7aa15668b656e239960461267db868a93902786e",
-      "size": 2866
+      "sha256": "070f1c7f8df97f65a1bd14bc201264b84c914e57b6d6392c6ac53427ba2b1e64",
+      "size": 166
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-lease-projection.js",
@@ -10485,9 +10490,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "9d42e0de04dcf4181d2eb59ddee8093e2a350b62",
+    "commit": "779509e8261dd33198fa1a059f642cee75542305",
     "path": "runtime.zip",
-    "sha256": "40ef8ce8d109fae16c424876ea9f5a9e028572f536cede798251314346840f15",
-    "size": 18441655
+    "sha256": "bca0893de332e225af5b447a7940c8da183d47729a8bae1b72281144b8cc0549",
+    "size": 18442114
   }
 }
