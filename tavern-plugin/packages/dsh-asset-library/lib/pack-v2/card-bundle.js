@@ -120,7 +120,7 @@ export function createCardBundleMethods(host) {
         for (const id of [...new Set([...ids, ...(value.modConfigPackId && !(input.keepPackIds || []).includes(value.modConfigPackId) ? [value.modConfigPackId] : [])])]) {
           check(allowed.has(id), '$.packIds', 'Only packs this card uses can be embedded', 'UNBOUND_PACK')
           const pack = await load(id)
-          check(pack, '$.packIds', '找不到要随卡导出的素材包（' + id + '）。请重新安装这个素材包，或在导出窗口取消勾选它。', 'ASSET_UNAVAILABLE')
+          check(pack, '$.packIds', 'Pack to embed is missing', 'ASSET_UNAVAILABLE')
           if (!privateExportFile) await assertPublicPackChain(pack, metadata)
           // a card leaving this library takes its figures' 配图 外貌 along (the internal rollback copy has no figureImageExtras)
           packs.push(await withFigureImageExtras(pack))

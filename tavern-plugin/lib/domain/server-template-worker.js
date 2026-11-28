@@ -1,8 +1,10 @@
 import {createTemplateHistoryPipeClient} from './template-history-pipe.js'
 import { readFile } from 'node:fs/promises'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { JSDOM, VirtualConsole } from 'jsdom'
 import { estimateWorldBookTokens } from './worldbook-activation.js'
+
+// The service resolves jsdom and passes its entry URL: this process has no NODE_OPTIONS, so it cannot rely on its own resolution.
+const { JSDOM, VirtualConsole } = await import(process.argv[2])
 
 // Templates live in this disposable process, never in the service's JS realm.
 // jsdom supplies browser APIs; it is not the process isolation boundary.

@@ -48,8 +48,13 @@ export function registerWorldbookFileTools(tools, files) {
 
   tools.register(defineTool({
     name: GREP_LOREBOOK_TOOL,
-    description: '在本局世界书中搜索字面文本，返回命中条目的标题和片段。需要正文时用 read_lorebook 按标题读取。',
-    parameters: { query: { type: 'string', required: true }, caseSensitive: { type: 'boolean', description: '是否区分大小写，默认不区分' }, ...pagination },
+    description: '在本局世界书中搜索字面关键词，返回命中条目的标题和片段。需要正文时用 read_lorebook 按标题读取。',
+    parameters: {
+      query: { type: 'string', required: true, description: '多个短关键词用空格分隔，匹配任意一个即可。' },
+      exactPhrase: { type: 'boolean', description: '设为 true 时匹配整段查询文本，包括其中的空白。默认按关键词搜索。' },
+      caseSensitive: { type: 'boolean', description: '是否区分大小写，默认不区分' },
+      ...pagination
+    },
     output: {
       schema: { type: 'object', additionalProperties: false, properties: {
         text: { type: 'string', required: true }, ids: { type: 'array', items: { type: 'string' }, required: true }

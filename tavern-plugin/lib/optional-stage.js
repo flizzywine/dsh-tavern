@@ -1,4 +1,3 @@
-import {normalizeBubbleConfig,withBubbleFormat} from './domain/dialogue-bubbles.js'
 import {cardStageChoice,effectiveCardStage} from './domain/card-stage-settings.js'
 import {cardAssetExtensionView} from './domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from './card-asset-bindings.js'
@@ -8,7 +7,7 @@ const unavailable=()=>{throw Object.assign(new Error('舞台模块未启用'),{c
 // Migration boundary: stable consumers survive an absent or failed runtime.
 // The implementation is loaded only when enabled; this is not the final public plugin API.
 export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{},warn=error=>console.warn('dsh-tavern: 舞台不可用',error?.message)}={}) {
-  let runtime=null,foreground=null,cards=null,state=enabled?'loading':'disabled'
+  let runtime=null,cards=null,state=enabled?'loading':'disabled'
   function setState(next){if(state===next)return;state=next;try{onStatus(next)}catch(error){report(error)}}
   let loadImplementation=load
   const phases=new Map()
@@ -22,12 +21,12 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
   }
   function failed(error,expected=runtime) {
     if(runtime !== expected)return
-    const old=runtime;runtime=null;foreground=null;cards=null;setState('failed')
+    const old=runtime;runtime=null;cards=null;setState('failed')
     void release(old);report(error)
   }
   function disable() {
     generation++
-    const old=runtime;runtime=null;foreground=null;cards=null;setState('disabled');enabling=null
+    const old=runtime;runtime=null;cards=null;setState('disabled');enabling=null
     return release(old)
   }
   async function enable(loader) {
@@ -59,7 +58,8 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
     try {await work} finally {if(enabling===work)enabling=null}
   }
   if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
-  const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
+  // 对话气泡 itself is the core's (core.cardStage: settings, format, worldbook entry); the stage is one place bubbles
+  // show. A card with bubbles on still loads the stage for its stage services (角色配音), which the view reports here.
   async function cardStageMode(cardPath) {
     const raw=(await core.readCardWorkspace(cardPath))?.raw
     const extension=raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null
@@ -68,14 +68,12 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
     return {dialogue:state==='ready' && effective?.dialogue===true,
       stage:state==='ready' && effective?.stage===true,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
   }
-  const dialogueBubbles={
-    read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),
-    snapshot:(...args)=>runtime ? runtime.assets.dialogueBubbles.snapshot(...args) : Promise.resolve({config:emptyConfig(),requireAvailable:emptyConfig}),
-    sync:(...args)=>runtime ? runtime.assets.dialogueBubbles.sync(...args) : Promise.resolve()
-  }
   // A game's card speech (createAssetPackSpeech) for an authenticated page origin; null without the stage or card bindings.
   const cardSpeech=async(chat,origin)=>runtime ? (await runtime.assets.assetRuntime.consumer(chat,origin))?.speech || null : null
-  const api = Object.freeze({assets:{dialogueBubbles,cardStageMode,cardSpeech},enable,disable,
+  // The stage's own part of a turn's foreground capabilities: its mods' rules (foreground-capabilities.js modPrompts);
+  // none while the stage is not running.
+  const foregroundMods=(chat,options)=>runtime ? runtime.foregroundMods(chat,options) : undefined
+  const api = Object.freeze({assets:{cardStageMode,cardSpeech},foregroundMods,enable,disable,
     cards(bindings) {
       phases.set('cards',[bindings])
       if(runtime)try{cards=runtime.cards(bindings)}catch(error){failed(error)}
@@ -86,17 +84,6 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
         },
         release:(...args)=>cards ? cards.cardZipTargets.release(...args) : unavailable()
       }}
-    },
-    foreground(bindings) {
-      phases.set('foreground',[bindings])
-      if(runtime)try{foreground=runtime.foreground(bindings)}catch(error){failed(error)}
-      return {
-        // Without the stage nothing is generated, but a worldbook imported on its own keeps its constant format.
-        project:(chat,book,...args)=>foreground ? foreground.project(chat,book,...args) : book ? withBubbleFormat(chat,book,[],bindings.render) : Promise.resolve(book),
-        preview:(...args)=>foreground ? foreground.preview(...args) : Promise.resolve([]),
-        refresh:(...args)=>foreground ? foreground.refresh(...args) : Promise.reject(Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})),
-        update:(...args)=>foreground ? foreground.update(...args) : Promise.resolve({text:''})
-      }
     },
     async start(bindings) {phases.set('start',[bindings]);const installed=runtime;if(installed)try{await installed.start(bindings)}catch(error){failed(error,installed)}},
     services(bindings) {phases.set('services',[bindings]);if(runtime)try{runtime.services(bindings)}catch(error){failed(error)}},

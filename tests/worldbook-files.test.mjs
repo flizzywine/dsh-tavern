@@ -89,6 +89,22 @@ test('成功查到正文的条目安静十个剧情回合，标题命中、失�
   assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), [])
 })
 
+test('搜索按空白分隔关键词，任一词命中，按行分页', async t => {
+  const { provider, lookup, state } = await fixture(t)
+  state.worldBook.view.entries[0].content = 'Harbor rules\n港口秘密.\nHarbor 港口'
+  const search = (query, options) => provider.searchFiles({ query, ...options }, lookup)
+  const matches = await search('  HARBOR\t秘密　不存在 ')
+  assert.deepEqual(matches.map(match => match.text), ['Harbor rules', '港口秘密.', 'Harbor 港口', '常驻秘密'])
+  assert.deepEqual(await search('秘密 harbor', { offset: 1, limit: 2 }), matches.slice(1, 3))
+  assert.deepEqual(await search('HARBOR 秘密', { caseSensitive: true }), [matches[1], matches[3]])
+  assert.deepEqual(await search('港口秘密.'), [matches[1]])
+  assert.deepEqual(await search('港口秘密.?'), [])
+
+  assert.deepEqual(await search('harbor rules', { exactPhrase: true }), [matches[0]])
+  assert.deepEqual(await search('harbor 港口', { exactPhrase: true }), [matches[2]])
+  assert.deepEqual(await search('harbor 秘密', { exactPhrase: true }), [])
+})
+
 test('按标题、别名或正文关键词读取；同名条目按候选 ID 区分', async t => {
   const { provider, lookup, state } = await fixture(t)
   state.worldBook.view.entries[2].primaryKeys = ['港口', '默认规则']
