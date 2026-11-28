@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines,managedBubbleEntry,withBubbleFormat} from './dialogue-bubbles.js'
+import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines} from './dialogue-bubbles.js'
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
@@ -9,7 +9,8 @@ import {managedForegroundEntries,managedPromptSections} from './mod-system-promp
 import {promptSection} from './prompt-section.js'
 import {liveContextUpdate} from './card-system-prompt.js'
 
-const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managedBubbleEntry(entry)),...structuredClone(entries)]}})
+// The game's book (play-world-book.js: this card's bubble entry, a settings mirror, is not in it) plus the generated entries.
+const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []),...structuredClone(entries)]}})
 
 export const foregroundCapabilityEpoch = session => completedCompactionEpoch(session, { beforeTurn: true })
 
@@ -191,11 +192,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     assertCurrent()
     return text ? [...parts,{key:'capability-update',name:'前台能力追加说明',owners:'全局',text,tokens:estimateDirectorTokens(text)}] : parts
   }
-  async function projectBook(chat,book,entries) {
-    const projected=await withBubbleFormat(chat,book,entries,render)
-    assertCurrent()
-    return projected
-  }
+  const projectBook=(chat,book,entries)=>replace(book,entries)
   async function projectActive(chat,book,{persist=true,userText=''}={}) {
     if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return book
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
@@ -222,8 +219,8 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     } finally {pending.delete(key)}
   }
   async function project(chat,book,options) {
-    if(!active)return replace(book,[])
-    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return replace(book,[]);throw error}
+    if(!active)return book
+    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return book;throw error}
   }
   async function refresh(chat, expectedInjection) {
     assertCurrent()

@@ -1520,20 +1520,7 @@ function clipReplayCore() {
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
-            // The stage client is downloaded and started only for a session whose card has the stage on
-            // (view.stage, host-decided); availability = server stage ready and such a session is open.
-            const stageClientLoader = createStageClientLoader({
-                sessions: ctx.sessions, views: liveTavernView,
-                runtime: {read: ({workbench}) => rpc(workbench ? 'prepareStageWorkbench' : 'getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
-                load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
-                install: plugin => ctx.plugin(plugin),
-                report: error => tavernErrorHub.report("舞台", error)
-            });
-            // registrations: what the stage client runs, as one owned lifetime, each time it mounts (dsh-tavern-stage entry.js).
-            // stageLeases: a gameMode view with presentation 'stage' borrowing the stage (attach/get/subscribe).
-            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx), stageLeases: tavernStageLeases}));
-            ctx.effect(() => { stageClientHold = stageClientLoader.hold; return () => { if (stageClientHold === stageClientLoader.hold) stageClientHold = null; }; }, "dsh-tavern: stage client hold");
-            ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
+            installStageFrontend(ctx, signals, stageRegistrations);
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
