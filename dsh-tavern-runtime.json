@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0aff54ef22d7573a185854b11ae461eace4c1db0",
-  "releaseSequence": 2246,
+  "revision": "624c1bb3538d9517ba41dd877491b8a94a980bf5",
+  "releaseSequence": 2247,
   "version": "3.5.0",
   "files": [
     {
@@ -3001,8 +3001,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
-      "sha256": "a686592cc13f141fbcc3a40da288d4e27bae4822d9f8c8477edc98cc65535221",
-      "size": 3589
+      "sha256": "700b3e5c10118fce30b18b4e4c05c6f65fba7696bb61b440b2e616badf92bd5d",
+      "size": 4385
     },
     {
       "path": "tavern-plugin/lib/domain/player-input-content.js",
@@ -4326,8 +4326,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-classification.js",
-      "sha256": "e1c27e2614bd8c47d842e4fda2ed693e622d3c1e47e06dda7a02a1bce85892f8",
-      "size": 3815
+      "sha256": "2e764f0daaf0b23bb1239a88a50c454252cd6f5b57232ce9b0848837a23437e3",
+      "size": 4612
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-title.js",
@@ -4436,8 +4436,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-state.js",
-      "sha256": "e8ddb2e490bebb08e5a129b65879b1be0594d39b37a8673a330eb43087f679e9",
-      "size": 6257
+      "sha256": "5f3ff1c5b4a89a30b3cc6d6a40b9b4fb3ca2d2b8d3da1479ea8afb6dc19bdee0",
+      "size": 5847
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-surface.js",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "3524e69151017f697873629df119642d3b6595ab",
+    "commit": "79b82c48dba897f730759b6f8658eb49c0c76ecd",
     "path": "runtime.zip",
-    "sha256": "07d11c1821de6b38a60117ee6c7cc3ca147d5ca0ef4b61f2486205255495c7ae",
-    "size": 18353530
+    "sha256": "48b0e9cf383df08e69569ead0c15c2e81e46fb062248f626eaaf5139e6f79ffb",
+    "size": 18353924
   }
 }
