@@ -6,6 +6,7 @@ import { inspectWorldBookDocument } from './worldbook-resource.js'
 import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
 import { projectMvuNpcRegistration } from './mvu-npc-registration.js'
 import { isIdentityOnlyConstant, withIdentityNames } from './worldbook-entry-classification.js'
+import { deliveredBubbleEntries } from './dialogue-bubbles.js'
 
 // A constant that only names the player or the card reads as plain text with this game's names: it is a static
 // constant in the fixed prefix every turn, and a rename changes that prefix once (the next request reads the new name).
@@ -16,8 +17,16 @@ function withGameNames(record, chat, card) {
   return { ...record, view: { ...record.view, entries: entries.map(entry => isIdentityOnlyConstant(entry) ? withIdentityNames(entry, names) : entry) } }
 }
 
-// The world book a game plays with, as the background and recall read it.
-export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, readOnlyTemplateRuntime, globalVariables = async () => ({}) }) {
+// 对话气泡 entries: the ones the game delivers as text (deliveredBubbleEntries), by this card's 对话气泡.
+async function withDeliveredBubbles(record, chat, cardBubbles) {
+  const entries = record?.view?.entries
+  if (!entries?.some(entry => entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles)) return record
+  return { ...record, view: { ...record.view, entries: deliveredBubbleEntries(entries, chat?.cardPath, await cardBubbles(chat?.cardPath)) } }
+}
+
+// The world book a game plays with, as the background and recall read it. cardBubbles(cardPath): the card's
+// 对话气泡, 'on' | 'off' | null (card-stage-settings.js cardBubbleChoice).
+export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, readOnlyTemplateRuntime, globalVariables = async () => ({}), cardBubbles = async () => null }) {
   async function mvuUpdateRules(chat, card, target) {
     const worldBook = await worldBooks.bound(chat.cardPath, card, chat)
     const cardEntries = card?.character_book?.entries && typeof card.character_book.entries === 'object'
@@ -54,9 +63,10 @@ export function createPlayWorldBook({ worldBooks, readChatCard, poolEntries, rea
   // What recall, world book search and screening read: the bound book plus plugin entries (tavern.worldbookEntries).
   async function playWorldBook(chat, card) {
     const record = await worldBooks.bound(chat.cardPath, card, chat)
-    if (!chat?.sessionId) return withGameNames(record, chat, card)
+    const played = await withDeliveredBubbles(record, chat, cardBubbles)
+    if (!chat?.sessionId) return withGameNames(played, chat, card)
     const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
-    return withGameNames(withPluginWorldbookEntries(record, await poolEntries({ gameId: chat.sessionId, turn })), chat, card)
+    return withGameNames(withPluginWorldbookEntries(played, await poolEntries({ gameId: chat.sessionId, turn })), chat, card)
   }
 
   return { playWorldBook, worldBookScanDepth, mvuUpdateRules }

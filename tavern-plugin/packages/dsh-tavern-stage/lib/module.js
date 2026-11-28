@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {createFigureRuntimes} from './figure-runtimes.js'
 import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
-import {createCardStage, watchFigureBubbleBooks, cardLorePieces} from './card-stage.js'
+import {watchFigureBubbleBooks, cardLorePieces} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
 import {createVoiceBackfill} from './voice-backfill.js'
@@ -382,9 +382,8 @@ export function createStageAssets(core) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)[key] === true
   }
-  const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
-    getTts,getEngine:() => assetEngineSettings.read().values,
-    getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
+  // 对话气泡 and the card's skin: the core's (createCardStage), so bubbles work without the stage.
+  const {cardStage} = core
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
     async rows(context) {
       if (context?.sessionId && (!context.cardPath || !await cardStageSwitch(context.cardPath, 'stage'))) return []

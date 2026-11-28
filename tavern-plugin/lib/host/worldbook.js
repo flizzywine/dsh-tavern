@@ -13,10 +13,10 @@ import { registerWorldbookFileTools } from '../tools/worldbook-files.js'
 
 export function installWorldbookHost(ctx, {
   directory, worldBooks, readChat, readChatCard, getAgent, flushSession, getBackground,
-  projectCapabilities, templates, poolEntries, pluginScanTexts, logger = console
+  projectCapabilities, templates, poolEntries, cardBubbles, pluginScanTexts, logger = console
 }) {
   const { playWorldBook, worldBookScanDepth, mvuUpdateRules } = createPlayWorldBook({
-    worldBooks, readChatCard, poolEntries, readOnlyTemplateRuntime: templates.readOnlyRuntime,
+    worldBooks, readChatCard, poolEntries, cardBubbles, readOnlyTemplateRuntime: templates.readOnlyRuntime,
     globalVariables: templates.globalVariables
   })
   const project = createForegroundWorldbook({

@@ -15711,7 +15711,14 @@ function GalStage(props) {
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    // A game's figures follow its reading: a line read with a speaker stands that speaker alone (a focus actor - a picked target -
+    // stays), the player's own line or a name with no figure standing nobody; narration keeps the scene's actors; the player's own
+    // line in the text box (scene.input) is theirs, so only the scene's actors stand, not the line read before it.
+    const leaseRead = leasing && !leaseInput ? leaseView.pages?.[leaseView.page] : null;
+    const leaseStands = actor => leaseInput ? leaseView.scene.actors.some(item => item.alias === actor.id)
+        : !leaseRead || leaseRead.kind !== 'line' || actor.id === leaseRead.alias || actor.focus === true;
+    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage
+        && leaseStands(actor)) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -31563,6 +31570,9 @@ const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floo
 // 版本 is the card's character_version; after a release it suggests the next one (1.0 → 1.1), saved when exporting.
 const DSHCARD_BASE_FILE='#file';
 const DSHCARD_BASE_HELP='更新包只带这张卡和对方还没有的素材文件。对方要已经装过所选的那一版，在人物卡库用它更新这张卡。';
+// 清空记录: forget every release of the card (no update package can then be made on an earlier version).
+const dshCardReleaseName=release=>(release.version?'v'+release.version:'未标版本')+'　'+dshCardStamp(release.exportedAt)+(release.source==='file'?'（来自文件）':'');
+const dshCardStamp=ms=>{const at=new Date(ms),two=n=>String(n).padStart(2,'0');return (at.getMonth()+1)+'-'+at.getDate()+' '+two(at.getHours())+':'+two(at.getMinutes());};
 const dshCardNextVersion=version=>{const match=/^(.*?)(\d+)(\D*)$/.exec(version);return match?match[1]+(Number(match[2])+1)+match[3]:version;};
 const dshCardReleaseLabel=release=>{const at=new Date(release.exportedAt);return '更新包，相对 '+(release.version?'v'+release.version:'上一版')+'（'+(at.getMonth()+1)+'-'+at.getDate()+(release.source==='file'?'，来自文件':'')+'）';};
 // an earlier export read back as a base: uploaded in pieces (the card-archive upload, any size), then only its lists read.
@@ -31615,7 +31625,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const {work,problem,saved}=useDshCardJob(path);
   const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
   const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(true);
-  const [base,setBase]=React.useState(''),[typedVersion,setVersion]=React.useState(null),[adding,setAdding]=React.useState(false),[estimate,setEstimate]=React.useState(null);
+  const [base,setBase]=React.useState(''),[typedVersion,setVersion]=React.useState(null),[adding,setAdding]=React.useState(false),[estimate,setEstimate]=React.useState(null),[asking,setAsking]=React.useState(false);
   const baseFile=React.useRef(null);
   // a password typed is the encryption (主人 11-24): none, no encryption.
   const dsh=format==='dshcard',encrypt=dsh&&password.length>0,file=DSHCARD_FORMATS[format];
@@ -31631,6 +31641,10 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const releases=value?.releases||[],release=releases.find(r=>r.id===base)||null,updating=dsh&&!!release&&picked.length>0;
   const savedVersion=value?.version||'',version=typedVersion??(releases[0]&&releases[0].version===savedVersion?dshCardNextVersion(savedVersion):savedVersion);
   const pickedIds=picked.map(p=>p.manifest.id).join(',');
+  async function clearReleases(){
+    await binding.rpc('clearCardReleases',{path});
+    setBase('');await state.reload();
+  }
   React.useEffect(()=>{
     setEstimate(null);if(!updating)return;let live=true;
     binding.rpc('estimateCardUpdate',{path,releaseId:base,packIds:pickedIds.split(',')}).then(next=>{if(live)setEstimate(next);},()=>{});
@@ -31725,6 +31739,14 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
       h('ul',{className:'ap-dshcard-list','aria-label':'随卡世界书'},books.map((book,index)=>h('li',{key:book.key,className:'ap-pack-row ap-dshcard-row'},
         check(!leftBooks.has(book.key),book.name,()=>flipBook(book.key)),h('span',{className:'ap-dshcard-name',title:book.name},book.name),
         index===0&&books.length>1&&h('span',{className:'ap-pack-size'},'主书'))))),
+    dsh&&releases.length>0&&group('releases','发布记录',releases.length,String(releases.length)+' 条',
+      '每次导出人物卡都会记一条，更新包要以其中一条为基线；清空后只能导出完整包。',
+      h(Button,{className:'ap-manage',disabled:!!work,onClick:()=>setAsking(true)},'清空记录'),
+      h(React.Fragment,null,
+        h('ul',{className:'ap-dshcard-list ap-dshcard-releases','aria-label':'发布记录'},releases.map((r,index)=>h('li',{key:r.id,className:'ap-pack-row ap-dshcard-row'},
+          h('span',{className:'ap-dshcard-name',title:dshCardReleaseName(r)},dshCardReleaseName(r)),
+          index===0&&h('span',{className:'ap-pack-size'},'最新'),
+          typeof r.size==='number'&&h('span',{className:'ap-pack-size'},stageBytesText(r.size))))))),
     (!dsh||!packs.length)&&!books.length&&h(EmptyState,{compact:true,text:dsh?'这张卡没有素材包和世界书':'这张卡没有世界书'}),
     problem&&h(CatBand,{role:'alert'},problem));
   const verb=encrypt?'加密导出':'导出';
@@ -31745,7 +31767,10 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
       foot:h(React.Fragment,null,progress,saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,saved.said)),
         saved&&!saved.cancelled?h(Button,{primary:true,onClick:close},'完成'):work?h(Button,{onClick:stop},'取消导出'):h(React.Fragment,null,h(Button,{onClick:close},'取消'),
           h(Button,{primary:true,disabled:!value||encrypt&&!password,onClick:run},verb)))},
-    options,body);
+    options,body,
+    asking&&h(ConfirmDialog,{title:'清理发布记录',danger:true,confirmLabel:'清空',
+      body:'清空发布记录以后，无法以更旧版本为基准导出增量更新版。导出任务卡时仅支持完整版导出，可能导致卡的体积过大，确定要这么做吗？',
+      onConfirm:clearReleases,onClose:()=>setAsking(false)}));
 }
 // Legacy widget entries remain asset/export data, not registry mod switches.
 function stageWidgetOnlyPack(pack) {
