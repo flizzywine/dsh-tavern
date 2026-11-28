@@ -10,6 +10,10 @@ import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planne
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { createScriptLibrary } from '../tavern-plugin/lib/domain/script-library.js'
+import { projectPureWritingRequest } from '../tavern-plugin/lib/domain/pure-writing-request.js'
+import { projectPriorWritingReferences } from '../tavern-plugin/lib/domain/style-reference-request.js'
+import * as styleRecall from '../tavern-plugin/packages/dsh-tavern-style-recall/lib/index.js'
 
 function memoryStore() {
   const files = new Map()
@@ -70,6 +74,99 @@ async function loadCordis() {
 }
 const cordis = await loadCordis()
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
+
+test('文风联想按卡绑定剧本库原文，只有开启后才选段，正文与纯净写作可用', { skip: !cordis }, async t => {
+  const cards = { one: 'cards/a.json', another: 'cards/a.json', other: 'cards/b.json' }
+  const source = 'materials/夜雨.txt'
+  const chunks = Array.from({ length: 20 }, (_, order) => ({ id: 'chunk-' + order, order,
+    text: order === 18 ? '雨水从长街尽头的挑檐滴落。' : '城里晨雾低低地浮着。' }))
+  let book = { path: source, title: '夜雨.txt', chunks }
+  const scriptLibrary = createScriptLibrary({ fileResources: { list: async () => book ? [source] : [] },
+    readScript: async path => path === source ? book : undefined })
+  let stored = null
+  let answer = request => JSON.stringify([request.chunks[0].id])
+  const runs = []
+  const h = await harness(t, {
+    scriptLibrary,
+    resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
+    cardPathOf: async gameId => cards[gameId],
+    cardScope: async () => new Map([['card-plugin', { cards: [cards.one] }]]),
+    pluginData: { read: async () => structuredClone(stored), save: async (_owner, data) => { stored = structuredClone(data) } },
+    readHistory: async (_game, from, to) => {
+      assert.deepEqual([from, to], [1, 2])
+      return [{ text: '他们在长街避雨。' }]
+    },
+    async runTask({ gameId, system, prompt, signal }) {
+      const request = JSON.parse(prompt)
+      assert.match(system, /只返回由候选 id 组成的 JSON 数组/)
+      assert.equal(request.scene.previous, '他们在长街避雨。')
+      assert.equal(request.chunks.length, 10)
+      runs.push(gameId)
+      return { text: await answer(request, signal) }
+    }
+  })
+  const fiber = await h.root.plugin(styleRecall)
+  let otherPlugin
+  await h.root.plugin({ name: 'card-plugin', inject: ['tavern'], apply(ctx) { otherPlugin = ctx.tavern } })
+  await assert.rejects(otherPlugin.listScriptSources(), { code: 'TAVERN_PLUGIN_SCOPE' })
+  await assert.rejects(otherPlugin.searchScriptSource({ path: source }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  await assert.rejects(otherPlugin.getGameCardId({ gameId: 'other' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  const rpc = (action, args) => h.api.callHandler(styleRecall.name + '/' + action, args)
+  const turn = (gameId = 'one', options = {}) => h.api.turnContext({ gameId, turn: 8, storyTurn: 3, input: '描写长街雨水', ...options })
+
+  assert.deepEqual(await rpc('settings', { gameId: 'one' }), {
+    sources: [{ path: source, title: book.title }], binding: { source: '', enabled: false }
+  })
+  await assert.rejects(rpc('save', { gameId: 'one', source: 'materials/不存在.txt', enabled: true }), /找不到/)
+  assert.deepEqual(await turn(), [])
+  await Promise.all([
+    rpc('save', { gameId: 'one', source, enabled: true }),
+    rpc('save', { gameId: 'other', source, enabled: false })
+  ])
+  assert.deepEqual((await rpc('settings', { gameId: 'another' })).binding, { source, enabled: true })
+  assert.deepEqual(await turn('other'), [])
+  assert.deepEqual(await turn('one', { target: 'call' }), [])
+  const [section] = await turn()
+  assert.deepEqual(runs, ['one'])
+  assert.equal(section.writingReference, true)
+  assert.match(section.text, /文风参考[\s\S]*雨水从长街尽头的挑檐滴落/)
+  assert.doesNotMatch(section.text, /晨雾/)
+  const frame = { frameId: 'f', turn: 8, contributions: [
+    { text: section.text, source: { writingReference: true } }, { text: '其他插件内容', source: {} }
+  ] }
+  const request = projectPureWritingRequest({}, { context: { messages: [], system: '' }, frame })
+  assert.deepEqual(request.messages[0].content, [{ type: 'text', text: section.text }])
+  const nativeFrame = { role: 'user', source: { kind: 'plugin:dsh-tavern', form: 'foreground-frame', sections: frame.contributions },
+    content: [{ type: 'text', text: section.text + '\n\n其他插件内容' }] }
+  const player = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }
+  const projected = projectPriorWritingReferences([nativeFrame, player, nativeFrame])
+  assert.equal(projected[0].content[0].text, '其他插件内容')
+  assert.equal(projected[2], nativeFrame)
+
+  answer = () => '["不存在的片段"]'
+  assert.deepEqual(await turn(), [])
+  answer = () => { throw new Error('后台模型不可用') }
+  assert.deepEqual(await turn(), [])
+  const ready = Promise.withResolvers()
+  const controller = new AbortController()
+  answer = async (_request, signal) => {
+    ready.resolve()
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }))
+    return '["chunk-18"]'
+  }
+  const pending = turn('one', { signal: controller.signal })
+  await ready.promise
+  controller.abort()
+  assert.deepEqual(await pending, [])
+  book = undefined
+  assert.deepEqual(await turn(), [])
+  await rpc('save', { gameId: 'one', source, enabled: false })
+  assert.deepEqual((await rpc('settings', { gameId: 'another' })).binding, { source, enabled: false })
+  await rpc('save', { gameId: 'one', source: '', enabled: false })
+  assert.deepEqual(Object.keys(stored.bindings), [cards.other])
+  await fiber.dispose()
+  assert.deepEqual(await turn(), [])
+})
 
 function turnMaterial(overrides = {}) {
   return { chatId: 'chat-1', sessionId: 'game-1', turn: 3, index: 5, key: 'key-3', sourceDigest: 'd', source: '<b>她</b>推开门。', text: '她推开门。', card: { path: '/cards/a.json', name: 'A' }, ...overrides }

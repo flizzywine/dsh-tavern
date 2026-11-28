@@ -220,6 +220,7 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, worldbookStaticSelection: 1, worldbookStrategyControl: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
+    ...(deps.scriptLibrary ? { scriptLibrary: 1 } : {}),
     ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
@@ -513,14 +514,21 @@ export function createTavernPluginApi(deps) {
     }, label)
   }
 
-  async function collectSections(registry, context, label, disabled) {
+  async function collectSections(registry, context, label, disabled, signal) {
     const entries = Array.from(registry.values()).filter(entry => !disabled?.has(entry.owner) && (entry.target || 'story') === (context.target || 'story')).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
     const collected = await Promise.all(entries.map(async entry => {
       let text
-      try { text = typeof entry.text === 'function' ? await bounded(entry.text(structuredClone(context)), label) : entry.text }
+      try {
+        text = typeof entry.text === 'function'
+          ? await bounded(entry.text({ ...structuredClone(context), ...(signal ? { signal } : {}) }), label)
+          : entry.text
+      }
       catch (error) { recordError(context.gameId, entry.owner, label, error); return null }
       if (typeof text !== 'string' || !text.trim()) return null
-      return { name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' || entry.position === 'last' ? { position: entry.position } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) }
+      return { name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner,
+        ...(entry.position === 'before' || entry.position === 'last' ? { position: entry.position } : {}),
+        ...(entry.writingReference ? { writingReference: true } : {}),
+        text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) }
     }))
     return collected.filter(Boolean)
   }
@@ -1202,6 +1210,11 @@ export function createTavernPluginApi(deps) {
       return data
     },
 
+    async getGameCardId({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      return (await deps.cardPathOf?.(game.sessionId)) ?? null
+    },
+
     // The picture of the game's character card, as a URL a page can show.
     async getCardImage({ gameId } = {}) {
       const game = await requireGame(gameId)
@@ -1235,6 +1248,19 @@ export function createTavernPluginApi(deps) {
         script: card.script ? { title: card.script.title } : null,
         group: card.group || '', starred: Boolean(card.starred), error: card.readError || ''
       }))
+    },
+
+    async listScriptSources() {
+      if (await accessScope(ownerOf(this))) throw Object.assign(new Error('剧本库仅向全局插件开放'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      return await deps.scriptLibrary.listSourceTitles()
+    },
+
+    async searchScriptSource({ path, query = '', limit = 8 } = {}) {
+      if (await accessScope(ownerOf(this))) throw Object.assign(new Error('剧本库仅向全局插件开放'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      if (typeof path !== 'string' || !path) throw new TypeError('path 需要使用 listScriptSources 返回的路径')
+      if (typeof query !== 'string' || query.length > 2000) throw new TypeError('query 需要是不超过 2000 字的文本')
+      if (!Number.isInteger(limit) || limit < 1 || limit > 12) throw new RangeError('limit 必须是 1–12 的整数')
+      return await deps.scriptLibrary.searchSource({ path, query, limit })
     },
 
     // A card's full JSON as Tavern plays it (its working copy), read-only.
@@ -1781,11 +1807,12 @@ export function createTavernPluginApi(deps) {
       return register.call(this, sections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, target }, 'tavern.promptSection()', '提示词段落 ' + name + ' 已注册')
     },
 
-    turnSection({ name, text, position = 'after', target = 'story' } = {}) {
+    turnSection({ name, text, position = 'after', target = 'story', writingReference = false } = {}) {
       const owner = ownerOf(this)
       sectionName(name); textOrFunction(text); contextTarget(target)
       if (!['before', 'after', 'last'].includes(position)) throw new Error("position 只能是 'before'、'after' 或 'last'")
-      return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
+      if (typeof writingReference !== 'boolean' || (writingReference && target !== 'story')) throw new Error('writingReference 只适用于正文段落')
+      return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target, writingReference }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
     },
 
     guideSource({ name, text } = {}) {
@@ -2319,10 +2346,11 @@ export function createTavernPluginApi(deps) {
   }
 
   /** Seam: per-turn context for the story request, computed once while the turn is prepared. */
-  async function turnContext({ gameId, turn, input, target = 'story', subject }) {
+  async function turnContext({ gameId, turn, input, target = 'story', subject, signal, storyTurn }) {
     const context = { gameId, turn, input: String(input || ''), ...(target === 'story' ? {} : {target, subject}) }
     const { disabled } = await choicesFor(gameId)
-    const result = await collectSections(turnSections, context, '本轮上下文段落', disabled)
+    const result = await collectSections(turnSections, Number.isSafeInteger(storyTurn) ? { ...context, storyTurn } : context,
+      '本轮上下文段落', disabled, signal)
     const activeSources = Array.from(worldbookSources.values()).filter(entry => !disabled.has(entry.owner) && entry.target === target).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
     const sourceSections = await Promise.all(activeSources.map(async source => {
       let entries

@@ -1,6 +1,7 @@
 import { isCompactionCheckpointMessage } from './compaction-checkpoint.js'
 import { isProducerSource } from './message-source.js'
 import { hasProviderContent } from './provider-message-content.js'
+import { isTurnInput } from './session-turn-input.js'
 import { STYLE_REFERENCE_SECTION, STYLE_REFERENCE_TOOL_NAME, stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
 
 function isStyleReferenceSection(section) {
@@ -80,4 +81,27 @@ export function projectWithoutStyleReference(request) {
   if (system !== request.system) projected.system = system
   if (staleHistory) delete projected.toolHistory
   return projected
+}
+
+/** Writing references belong to the request that selected them. Keep the saved frame for inspection. */
+export function projectPriorWritingReferences(messages) {
+  const input = messages.findLastIndex(isTurnInput)
+  if (input <= 0) return messages
+  let changed = false
+  const projected = messages.flatMap((message, index) => {
+    const source = message?.source
+    if (index >= input || message?.role !== 'user' || !isProducerSource(source, 'dsh-tavern') || source.form !== 'foreground-frame') return [message]
+    const sections = Array.isArray(source.sections) ? source.sections : []
+    const references = sections.filter(section => section?.source?.writingReference === true)
+    if (!references.length) return [message]
+    changed = true
+    const content = (message.content || []).flatMap(block => {
+      if (block?.type !== 'text' || typeof block.text !== 'string') return [block]
+      const text = references.reduce((value, section) => value.replace(section.text, ''), block.text).trim()
+      return text ? [{ ...block, text }] : []
+    })
+    if (!content.length) return []
+    return [{ ...message, content, source: { ...source, sections: sections.filter(section => !references.includes(section)) } }]
+  })
+  return changed ? projected : messages
 }

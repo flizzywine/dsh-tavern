@@ -53,6 +53,11 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     source: ['tavern-plugin', 'packages', 'dsh-tavern-STcontext'],
     preserveExternalInstalls: true,
   },
+  {
+    folder: 'dsh-tavern-style-recall',
+    packageName: 'dsh-tavern-style-recall',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-style-recall'],
+  },
 ])
 
 /** 与 image 插件一致：构建输入、测试、仓库元数据都不进插件目录。 */

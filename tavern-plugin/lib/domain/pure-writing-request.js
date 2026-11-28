@@ -149,11 +149,14 @@ export function pureWritingInjection(frame, material) {
   }
 }
 
-export function projectPureWritingRequest(request, { context, injection }) {
+export function projectPureWritingRequest(request, { context, injection, frame }) {
   const messages = structuredClone(context.messages)
   const preset = context.foregroundPreset
   if (preset) messages.push(...runtimePresetPhaseMessages(preset, 'middle'))
   if (injection) messages.push(injection)
+  const referenceText = (frame?.contributions || []).filter(item => item.source?.writingReference === true)
+    .map(item => item.text).join('\n\n')
+  if (referenceText) messages.push(pureWritingInjection({ ...frame, frameId: frame.frameId + ':reference' }, referenceText))
   if (preset) messages.push(...runtimePresetPhaseMessages(preset, 'back'))
   // Existing host protocol choices refer to the tool list that was replaced.
   const { toolChoice, ...base } = request

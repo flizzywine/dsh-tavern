@@ -15,9 +15,12 @@
 
 `promptSection` 适合不常变的规则。每轮都会变的内容（当前状态、记忆摘要）请用下面的 `turnSection`，不会让提示词缓存失效。
 
-## `turnSection({ name, text, position? })`（第 2 版）
+## `turnSection({ name, text, position?, writingReference? })`（第 2 版）
 
 往**这一轮**的正文请求里加一段上下文，例如插件维护的【当前状态】或记忆摘要。`text` 可以是字符串，也可以是函数：每轮准备请求时调用一次，收到 `{ gameId, turn, input }`（`input` 是玩家这一轮的输入原文），返回空字符串就不加。
+
+- 回调可能收到 `signal`（前台请求的 `AbortSignal`）和 `storyTurn`（重新生成时被替换的存档轮号）。调用模型时可把 `signal` 转交给后台任务。
+- `writingReference: true` 表示这一段只在本轮供正文模型参考。原生与纯净写作模式均支持，后续正文请求会省去往轮的这类材料。可用 `capabilities.scriptLibrary === 1` 检测支持。
 
 - `position` 默认 `'after'`：段落放在 Tavern 自己的本轮上下文（世界书、现场状态、Guide 等）之后；`'before'` 放在它们之前；`'last'` 放在台账、预设中段规则与脚本提示之后（适合高优先级的单轮检定或剧情导演约束，仅早于宿主自身的尾段裁定）。更细的位置（比如某一段的前后）不提供，因为 Tavern 内部的段落顺序会调整。多个插件按插件名排序。单段最多 8000 字。
 - 每轮只算一次，结果随这一轮保存；同一轮重试时沿用，不会再次调用。

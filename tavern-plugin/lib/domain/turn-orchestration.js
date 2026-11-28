@@ -294,7 +294,8 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
     kind: section.worldbook ? 'foreground.active-worldbook' : 'foreground.current-state',
     text: str(section.text),
     required: false,
-    source: { stage: 'plugin', plugin: str(section.owner), name: str(section.name) }
+    source: { stage: 'plugin', plugin: str(section.owner), name: str(section.name),
+      ...(section.writingReference ? { writingReference: true } : {}) }
   })
   // Plugin contributions sit before or after Tavern's own context: worldbook entries beside
   // the recalled worldbook, other sections as current-turn state.
@@ -840,7 +841,7 @@ export function createTurnOrchestrator(options) {
     const pluginSections = Object.hasOwn(input, 'pluginSections') && Array.isArray(input.pluginSections)
       ? clone(input.pluginSections)
       : typeof options.pluginTurnContext === 'function'
-        ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
+        ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText, signal: input.signal }).catch(() => []) : []
     // What changed in the foreground capabilities since the live context told the model; the session adapter appends it.
     const capabilityUpdate = foregroundWorldBook && typeof options.foregroundCapabilityUpdate === 'function'
       ? await options.foregroundCapabilityUpdate({ chat, userText: runtimeUserText }) : null

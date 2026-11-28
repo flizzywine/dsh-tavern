@@ -830,7 +830,8 @@ export async function apply(ctx) {
     return composeTavernRegexScripts(extensions, presetRegexScripts(header), header?.regexOverrides?.preset)
   }
   const readScript = createScriptReader({ resources: fileResources, version: path => profileData.version('resources/' + path) })
-  const { importScript, bindScript, deleteScript, readSource, listSources, importSource } = createScriptLibrary({ fileResources, readScript })
+  const scriptLibrary = createScriptLibrary({ fileResources, readScript })
+  const { importScript, bindScript, deleteScript, readSource, listSources, importSource } = scriptLibrary
   const presetLibrary = createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport })
   const { read: readPreset, readDocument: readPresetDocument, preview: previewPreset,
     import: importPreset, editor: presetEditor, runtime: runtimePresets } = presetLibrary
@@ -2453,6 +2454,7 @@ export async function apply(ctx) {
   const figurePictures = createFigurePictures(() => ctx.get('assetLibrary'))
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
+    scriptLibrary,
     // A new turn sees the plugin manager's switch as soon as it is written,
     // even when the host has not disposed the old plugin fiber yet.
     writingPluginEnabled: folder => !existsSync(path.join(dataRoot, 'plugins', folder, DISABLED_FILE)),

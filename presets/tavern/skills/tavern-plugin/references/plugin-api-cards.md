@@ -10,6 +10,10 @@
 
 人物卡库里的全部卡片：`[{ id, name, fileName, imageUrl, script, group, starred, error }]`。`id` 是其他人物卡接口要的参数；`imageUrl` 没有封面时为空字符串；`script` 是绑定的剧本 `{ title }` 或 `null`；`group` 未分组时为空字符串；`error` 是读取失败的原因。
 
+### `getGameCardId({ gameId })`
+
+返回游玩对话绑定的人物卡 ID，与 `listCards()` 的 `id` 一致，未绑定时返回 `null`。卡内插件仅能查询所属人物卡的对话。用 `capabilities.scriptLibrary === 1` 检查支持。
+
 ### `readCardRaw({ card })`
 
 一张卡的完整 JSON（Tavern 实际在玩的工作版），只读副本。结构就是 SillyTavern 人物卡：v2/v3 卡的扩展数据在 `data.extensions` 下，例如酒馆助手脚本在 `data.extensions.tavern_helper.scripts`。

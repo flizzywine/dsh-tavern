@@ -28,7 +28,7 @@ import { hasProviderContent } from './provider-message-content.js'
 import { appendSessionEvent } from './session-events.js'
 import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
 import { foregroundStyleReferenceEnabled } from './style-reference.js'
-import { projectWithoutStyleReference } from './style-reference-request.js'
+import { projectPriorWritingReferences, projectWithoutStyleReference } from './style-reference-request.js'
 import { STYLE_REFERENCE_SECTION, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
 import systemPromptSections from './system-prompt-sections.cjs'
 
@@ -492,7 +492,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       throw error
     }
     options.recordFrame(sessionId, frame, { appended: Boolean(injection), reason: PURE_WRITING_REQUEST, frameId: frame.frameId })
-    const projected = projectPureWritingRequest(request, { context, injection })
+    const projected = projectPureWritingRequest(request, { context, injection, frame })
     return markRequestHandled(markRequestHandled(projected, PURE_WRITING_REQUEST), PROJECTED)
   }
 
@@ -513,7 +513,8 @@ export function createNativePlayOrchestrationStrategy(options) {
       return markRequestHandled(Object.assign({}, optionsValue, { messages }), PROJECTED)
     }
     const regeneratedMessages = projectRegenerationRequestMessages(visibleMessages.length === optionsValue.messages?.length ? optionsValue.messages : visibleMessages)
-    const nativeMessages = regeneratedMessages.some(isNativeStablePrefix) ? regeneratedMessages.filter(message => !isNativeStablePrefix(message)) : regeneratedMessages
+    const currentMessages = staged.scope === 'foreground' ? projectPriorWritingReferences(regeneratedMessages) : regeneratedMessages
+    const nativeMessages = currentMessages.some(isNativeStablePrefix) ? currentMessages.filter(message => !isNativeStablePrefix(message)) : currentMessages
     const nativeRequest = nativeMessages === optionsValue.messages
       ? optionsValue : Object.assign({}, optionsValue, { messages: nativeMessages })
     const baseRequest = staged.scope === 'foreground' && staged.styleReferenceEnabled === false
