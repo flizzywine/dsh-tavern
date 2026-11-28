@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-28T13:40:45.495Z",
+  "actors": {
+    "hitagi": {
+      "image": "hitagi-keyframe.jpg",
+      "imageBytes": 146556,
+      "imageSha256": "ab3032dc77bfa06b5f4874f7543b197ebac95083d0c519b646ae5facf94e4968",
+      "video": "hitagi-cutin.webm",
+      "videoBytes": 1811359,
+      "videoSha256": "33c47253772fe986df249fc7a0766915df14ae69bb81e9579a6b73348e8601a7"
+    },
+    "shinobu": {
+      "image": "shinobu-keyframe.jpg",
+      "imageBytes": 248446,
+      "imageSha256": "18c5f48c40f12573f36dcaed3eab4b4300df1c2ff20a64ca01f596aa324f6eab",
+      "video": "shinobu-cutin.webm",
+      "videoBytes": 1580768,
+      "videoSha256": "df198fefa3f002de351d02c41ddef06854e1c36501945f53bc57150c0f2edc0b"
+    },
+    "hanekawa": {
+      "image": "hanekawa-keyframe.jpg",
+      "imageBytes": 40441,
+      "imageSha256": "91a43a7160b19690652c8b8177fa5bd414a7fe42091d1380371bcef241196cda",
+      "video": "hanekawa-cutin.webm",
+      "videoBytes": 1489356,
+      "videoSha256": "ad5a055edd36dc08a40a9e0af1c9c301c34101d6946a2f6d2a93c2bdadff1ccd"
+    },
+    "mayoi": {
+      "image": "mayoi-keyframe.jpg",
+      "imageBytes": 74757,
+      "imageSha256": "7f73684b79de9ebd7957ad51b343411f830b500fbcf42f0573123c8fdd27e7e1",
+      "video": "mayoi-cutin.webm",
+      "videoBytes": 1928128,
+      "videoSha256": "9ed58fd15eceebbe140c4ec34a49308f0988e93e5ec6d8b8d3de22ebd0c23be7"
+    }
+  }
+}
