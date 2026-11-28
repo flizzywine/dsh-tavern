@@ -2,6 +2,7 @@ import {
   DIFFICULTY_LABELS,
   normalizeDifficulty
 } from './dice-engine.js'
+import { MULTI_CHECK_QUESTION_INSTRUCTIONS } from './multi-check.js'
 import {
   CAPABILITY_CRITERIA,
   DOMAIN_FALLBACKS,
@@ -325,6 +326,7 @@ export async function judgeActionDifficulty({
   rule = '2d6',
   sensitivity = 'normal',
   allowHidden = true,
+  multiCheckDecompose = false,
   timeoutMs = 2500,
   signal
 } = {}) {
@@ -384,7 +386,14 @@ export async function judgeActionDifficulty({
           id: 'is_contest',
           type: 'noul',
           instructions: CONTEST_QUESTION_INSTRUCTIONS
-        }
+        },
+        ...(multiCheckDecompose
+          ? [{
+              id: 'fd_multi_check',
+              type: 'noul',
+              instructions: MULTI_CHECK_QUESTION_INSTRUCTIONS
+            }]
+          : [])
       ]
 
       const response = await tavern.judgeDecision({
@@ -428,6 +437,7 @@ export async function judgeActionDifficulty({
       const hidden = Boolean(allowHidden && (domain?.hidden || matched?.hidden || hiddenMeta.hidden))
       const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
       const checkType = resolveContestCheckType({ input, category, hidden, contestProb })
+      const multiProb = ans.fd_multi_check?.probability !== undefined ? Number(ans.fd_multi_check.probability) : NaN
       const resistanceFactors = []
       if (edgeBonus > 0) resistanceFactors.push({ label: '铺垫/地利', delta: `+${edgeBonus}`, source: 'edge' })
       else if (edgeBonus < 0) resistanceFactors.push({ label: '仓促/被动', delta: `${edgeBonus}`, source: 'edge' })
@@ -436,6 +446,8 @@ export async function judgeActionDifficulty({
         shouldRoll: prob >= threshold,
         needProbability: Math.round(prob * 100) / 100,
         threshold,
+        multiCheckProbability: Number.isFinite(multiProb) ? Math.round(multiProb * 100) / 100 : null,
+        multiCheckNeeded: Number.isFinite(multiProb) ? multiProb >= 0.58 : false,
         check,
         checkType,
         resistanceFactors,
@@ -511,7 +523,14 @@ export async function judgeActionDifficulty({
           id: 'is_contest',
           type: 'noul',
           instructions: CONTEST_QUESTION_INSTRUCTIONS
-        }
+        },
+        ...(multiCheckDecompose
+          ? [{
+              id: 'fd_multi_check',
+              type: 'noul',
+              instructions: MULTI_CHECK_QUESTION_INSTRUCTIONS
+            }]
+          : [])
       ]
     })
 
@@ -548,6 +567,7 @@ export async function judgeActionDifficulty({
     const finalHidden = Boolean(isHidden || (allowHidden && guessed?.hidden))
     const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
     const checkType = resolveContestCheckType({ input, category, hidden: finalHidden, contestProb })
+    const multiProb = ans.fd_multi_check?.probability !== undefined ? Number(ans.fd_multi_check.probability) : NaN
     const resistanceFactors = []
     if (edgeBonus > 0) resistanceFactors.push({ label: '有利处境', delta: '+1', source: 'edge' })
     else if (edgeBonus < 0) resistanceFactors.push({ label: '不利处境', delta: '-1', source: 'edge' })
@@ -556,6 +576,8 @@ export async function judgeActionDifficulty({
       shouldRoll: prob >= threshold,
       needProbability: Math.round(prob * 100) / 100,
       threshold,
+      multiCheckProbability: Number.isFinite(multiProb) ? Math.round(multiProb * 100) / 100 : null,
+      multiCheckNeeded: Number.isFinite(multiProb) ? multiProb >= 0.58 : false,
       check,
       checkType,
       resistanceFactors,

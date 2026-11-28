@@ -104,6 +104,47 @@ const FD_REVEAL_TIMING_OPTIONS = [
   { value: 'stream-end', label: '随正文落定揭晓（防发前剧透）' }
 ]
 
+const FD_MULTI_CHECK_MODE_OPTIONS = [
+  { value: 'decompose', label: '仅发前条件拆解（纯发前 · 防偷看）' },
+  { value: 'agent-tool', label: '发前拆解 + Agent 实时真骰工具（全场景）' },
+  { value: 'hybrid-tape', label: '发前拆解 + 备用宿命序列（零延迟兼容）' }
+]
+
+const FD_MULTI_CHECK_MAX_OPTIONS = [
+  { value: '2', label: '最多 2 次 / 回合（紧凑）' },
+  { value: '3', label: '最多 3 次 / 回合（默认）' }
+]
+
+const FD_MULTI_CHECK_MODE_DETAILS = {
+  decompose: {
+    badge: '方案 1 · 纯发前',
+    title: '仅发前条件拆解（Multi-Check）',
+    summary: '常规单动作回合零额外延迟；仅在识别到玩家一条输入里同时包含多个独立风险动作时，发前拆解为 2~3 项子检定一次性真骰裁定，正文生成中不再追加新骰。',
+    scene: '适合「一句输入里连做多件事」（例：一边稳住老板娘、一边偷拿账本、顺便听门外动静），且希望全部骰点在发送前就彻底落定的玩法。',
+    flow: '决策模型门控判断本轮是否含多动作 → 命中后拆出每项的动作、能力域、难度与前置依赖（dependsOn） → 服务端逐一投出密码学真骰并按顺序注入约束。',
+    pros: '主模型完全无法偷看或挑骰；支持连招前置失败短路；完美兼容「失败时暂停发送」、叙事阻尼器短板联动与防刷骰锁定；不挑主模型。',
+    note: '仅覆盖玩家发前写出的多动作，不处理正文写到一半才临时冒出来的突发陷阱；多动作回合会增加 1 次轻量后台拆解耗时。'
+  },
+  'agent-tool': {
+    badge: '方案 1 + 2 · 全场景',
+    title: '发前拆解 + Agent 实时真骰工具（fate_dice_roll）',
+    summary: '在「发前条件拆解」的基础上共存 Agent 实时真骰工具：玩家发前写出的多动作先拆解掷完，剩余配额留给主模型在正文展开时调用 fate_dice_roll 现掷突发判定。',
+    scene: '适合既有多动作输入、又常出现「写到一半突发陷阱 / 伏兵 / 连环过招」的动态跑团与 Agent 玩法。',
+    flow: '发前先完成主检定或多动作拆解（支持发前逆命与阻尼器联动） → 若本轮尚未达到上限，主模型生成正文时可按需调用 fate_dice_roll → 服务端结合角色画像与难度护栏当场掷真骰并返回五档裁定。',
+    pros: '同时通吃「发前多动作」与「叙事中突发次生判定」；主模型调用前看不到未来点数，完全防偷看；最贴近真实跑团 DM 临场掷骰体验。',
+    note: '实时工具需要当前主模型与对话渠道支持工具调用（Tool Use）；正文生成中途新增的骰点无法在发前暂停拦截，总次数共享本回合上限。'
+  },
+  'hybrid-tape': {
+    badge: '方案 1 + 3 · 零延迟兼容',
+    title: '发前拆解 + 备用宿命序列真骰带',
+    summary: '在「发前条件拆解」的基础上共存备用宿命序列：玩家发前写出的多动作先拆解掷完，若本轮仍有剩余配额，顺延编号（②/③）附带密码学备用真骰列供突发风险取用。',
+    scene: '适合主模型不支持工具调用、或不想引入工具调用往返，但仍希望同时覆盖「发前多动作 + 突发次生判定」的场景。',
+    flow: '发前先完成主检定或多动作拆解 → 按剩余额度预掷备用骰列（如发前已拆 2 项则顺延给 ③）注入上下文 → 仅出现突发风险时顺位取用并在文末静默回传，结算时合并落盘进楼层胶囊。',
+    pros: '生成中零额外工具往返延迟；兼容所有支持文本输出的模型；发前拆解项照常享受 3D 演出、发前逆命与阻尼器联动。',
+    note: '备用骰面在发前已随上下文提供，极少数高阶模型可能产生轻微「提前看到备用点数再决定要不要追加检定」的倾向；备用骰在正文结算后入账胶囊。'
+  }
+}
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -119,7 +160,10 @@ const FD_DEFAULT_SETTINGS = {
   animation: 'atelier',
   preSendPause: false,
   preSendScope: 'both',
-  preSendWait: 18
+  preSendWait: 18,
+  multiCheckEnabled: false,
+  multiCheckMode: 'decompose',
+  multiCheckMax: 3
 }
 
 function fdUid(prefix) {
@@ -2231,6 +2275,99 @@ article.dsh-tavern-story-floor {
 @media (prefers-reduced-motion: reduce) {
   .fd-die-svg.is-rolling, .fd-die-svg.is-settled, .fd-live-card, .fd-composer-popover { animation: none !important; }
 }
+/* 单回合多判定方案详解卡 & 楼层多判定切换条 */
+.fd-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: var(--fd-fill);
+  border: 1px solid var(--fd-line-soft);
+  border-left: 3px solid var(--fd-accent);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.fd-mode-card.is-compact {
+  padding: 8px 10px;
+  gap: 4px;
+}
+.fd-mode-card.is-current {
+  background: var(--fd-accent-soft);
+  border-color: var(--fd-line);
+}
+.fd-mode-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.fd-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--fd-accent-soft);
+  border: 1px solid var(--fd-line);
+}
+.fd-mode-title {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.fd-mode-line {
+  margin: 0;
+  opacity: 0.9;
+}
+.fd-mode-line.is-note {
+  opacity: 0.76;
+}
+.fd-mode-warn {
+  margin: 2px 0 0;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--fd-warn);
+  background: color-mix(in oklab, var(--fd-warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--fd-warn) 32%, transparent);
+}
+.fd-multi-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.fd-multi-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--fd-line);
+  background: var(--fd-fill);
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: background 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+.fd-multi-tab:hover { opacity: 1; }
+.fd-multi-tab.is-active {
+  opacity: 1;
+  font-weight: 600;
+  background: var(--fd-accent-soft);
+  border-color: var(--fd-accent);
+}
+.fd-multi-tab[data-tier="failure"],
+.fd-multi-tab[data-tier="fumble"] {
+  border-color: color-mix(in oklab, var(--fd-bad) 45%, transparent);
+}
+.fd-multi-tab[data-tier="critical"],
+.fd-multi-tab[data-tier="success"] {
+  border-color: color-mix(in oklab, var(--fd-ok) 40%, transparent);
+}
 `
 
 /* ===== src/client/bridge.js ===== */
@@ -2404,6 +2541,10 @@ function fdNormalizeSettings(raw) {
   if (FD_PRE_SEND_SCOPE_OPTIONS.some(o => o.value === src.preSendScope)) settings.preSendScope = src.preSendScope
   const waitSec = fdNumber(src.preSendWait, settings.preSendWait)
   if (FD_PRE_SEND_WAIT_OPTIONS.some(o => Number(o.value) === Math.round(waitSec))) settings.preSendWait = Math.round(waitSec)
+  if (typeof src.multiCheckEnabled === 'boolean') settings.multiCheckEnabled = src.multiCheckEnabled
+  if (FD_MULTI_CHECK_MODE_OPTIONS.some(o => o.value === src.multiCheckMode)) settings.multiCheckMode = src.multiCheckMode
+  const maxChecks = fdNumber(src.multiCheckMax, settings.multiCheckMax)
+  if (FD_MULTI_CHECK_MAX_OPTIONS.some(o => Number(o.value) === Math.round(maxChecks))) settings.multiCheckMax = Math.round(maxChecks)
   return settings
 }
 
@@ -2612,6 +2753,7 @@ function fdMergeWorkbench(base, raw) {
     linkage: Boolean(payload.damperLinkage ?? damper.linkage ?? view.settings.damperLinkage)
   }
   if (payload.judgeStatus) view.judgeStatus = payload.judgeStatus
+  if (typeof payload.agentToolAvailable === 'boolean') view.agentToolAvailable = payload.agentToolAvailable
   if (payload.fate) view.fate = fdNormalizeFate(payload.fate)
   if (Object.prototype.hasOwnProperty.call(payload, 'pendingEncounter')) {
     view.pendingEncounter = payload.pendingEncounter || null
@@ -11135,6 +11277,26 @@ function fdComputePopoverStyle(rect) {
   }
 }
 
+function fdRecordRolls(record) {
+  if (!record || typeof record !== 'object') return []
+  if (Array.isArray(record.rolls) && record.rolls.length) {
+    return record.rolls.filter(item => item && typeof item === 'object')
+  }
+  return record.roll && typeof record.roll === 'object' ? [record.roll] : []
+}
+
+function fdAggregateRollsTone(rolls, peeked) {
+  const list = Array.isArray(rolls) ? rolls : []
+  if (!list.length) return 'idle'
+  if (list.every(item => item && item.hidden && !peeked)) return 'hidden'
+  const visible = list.filter(item => item && (!item.hidden || peeked))
+  if (visible.some(r => r.tier === 'fumble')) return 'fumble'
+  if (visible.some(r => r.tier === 'failure')) return 'failure'
+  if (visible.some(r => r.tier === 'costly')) return 'costly'
+  if (visible.some(r => r.tier === 'critical')) return 'critical'
+  return 'success'
+}
+
 function fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll) {
   if (awaitingLiveRoll) {
     return {
@@ -11144,11 +11306,39 @@ function fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll) {
       covered: false
     }
   }
-  const roll = record && record.roll ? record.roll : null
+  const rolls = fdRecordRolls(record)
+  const roll = rolls[0] || null
   const judged = record && record.judged ? record.judged : null
   const setupReason = (record && record.setupRequiredReason) || ''
   const fate = fdNormalizeFate(record && record.fate)
-  const covered = Boolean(roll && roll.hidden && !peeked)
+  const covered = Boolean(rolls.length && rolls.every(r => r.hidden) && !peeked)
+
+  if (rolls.length > 1) {
+    const tone = fdAggregateRollsTone(rolls, peeked)
+    if (covered) {
+      return {
+        tone: 'hidden',
+        covered: true,
+        pillText: `暗骰 · ${rolls.length}项检定 · 点按偷看`,
+        tooltip: `本轮共 ${rolls.length} 项感知/洞察暗骰（点击揭晓并展开详情）`
+      }
+    }
+    const visible = rolls.filter(r => !r.hidden || peeked)
+    const okCount = visible.filter(r => r.tier === 'critical' || r.tier === 'success' || r.tier === 'costly').length
+    const failCount = visible.filter(r => r.tier === 'failure' || r.tier === 'fumble').length
+    const hiddenCount = rolls.length - visible.length
+    const parts = []
+    if (okCount) parts.push(`${okCount}成`)
+    if (failCount) parts.push(`${failCount}败`)
+    if (hiddenCount) parts.push(`${hiddenCount}暗`)
+    return {
+      tone,
+      covered: false,
+      pillText: `🎲 ${rolls.length}项检定 · ${parts.join('/') || '已裁定'}`,
+      tooltip: rolls.map((r, i) => `#${i + 1} ${r.check || '检定'}：${r.hidden && !peeked ? '暗骰' : (r.tierLabel || '已定')}`).join(' | ')
+        + ` · ✦ 命运点 ${fate.points}/${fate.max}（点击展开逐项详情）`
+    }
+  }
 
   if (roll) {
     const tone = covered ? 'hidden' : fdTierOf(roll.tier)
@@ -12232,6 +12422,9 @@ function fdRecordFromLiveEvent(gameId, fallbackTurn, data, prevRecord) {
     animation: data.animation || (prevRecord && prevRecord.animation) || 'atelier',
     textVersion: null,
     roll: kind === 'check' && data.roll ? data.roll : null,
+    rolls: kind === 'check'
+      ? (Array.isArray(data.rolls) && data.rolls.length ? data.rolls : (data.roll ? [data.roll] : []))
+      : [],
     setupRequiredReason: kind === 'setup-required' ? String(data.reason || 'SETUP_REQUIRED') : null,
     judged: kind === 'skipped'
       ? {
@@ -13224,6 +13417,12 @@ function fdMountImperativeFloorHeaders(ui) {
       return
     }
 
+    const rolls = fdRecordRolls(record)
+    const activeIdx = rolls.length > 1
+      ? Math.max(0, Math.min(rolls.length - 1, fdNumber(entry.selectedRollIdx, 0)))
+      : 0
+    const activeRoll = rolls[activeIdx] || roll
+
     const panel = fdEl(doc, 'section', 'fd-root fd-floor-panel')
     panel.setAttribute('data-tone', tone)
     panel.setAttribute('aria-label', '命运之骰本轮裁定详情')
@@ -13233,26 +13432,52 @@ function fdMountImperativeFloorHeaders(ui) {
       doc,
       'strong',
       'fd-floor-panel-title',
-      roll
-        ? `命运之骰裁定 · ${roll.check || '行动'}检定（${roll.tierLabel || '判定'}）`
+      activeRoll
+        ? (rolls.length > 1
+          ? `命运之骰裁定（${activeIdx + 1}/${rolls.length}）· ${activeRoll.check || '行动'}检定（${activeRoll.tierLabel || '判定'}）`
+          : `命运之骰裁定 · ${activeRoll.check || '行动'}检定（${activeRoll.tierLabel || '判定'}）`)
         : (setupReason ? '命运之骰 · 待配置决策模型' : '命运之骰 · 本轮免检定')
     )
     const pTags = fdEl(doc, 'div', 'fd-floor-panel-tags')
-    if (roll) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', String(roll.rule || '2d6')))
-    if (roll && roll.difficultyLabel) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `难度：${roll.difficultyLabel}`))
-    if (roll && roll.damper) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `⛓ ${roll.damper.quotaLabel || '阻尼联动'}`))
+    if (activeRoll) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', String(activeRoll.rule || '2d6')))
+    if (activeRoll && activeRoll.difficultyLabel) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `难度：${activeRoll.difficultyLabel}`))
+    if (activeRoll && activeRoll.damper) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `⛓ ${activeRoll.damper.quotaLabel || '阻尼联动'}`))
     pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `✦ 命运点 ${fate.points}/${fate.max}`))
     pHead.appendChild(pTitle)
     pHead.appendChild(pTags)
     panel.appendChild(pHead)
 
-    if (roll) {
+    if (rolls.length > 1) {
+      const tabBar = fdEl(doc, 'div', 'fd-multi-tabs')
+      rolls.forEach((item, idx) => {
+        const tTier = item.hidden && !entry.peeked ? 'hidden' : fdTierOf(item.tier)
+        const tabBtn = fdEl(
+          doc,
+          'button',
+          'fd-multi-tab' + (idx === activeIdx ? ' is-active' : ''),
+          `#${idx + 1} ${item.check || '检定'} · ${item.hidden && !entry.peeked ? '暗骰' : (item.tierLabel || '判定')}`
+        )
+        tabBtn.type = 'button'
+        tabBtn.setAttribute('data-tier', tTier)
+        tabBtn.addEventListener('click', e => {
+          e.stopPropagation()
+          entry.selectedRollIdx = idx
+          entry.lastStageRollKey = ''
+          renderEntry(entry)
+        })
+        tabBar.appendChild(tabBtn)
+      })
+      panel.appendChild(tabBar)
+    }
+
+    if (activeRoll) {
+      const displayRoll = activeRoll
       const animPref = (record && record.animation) || fdGetCachedAnimationPref()
       // 胶囊里只出静态骰面：智能切换（bounce）下重投专属皮肤不外带，静止展示一律回默认星穹
       const animPrefStr = String(animPref || 'atelier')
       const theme3d = FD3D.resolveTheme(
         animPref,
-        animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(roll, false),
+        animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(displayRoll, false),
         false
       )
       if (theme3d && FD3D.canUseWebGL2()) {
@@ -13270,8 +13495,8 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.lastStageRollKey = ''
         }
         panel.appendChild(entry.stageWrapEl)
-        const rKey = `${roll.rolledAt || ''}:${roll.total || ''}:${(roll.dice || []).join(',')}`
-        const spec = FD3D.rollToStageSpec({ ...roll, hidden: false }, false)
+        const rKey = `${activeIdx}:${displayRoll.rolledAt || ''}:${displayRoll.total || ''}:${(displayRoll.dice || []).join(',')}`
+        const spec = FD3D.rollToStageSpec({ ...displayRoll, hidden: false }, false)
         entry.stage3d.setTheme(theme3d)
         if (spec && entry.lastStageRollKey !== rKey) {
           entry.lastStageRollKey = rKey
@@ -13289,25 +13514,28 @@ function fdMountImperativeFloorHeaders(ui) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', label))
         dl.appendChild(fdEl(doc, 'dd', 'fd-turn-dd', value))
       }
-      if (roll.autoSuccess) {
-        addRow('免骰直通', `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`)
-      } else if (roll.checkType === 'contest' && roll.contest) {
-        const c = roll.contest
+      if (displayRoll.attempt) {
+        addRow('判定动作', displayRoll.attempt)
+      }
+      if (displayRoll.autoSuccess) {
+        addRow('免骰直通', `⚡ 能力稳压「${displayRoll.difficultyLabel || '容易'}」（保底 ${displayRoll.total} ≥ 目标 ${displayRoll.target === undefined ? '—' : displayRoll.target}）· 直接达成`)
+      } else if (displayRoll.checkType === 'contest' && displayRoll.contest) {
+        const c = displayRoll.contest
         const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
-        addRow('交锋对抗', `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
+        addRow('交锋对抗', `我方 ${displayRoll.rule || '2d6'} [${(displayRoll.dice || []).join(', ')}] = ${displayRoll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
       } else {
         addRow(
           '骰面算式',
-          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
+          `${displayRoll.rule || '2d6'} 原骰 [${(displayRoll.dice || []).join(', ')}] = ${displayRoll.total}（目标${displayRoll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${displayRoll.target === undefined ? '—' : displayRoll.target}）`
         )
       }
-      const breakdown = roll.modifierBreakdown || {}
-      const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
+      const breakdown = displayRoll.modifierBreakdown || {}
+      const skillBonus = fdNumber(breakdown.skillBonus ?? displayRoll.skillBonus, 0)
       addRow(
         '能力修正',
-        `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`
+        `${displayRoll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${displayRoll.modifier ? `（环境/基调修正 ${displayRoll.modifier > 0 ? '+' : ''}${displayRoll.modifier}）` : ''}`
       )
-      const factors = fdCollectResistanceFactors(roll)
+      const factors = fdCollectResistanceFactors(displayRoll)
       if (factors.length) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', '外部阻力'))
         const ddFactors = fdEl(doc, 'dd', 'fd-turn-dd')
@@ -13316,7 +13544,7 @@ function fdMountImperativeFloorHeaders(ui) {
         ddFactors.appendChild(row)
         dl.appendChild(ddFactors)
       }
-      const damper = roll.damper || roll.damperSync || null
+      const damper = displayRoll.damper || displayRoll.damperSync || null
       if (damper) {
         const quota = damper.quota || damper.quotaSync || ''
         addRow(
@@ -13324,7 +13552,7 @@ function fdMountImperativeFloorHeaders(ui) {
           `${damper.applied === false ? '未联动' : '双向联动'}${quota ? ` · 配额 ${quota}` : ''}${damper.reason ? ` · ${damper.reason}` : ''}`
         )
       }
-      addRow('难度理由', `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)
+      addRow('难度理由', `${displayRoll.difficultyLabel || '判定'} · ${displayRoll.reason || 'AI 综合评定'}`)
       const deltaText = fdFormatProfileChanges(record.profileChanges)
       if (deltaText) {
         addRow('能力演进', `✦ ${deltaText}`)
@@ -13351,21 +13579,24 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.rerollHint = ''
           renderEntry(entry)
           const activeId = fdGetActiveGameId()
-          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode })
+          const targetIdx = rolls.length > 1 ? activeIdx : undefined
+          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode, ...(targetIdx !== undefined ? { rollIndex: targetIdx } : {}) })
             .then(res => {
               const data = res && res.ok ? res.data : null
               const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
               if (nextRoll) {
                 fdInvalidateTurnCache(activeId, effectiveTurn)
+                const animRoll = data.rerolledRoll || nextRoll
                 entry.record = {
                   ...(entry.record || {}),
                   roll: nextRoll,
+                  rolls: Array.isArray(data.rolls) && data.rolls.length ? data.rolls : [nextRoll],
                   fate: data.fate || fate,
                   rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
                 }
                 fdRememberTurnRecord(activeId, effectiveTurn, entry.record)
                 /* 重投同样是「结果一到就投」：中央爆发，胶囊里只更新静态骰面 */
-                fdPlayFloorRollAnim(entry.article, entry, nextRoll, entry.record.animation, { power })
+                fdPlayFloorRollAnim(entry.article, entry, animRoll, entry.record.animation, { power })
                 entry.rerollHint = data.mode === 'push'
                   ? '🔥 已孤注一掷并同步配额！现在点下方「重新生成正文」即可按新结果与代价改写剧情'
                   : '✦ 已消耗 1 点命运点逆命重投！现在点下方「重新生成正文」即可按新点数改写剧情'
@@ -13783,6 +14014,7 @@ const fdPreSendGate = {
   gameId: '',
   busy: false,
   resolvingMode: '',
+  selectedRollIndex: 0,
   pendingPower: 0,
   closeTimer: 0,
   probeTimers: [],
@@ -14021,7 +14253,8 @@ async function fdResolvePreSendGate(action, power) {
   const res = await fdCall(ui, FD_RPC.gateResolve, {
     gameId: payload.gameId || fdPreSendGate.gameId,
     gateId: payload.gateId,
-    action
+    action,
+    ...(Number.isInteger(fdPreSendGate.selectedRollIndex) ? { rollIndex: fdPreSendGate.selectedRollIndex } : {})
   })
   const data = res && res.ok ? res.data : null
   if (!data || data.ok !== true) {
@@ -14081,6 +14314,7 @@ function fdRenderPreSendGate(payload) {
   }
   fdDetachGateLayoutWatchers()
   fdPreSendGate.payload = payload
+  fdPreSendGate.selectedRollIndex = Number.isInteger(Number(payload.rollIndex)) ? Number(payload.rollIndex) : 0
   fdPreSendGate.busy = false
   fdPreSendGate.resolvingMode = ''
   root.hidden = false
@@ -14095,7 +14329,7 @@ function fdRenderPreSendGate(payload) {
 
   const top = fdGateEl('div', 'fd-presend-top')
   top.appendChild(fdGateEl('span', 'fd-presend-seal ' + tone, isFumble ? '💀 大失败' : '⚠️ 失败'))
-  top.appendChild(fdGateEl('span', 'fd-presend-title', '骰已落定 · 正文还没发送'))
+  top.appendChild(fdGateEl('span', 'fd-presend-title', payload.rollCount > 1 ? `本轮共 ${payload.rollCount} 项判定 · 正文还没发送` : '骰已落定 · 正文还没发送'))
   const count = fdGateEl('span', 'fd-presend-count', '')
   top.appendChild(count)
   card.appendChild(top)
@@ -14105,6 +14339,29 @@ function fdRenderPreSendGate(payload) {
   const diceText = fdGateDiceText(payload)
   if (diceText) summary.appendChild(fdGateEl('span', 'fd-presend-dice', diceText))
   card.appendChild(summary)
+
+  if (Array.isArray(payload.rolls) && payload.rolls.length > 1 && Array.isArray(payload.failedIndices) && payload.failedIndices.length > 1) {
+    const picker = fdGateEl('div', 'fd-multi-tabs')
+    payload.failedIndices.forEach(idx => {
+      const item = payload.rolls[idx]
+      if (!item) return
+      const btn = fdGateEl(
+        'button',
+        'fd-multi-tab' + (idx === fdPreSendGate.selectedRollIndex ? ' is-active' : ''),
+        `#${idx + 1} ${item.check || '检定'} · ${item.tierLabel || '失败'}`
+      )
+      btn.type = 'button'
+      btn.setAttribute('data-tier', item.tier || 'failure')
+      btn.addEventListener('click', () => {
+        fdPreSendGate.selectedRollIndex = idx
+        picker.querySelectorAll('.fd-multi-tab').forEach(node => {
+          node.classList.toggle('is-active', node === btn)
+        })
+      })
+      picker.appendChild(btn)
+    })
+    card.appendChild(picker)
+  }
 
   const fate = payload.fate && typeof payload.fate === 'object' ? payload.fate : {}
   const points = Math.max(0, fdNumber(fate.points, 0))
@@ -15358,6 +15615,102 @@ function SettingsTab(props) {
         ].join('\n')
       },
       h(FdSwitch, { on: Boolean(settings.tapeFallbackEnabled), label: '无决策模型时启用宿命序列真骰带', onChange: next => apply({ tapeFallbackEnabled: next }) }))),
+
+    h(FdSection, {
+      title: '🎲 单回合多判定',
+      note: settings.multiCheckEnabled ? '已开启 · 支持一回合多次检定' : '默认关闭 · 每回合仅裁定 1 项主检定',
+      help: [
+        '默认关闭时，每回合只对最核心的 1 个行动投一次真骰，节奏最紧凑。',
+        '开启后，当玩家一条输入里同时干了多件事（如“边稳住守卫边偷钥匙顺便听动静”），或剧情展开中突发次生危机时，系统可在一回合内完成最多 2~3 次独立真骰裁定。',
+        '提供 3 种可随时切换的方式：发前条件拆解（最稳且防偷看）、Agent 实时真骰工具（支持写到一半突发判定）、主骰 + 备用宿命序列（零额外延迟且兼容所有模型）。',
+        '多判定下每回合仍限重投 1 次，可自选重投其中任意失败项；叙事阻尼器联动按短板优先聚合档位，防止成功项洗白失败项。'
+      ].join('\n')
+    },
+    h(FdRow, {
+      plain: true,
+      title: '开启单回合多判定',
+      sub: settings.multiCheckEnabled
+        ? `当前方式：${(FD_MULTI_CHECK_MODE_DETAILS[settings.multiCheckMode] || FD_MULTI_CHECK_MODE_DETAILS.decompose).title}`
+        : '开启后可一回合裁定多个行动，并自由切换 3 种实现方式',
+      help: [
+        '开启后即可在下方选择多判定方式与单回合上限（2 次或 3 次）。',
+        '关闭后立刻恢复为单回合单次主检定，不产生任何额外调用或工具开销。'
+      ].join('\n')
+    },
+    h(FdSwitch, {
+      on: Boolean(settings.multiCheckEnabled),
+      label: '开启单回合多判定',
+      onChange: next => apply({ multiCheckEnabled: next })
+    })),
+
+    settings.multiCheckEnabled
+      ? h(Fragment, null,
+        h(FdField, {
+          label: '多判定方式',
+          help: [
+            '「发前条件拆解」作为共同底座已融入全部三种方式（先在发前拆解玩家输入里的多个独立动作），下方区别在于如何处理生成中突发的次生判定：',
+            '1. 仅发前条件拆解：只做发前拆解，正文生成中不再追加新骰。防偷看、支持连招前置失败短路、完美兼容发前逆命与阻尼器。',
+            '2. 发前拆解 + Agent 实时真骰工具：发前先拆解多动作，剩余配额开放 fate_dice_roll 工具给主模型在写到一半遇到突发陷阱/伏兵时现掷真骰。最贴近跑团 DM，需主模型支持工具调用。',
+            '3. 发前拆解 + 备用宿命序列：发前先拆解多动作，剩余配额顺延编号（②/③）附带备用真骰列，遇到突发风险顺位取用并在文末静默回传。零额外延迟、兼容所有模型。'
+          ].join('\n')
+        },
+        h(FdSelect, {
+          value: settings.multiCheckMode || 'decompose',
+          options: FD_MULTI_CHECK_MODE_OPTIONS,
+          onChange: value => apply({ multiCheckMode: value })
+        })),
+
+        (() => {
+          const activeKey = FD_MULTI_CHECK_MODE_DETAILS[settings.multiCheckMode] ? settings.multiCheckMode : 'decompose'
+          const detail = FD_MULTI_CHECK_MODE_DETAILS[activeKey]
+          return h('div', { className: 'fd-mode-card', role: 'note' },
+            h('div', { className: 'fd-mode-card-head' },
+              h('span', { className: 'fd-mode-badge' }, detail.badge),
+              h('strong', { className: 'fd-mode-title' }, detail.title)),
+            h('p', { className: 'fd-mode-line' }, detail.summary),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '适用场景：'), detail.scene),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '运作方式：'), detail.flow),
+            h('p', { className: 'fd-mode-line' }, h('strong', null, '主要优势：'), detail.pros),
+            h('p', { className: 'fd-mode-line is-note' }, h('strong', null, '注意点：'), detail.note),
+            activeKey === 'agent-tool' && view && view.agentToolAvailable === false
+              ? h('p', { className: 'fd-mode-warn' }, '⚠️ 当前宿主环境未检测到前台工具通道，切换后仍会保留主检定；若需发前多动作拆解建议改用「发前条件拆解」。')
+              : null)
+        })(),
+
+        h(FdField, {
+          label: '单回合判定上限',
+          help: [
+            '限制同一回合内最多允许的真骰判定总数（含主检定），避免一回合塞入过多骰子导致叙事碎片化或拖慢生成。',
+            '最多 2 次：节奏更紧凑，适合轻度多动作或一次主动作 + 一次突发判定。',
+            '最多 3 次（默认）：兼顾复杂连招与多线行动的经典上限。'
+          ].join('\n')
+        },
+        h(FdSelect, {
+          value: String(settings.multiCheckMax || 3),
+          options: FD_MULTI_CHECK_MAX_OPTIONS,
+          onChange: value => apply({ multiCheckMax: Number(value) || 3 })
+        })),
+
+        h(FdCollapse, {
+          title: '📖 三种方案完整详解与横向对比',
+          sub: '点击展开查看全部方案差异，随时按需切换'
+        },
+        ['decompose', 'agent-tool', 'hybrid-tape'].map(key => {
+          const item = FD_MULTI_CHECK_MODE_DETAILS[key]
+          const isCurrent = (settings.multiCheckMode || 'decompose') === key
+          return h('div', {
+            key,
+            className: 'fd-mode-card is-compact' + (isCurrent ? ' is-current' : '')
+          },
+          h('div', { className: 'fd-mode-card-head' },
+            h('span', { className: 'fd-mode-badge' }, isCurrent ? `${item.badge} · 当前` : item.badge),
+            h('strong', { className: 'fd-mode-title' }, item.title)),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '适用：'), item.scene),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '机制：'), item.flow),
+          h('p', { className: 'fd-mode-line' }, h('strong', null, '优势：'), item.pros),
+          h('p', { className: 'fd-mode-line is-note' }, h('strong', null, '注意：'), item.note))
+        })))
+      : null),
 
     h(FdSection, {
       title: '✦ 失败时暂停发送',

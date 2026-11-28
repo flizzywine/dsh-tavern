@@ -345,6 +345,26 @@ function fdComputePopoverStyle(rect) {
   }
 }
 
+function fdRecordRolls(record) {
+  if (!record || typeof record !== 'object') return []
+  if (Array.isArray(record.rolls) && record.rolls.length) {
+    return record.rolls.filter(item => item && typeof item === 'object')
+  }
+  return record.roll && typeof record.roll === 'object' ? [record.roll] : []
+}
+
+function fdAggregateRollsTone(rolls, peeked) {
+  const list = Array.isArray(rolls) ? rolls : []
+  if (!list.length) return 'idle'
+  if (list.every(item => item && item.hidden && !peeked)) return 'hidden'
+  const visible = list.filter(item => item && (!item.hidden || peeked))
+  if (visible.some(r => r.tier === 'fumble')) return 'fumble'
+  if (visible.some(r => r.tier === 'failure')) return 'failure'
+  if (visible.some(r => r.tier === 'costly')) return 'costly'
+  if (visible.some(r => r.tier === 'critical')) return 'critical'
+  return 'success'
+}
+
 function fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll) {
   if (awaitingLiveRoll) {
     return {
@@ -354,11 +374,39 @@ function fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll) {
       covered: false
     }
   }
-  const roll = record && record.roll ? record.roll : null
+  const rolls = fdRecordRolls(record)
+  const roll = rolls[0] || null
   const judged = record && record.judged ? record.judged : null
   const setupReason = (record && record.setupRequiredReason) || ''
   const fate = fdNormalizeFate(record && record.fate)
-  const covered = Boolean(roll && roll.hidden && !peeked)
+  const covered = Boolean(rolls.length && rolls.every(r => r.hidden) && !peeked)
+
+  if (rolls.length > 1) {
+    const tone = fdAggregateRollsTone(rolls, peeked)
+    if (covered) {
+      return {
+        tone: 'hidden',
+        covered: true,
+        pillText: `暗骰 · ${rolls.length}项检定 · 点按偷看`,
+        tooltip: `本轮共 ${rolls.length} 项感知/洞察暗骰（点击揭晓并展开详情）`
+      }
+    }
+    const visible = rolls.filter(r => !r.hidden || peeked)
+    const okCount = visible.filter(r => r.tier === 'critical' || r.tier === 'success' || r.tier === 'costly').length
+    const failCount = visible.filter(r => r.tier === 'failure' || r.tier === 'fumble').length
+    const hiddenCount = rolls.length - visible.length
+    const parts = []
+    if (okCount) parts.push(`${okCount}成`)
+    if (failCount) parts.push(`${failCount}败`)
+    if (hiddenCount) parts.push(`${hiddenCount}暗`)
+    return {
+      tone,
+      covered: false,
+      pillText: `🎲 ${rolls.length}项检定 · ${parts.join('/') || '已裁定'}`,
+      tooltip: rolls.map((r, i) => `#${i + 1} ${r.check || '检定'}：${r.hidden && !peeked ? '暗骰' : (r.tierLabel || '已定')}`).join(' | ')
+        + ` · ✦ 命运点 ${fate.points}/${fate.max}（点击展开逐项详情）`
+    }
+  }
 
   if (roll) {
     const tone = covered ? 'hidden' : fdTierOf(roll.tier)
@@ -1442,6 +1490,9 @@ function fdRecordFromLiveEvent(gameId, fallbackTurn, data, prevRecord) {
     animation: data.animation || (prevRecord && prevRecord.animation) || 'atelier',
     textVersion: null,
     roll: kind === 'check' && data.roll ? data.roll : null,
+    rolls: kind === 'check'
+      ? (Array.isArray(data.rolls) && data.rolls.length ? data.rolls : (data.roll ? [data.roll] : []))
+      : [],
     setupRequiredReason: kind === 'setup-required' ? String(data.reason || 'SETUP_REQUIRED') : null,
     judged: kind === 'skipped'
       ? {
@@ -2434,6 +2485,12 @@ function fdMountImperativeFloorHeaders(ui) {
       return
     }
 
+    const rolls = fdRecordRolls(record)
+    const activeIdx = rolls.length > 1
+      ? Math.max(0, Math.min(rolls.length - 1, fdNumber(entry.selectedRollIdx, 0)))
+      : 0
+    const activeRoll = rolls[activeIdx] || roll
+
     const panel = fdEl(doc, 'section', 'fd-root fd-floor-panel')
     panel.setAttribute('data-tone', tone)
     panel.setAttribute('aria-label', '命运之骰本轮裁定详情')
@@ -2443,26 +2500,52 @@ function fdMountImperativeFloorHeaders(ui) {
       doc,
       'strong',
       'fd-floor-panel-title',
-      roll
-        ? `命运之骰裁定 · ${roll.check || '行动'}检定（${roll.tierLabel || '判定'}）`
+      activeRoll
+        ? (rolls.length > 1
+          ? `命运之骰裁定（${activeIdx + 1}/${rolls.length}）· ${activeRoll.check || '行动'}检定（${activeRoll.tierLabel || '判定'}）`
+          : `命运之骰裁定 · ${activeRoll.check || '行动'}检定（${activeRoll.tierLabel || '判定'}）`)
         : (setupReason ? '命运之骰 · 待配置决策模型' : '命运之骰 · 本轮免检定')
     )
     const pTags = fdEl(doc, 'div', 'fd-floor-panel-tags')
-    if (roll) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', String(roll.rule || '2d6')))
-    if (roll && roll.difficultyLabel) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `难度：${roll.difficultyLabel}`))
-    if (roll && roll.damper) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `⛓ ${roll.damper.quotaLabel || '阻尼联动'}`))
+    if (activeRoll) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', String(activeRoll.rule || '2d6')))
+    if (activeRoll && activeRoll.difficultyLabel) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `难度：${activeRoll.difficultyLabel}`))
+    if (activeRoll && activeRoll.damper) pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `⛓ ${activeRoll.damper.quotaLabel || '阻尼联动'}`))
     pTags.appendChild(fdEl(doc, 'span', 'fd-floor-tag', `✦ 命运点 ${fate.points}/${fate.max}`))
     pHead.appendChild(pTitle)
     pHead.appendChild(pTags)
     panel.appendChild(pHead)
 
-    if (roll) {
+    if (rolls.length > 1) {
+      const tabBar = fdEl(doc, 'div', 'fd-multi-tabs')
+      rolls.forEach((item, idx) => {
+        const tTier = item.hidden && !entry.peeked ? 'hidden' : fdTierOf(item.tier)
+        const tabBtn = fdEl(
+          doc,
+          'button',
+          'fd-multi-tab' + (idx === activeIdx ? ' is-active' : ''),
+          `#${idx + 1} ${item.check || '检定'} · ${item.hidden && !entry.peeked ? '暗骰' : (item.tierLabel || '判定')}`
+        )
+        tabBtn.type = 'button'
+        tabBtn.setAttribute('data-tier', tTier)
+        tabBtn.addEventListener('click', e => {
+          e.stopPropagation()
+          entry.selectedRollIdx = idx
+          entry.lastStageRollKey = ''
+          renderEntry(entry)
+        })
+        tabBar.appendChild(tabBtn)
+      })
+      panel.appendChild(tabBar)
+    }
+
+    if (activeRoll) {
+      const displayRoll = activeRoll
       const animPref = (record && record.animation) || fdGetCachedAnimationPref()
       // 胶囊里只出静态骰面：智能切换（bounce）下重投专属皮肤不外带，静止展示一律回默认星穹
       const animPrefStr = String(animPref || 'atelier')
       const theme3d = FD3D.resolveTheme(
         animPref,
-        animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(roll, false),
+        animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(displayRoll, false),
         false
       )
       if (theme3d && FD3D.canUseWebGL2()) {
@@ -2480,8 +2563,8 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.lastStageRollKey = ''
         }
         panel.appendChild(entry.stageWrapEl)
-        const rKey = `${roll.rolledAt || ''}:${roll.total || ''}:${(roll.dice || []).join(',')}`
-        const spec = FD3D.rollToStageSpec({ ...roll, hidden: false }, false)
+        const rKey = `${activeIdx}:${displayRoll.rolledAt || ''}:${displayRoll.total || ''}:${(displayRoll.dice || []).join(',')}`
+        const spec = FD3D.rollToStageSpec({ ...displayRoll, hidden: false }, false)
         entry.stage3d.setTheme(theme3d)
         if (spec && entry.lastStageRollKey !== rKey) {
           entry.lastStageRollKey = rKey
@@ -2499,25 +2582,28 @@ function fdMountImperativeFloorHeaders(ui) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', label))
         dl.appendChild(fdEl(doc, 'dd', 'fd-turn-dd', value))
       }
-      if (roll.autoSuccess) {
-        addRow('免骰直通', `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`)
-      } else if (roll.checkType === 'contest' && roll.contest) {
-        const c = roll.contest
+      if (displayRoll.attempt) {
+        addRow('判定动作', displayRoll.attempt)
+      }
+      if (displayRoll.autoSuccess) {
+        addRow('免骰直通', `⚡ 能力稳压「${displayRoll.difficultyLabel || '容易'}」（保底 ${displayRoll.total} ≥ 目标 ${displayRoll.target === undefined ? '—' : displayRoll.target}）· 直接达成`)
+      } else if (displayRoll.checkType === 'contest' && displayRoll.contest) {
+        const c = displayRoll.contest
         const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
-        addRow('交锋对抗', `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
+        addRow('交锋对抗', `我方 ${displayRoll.rule || '2d6'} [${(displayRoll.dice || []).join(', ')}] = ${displayRoll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
       } else {
         addRow(
           '骰面算式',
-          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
+          `${displayRoll.rule || '2d6'} 原骰 [${(displayRoll.dice || []).join(', ')}] = ${displayRoll.total}（目标${displayRoll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${displayRoll.target === undefined ? '—' : displayRoll.target}）`
         )
       }
-      const breakdown = roll.modifierBreakdown || {}
-      const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
+      const breakdown = displayRoll.modifierBreakdown || {}
+      const skillBonus = fdNumber(breakdown.skillBonus ?? displayRoll.skillBonus, 0)
       addRow(
         '能力修正',
-        `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`
+        `${displayRoll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${displayRoll.modifier ? `（环境/基调修正 ${displayRoll.modifier > 0 ? '+' : ''}${displayRoll.modifier}）` : ''}`
       )
-      const factors = fdCollectResistanceFactors(roll)
+      const factors = fdCollectResistanceFactors(displayRoll)
       if (factors.length) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', '外部阻力'))
         const ddFactors = fdEl(doc, 'dd', 'fd-turn-dd')
@@ -2526,7 +2612,7 @@ function fdMountImperativeFloorHeaders(ui) {
         ddFactors.appendChild(row)
         dl.appendChild(ddFactors)
       }
-      const damper = roll.damper || roll.damperSync || null
+      const damper = displayRoll.damper || displayRoll.damperSync || null
       if (damper) {
         const quota = damper.quota || damper.quotaSync || ''
         addRow(
@@ -2534,7 +2620,7 @@ function fdMountImperativeFloorHeaders(ui) {
           `${damper.applied === false ? '未联动' : '双向联动'}${quota ? ` · 配额 ${quota}` : ''}${damper.reason ? ` · ${damper.reason}` : ''}`
         )
       }
-      addRow('难度理由', `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)
+      addRow('难度理由', `${displayRoll.difficultyLabel || '判定'} · ${displayRoll.reason || 'AI 综合评定'}`)
       const deltaText = fdFormatProfileChanges(record.profileChanges)
       if (deltaText) {
         addRow('能力演进', `✦ ${deltaText}`)
@@ -2561,21 +2647,24 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.rerollHint = ''
           renderEntry(entry)
           const activeId = fdGetActiveGameId()
-          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode })
+          const targetIdx = rolls.length > 1 ? activeIdx : undefined
+          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode, ...(targetIdx !== undefined ? { rollIndex: targetIdx } : {}) })
             .then(res => {
               const data = res && res.ok ? res.data : null
               const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
               if (nextRoll) {
                 fdInvalidateTurnCache(activeId, effectiveTurn)
+                const animRoll = data.rerolledRoll || nextRoll
                 entry.record = {
                   ...(entry.record || {}),
                   roll: nextRoll,
+                  rolls: Array.isArray(data.rolls) && data.rolls.length ? data.rolls : [nextRoll],
                   fate: data.fate || fate,
                   rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
                 }
                 fdRememberTurnRecord(activeId, effectiveTurn, entry.record)
                 /* 重投同样是「结果一到就投」：中央爆发，胶囊里只更新静态骰面 */
-                fdPlayFloorRollAnim(entry.article, entry, nextRoll, entry.record.animation, { power })
+                fdPlayFloorRollAnim(entry.article, entry, animRoll, entry.record.animation, { power })
                 entry.rerollHint = data.mode === 'push'
                   ? '🔥 已孤注一掷并同步配额！现在点下方「重新生成正文」即可按新结果与代价改写剧情'
                   : '✦ 已消耗 1 点命运点逆命重投！现在点下方「重新生成正文」即可按新点数改写剧情'

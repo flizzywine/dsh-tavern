@@ -52,6 +52,8 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         (rollPlace || runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0) ? 'history:' + dwellPageKey : null;
     // auto and skip wait for this paragraph's director prefix and say so; manual paging stays immediate.
     const awaitingDirection = runtime.indicators.awaitingDirection;
+    // a voiced page's voice still waits a moment for its direction: auto starts the page's dwell from its voice, not before.
+    const awaitingVoice = runtime.indicators.awaitingVoiceDirection;
     // Intermediate voiced cards follow the paragraph audio clock, not a new playback lease.
     const autoDeadline=React.useRef(null);
     // auto waits while DSH Tavern is not in front - a voiced line is held by its paused
@@ -60,6 +62,7 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
     useEffect(function () {
         if (!auto || skipping || hidden || overlay || !typed || !current || current.pending) {autoDeadline.current=null;return;}
         if (atEnd || awaitingDirection) return;
+        if (awaitingVoice) {autoDeadline.current=null;return;}
         if (!audible) { if (autoDeadline.current && autoDeadline.current.left === undefined) autoDeadline.current.left = autoDeadline.current.at - now(); return; }
         if (autoDeadline.current?.left !== undefined) { autoDeadline.current.at = now() + autoDeadline.current.left; delete autoDeadline.current.left; }
         const holds=[...performance.holds,{pending:performance.blocking || dialogueHeld}];
@@ -83,7 +86,7 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         const remaining=timing.remaining(autoDeadline.current.at-now(),holds);
         if(remaining===Infinity)return;
         return timeout(() => advance(), remaining);
-    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, voiceEnded, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible, performance.holdKey]);
+    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, voiceEnded, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, awaitingVoice, audible, performance.holdKey]);
     // skip turns a page every GAL_SKIP_PAGE_MS and never waits for a performance (a
     // text card, title or anything still sounding is cut by the next turn); staging snaps and nothing sounds. Only data
     // holds it: a streaming page's text and a paragraph's director prefix. Input, the round's end, its choices or

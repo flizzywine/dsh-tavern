@@ -129,6 +129,75 @@ export function buildTurnInjection(payload) {
   return lines.join('\n')
 }
 
+/**
+ * 构建单回合多检定（rolls.length >= 2）的客观真骰清单注入；
+ * 当仅 1 条时自动委托给 buildTurnInjection 保持完全兼容。
+ */
+export function buildMultiTurnInjection(rolls) {
+  const list = (Array.isArray(rolls) ? rolls : []).filter(item => item && typeof item === 'object')
+  if (!list.length) return ''
+  if (list.length === 1) return buildTurnInjection(list[0])
+
+  const lines = [
+    `【本轮多重客观检定已由系统真骰依次裁定（共 ${list.length} 项 · 严禁模型重投、篡改结果或跳过任一项后果）】`
+  ]
+  const failedIndices = new Set()
+  list.forEach((roll, idx) => {
+    const num = idx + 1
+    const checkName = String(roll.skillName || roll.check || '行动').replace(/检定$/, '')
+    const diceText = Array.isArray(roll.dice) ? roll.dice.join(' + ') : String(roll.total)
+    const modText = roll.modifier ? (roll.modifier > 0 ? `+${roll.modifier}` : String(roll.modifier)) : ''
+    const skillBonus = Number(roll.skillBonus) || 0
+    const skillText = skillBonus === 0 ? '' : (skillBonus > 0 ? `+${skillBonus}` : String(skillBonus))
+    const isFail = roll.tier === 'failure' || roll.tier === 'fumble'
+    if (isFail) failedIndices.add(num)
+
+    lines.push(`\n### 检定 #${num}：${checkName}检定${roll.hidden ? '（暗骰）' : ''}`)
+    if (roll.attempt) lines.push(`- 判定动作：${roll.attempt}`)
+    if (roll.dependsOn && Number(roll.dependsOn) >= 1 && Number(roll.dependsOn) < num) {
+      const dep = Number(roll.dependsOn)
+      if (failedIndices.has(dep)) {
+        lines.push(`- 前置依赖短路：本项依赖的「检定 #${dep}」已失败；若前序失手已导致本动作无法按原计划展开，须自然转为受阻、仓促补救或承受连锁后果，禁止无视前序失败硬写成功。`)
+      } else {
+        lines.push(`- 前置依赖：承接「检定 #${dep}」之后展开。`)
+      }
+    }
+    if (roll.autoSuccess) {
+      lines.push(`- 裁定结论：能力稳压「${roll.difficultyLabel || '容易'}」→ 【稳妥达成（免骰直通）】`)
+    } else if (roll.checkType === 'contest' && roll.contest) {
+      const c = roll.contest
+      const signZ = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+      lines.push(
+        `- 双边交锋（vs ${c.rivalName || '对手'}）：我方 ${roll.total} vs 对手 ${c.rivalTotal}（净差 z = ${signZ}）→ 【${roll.tierLabel || '判定'}】`
+      )
+      if (c.counterAttack) lines.push('- 对抗反制（强制兑现）：对手成功压制并立即抓住破绽反击。')
+    } else {
+      const ruleLine = roll.rule === 'd100'
+        ? `1d100 骰出 ${roll.total}（难度「${roll.difficultyLabel || '中等'}」目标 ≤ ${roll.target}）`
+        : `${roll.rule} 骰出 [${diceText}]${modText ? ` ${modText}` : ''}${skillText ? ` 能力${skillText}` : ''} = ${roll.total}（难度「${roll.difficultyLabel || '中等'}」目标 ≥ ${roll.target}）`
+      lines.push(`- 掷骰结果：${ruleLine} → 【${roll.tierLabel || '成功'}】`)
+    }
+    lines.push(`- 演绎要求：${OUTCOME_GUIDANCE[roll.tier] || OUTCOME_GUIDANCE.success}`)
+    if (roll.rerollMeta?.mode === 'push') {
+      lines.push(
+        roll.tier === 'fumble'
+          ? '- 孤注一掷反噬（强制兑现）：搏命重投失手，正文须体现比常规失败更沉重的反噬或破绽。'
+          : '- 孤注一掷代价（强制兑现）：透支潜力逆转败局，须写出真实损耗（挂彩、透支或暴露），严禁无伤完胜。'
+      )
+    }
+    if (roll.hidden) {
+      lines.push('- 暗骰约束：受控角色不知晓具体点数与成败，正文只写角色主观能感知的表象，不得提前剧透。')
+    }
+  })
+
+  lines.push(
+    '\n【多重检定统一纪律】',
+    '- 依次在一段连贯剧情中自然兑现上述全部检定结果，严禁合并洗白失败项，也不得因讨好主角而假失败。',
+    '- 沉浸要求：严禁在正文中出现任何骰点数字、难度 DC/目标值、能力加值算式或“检定成功/大失败”等规则字眼。'
+  )
+  return lines.join('\n')
+}
+
 /** 构建「局势 / 奇遇骰」上下文注入，用于探索、赶路或休整轮次制造客观命运变数。 */
 export function buildEncounterInjection(roll) {
   if (!roll || typeof roll !== 'object') return ''
@@ -157,10 +226,28 @@ export function buildFateTapeInjection(tape) {
   const seq = tape.slots
     .map(s => `${s.symbol}(${s.dice.join(',')})=${s.rawTotal}`)
     .join(' | ')
+  const firstSym = tape.slots[0]?.symbol || '①'
+  const lastSym = tape.slots[tape.slots.length - 1]?.symbol || '⑥'
   return [
-    `【本轮宿命序列（${tape.rule} 真随机预掷 · 仅在存在不确定性时按 ①→⑥ 顺序取用）】`,
+    `【本轮宿命序列（${tape.rule} 真随机预掷 · 仅在存在不确定性时按 ${firstSym}→${lastSym} 顺序取用）】`,
     `- 可用骰列：[ ${seq} ]`,
     '- 使用准则：日常无阻力行动无需取骰；若剧情出现真正不确定或风险对抗，请按顺序取用下一组未使用骰面，严禁挑骰或改点，并严禁在正文中直接写出数字或规则字眼。',
-    '- 静默回传格式（仅当你本轮实际取用了序列时，在回复最末尾另起一行附加隐藏注释）：<!-- fate-dice-tape: ① check=行动名 diff=moderate mod=0 -->'
+    `- 静默回传格式（仅当你本轮实际取用了序列时，在回复最末尾另起一行附加隐藏注释；取用多组时每组一行）：<!-- fate-dice-tape: ${firstSym} check=行动名 diff=moderate mod=0 -->`
+  ].join('\n')
+}
+
+/** 构建方案 3（主骰 + 备用宿命序列真骰带）的附加真骰带提示块。 */
+export function buildHybridTapeInjection(tape) {
+  if (!tape || !Array.isArray(tape.slots) || !tape.slots.length) return ''
+  const seq = tape.slots
+    .map(s => `${s.symbol}(${s.dice.join(',')})=${s.rawTotal}`)
+    .join(' | ')
+  const firstSym = tape.slots[0]?.symbol || '②'
+  const lastSym = tape.slots[tape.slots.length - 1]?.symbol || '③'
+  return [
+    `【本轮备用宿命序列（${tape.rule} 真随机预掷 · 仅在主检定之外出现额外独立风险/突发判定时按 ${firstSym}→${lastSym} 顺序取用）】`,
+    `- 备用骰列：[ ${seq} ]`,
+    '- 取用准则：主行动已由上方主检定裁定，禁止重复取骰；仅当玩家输入还包含其他独立风险动作，或剧情展开中突发陷阱/伏兵/二次对抗时，按顺序消耗下一组备用骰。严禁挑骰、改点或在正文露出骰点数字。',
+    `- 静默回传格式（仅当实际消耗了备用骰时，在回复最末尾每消耗一组另起一行附加隐藏注释）：<!-- fate-dice-tape: ${firstSym} check=行动名 diff=moderate mod=0 -->`
   ].join('\n')
 }

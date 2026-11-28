@@ -10,9 +10,10 @@ function stageSourceBeat(direction,para) {
     return null;
 }
 // Automatic voice never speaks a page a source mod shows; with the director on it does not start before a sealed prefix can
-// choose that surface.
-function stageAutoVoiceAllowed(direction,para,directorEnabled,beat=stageSourceBeat) {
+// choose that surface - unless `waited`: the stage's runtime already waited (at most a moment) for a direction that was coming
+// or knows none is (runtime-kernel.cjs stageVoiceDirectionComing), so the line speaks whatever the director did.
+function stageAutoVoiceAllowed(direction,para,directorEnabled,waited=false,beat=stageSourceBeat) {
     if (beat(direction,para)) return false;
-    return !directorEnabled || ['off','error'].includes(direction.phase) || direction.through>=para;
+    return waited || !directorEnabled || ['off','error'].includes(direction.phase) || direction.through>=para;
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={stageSourceBeat,stageAutoVoiceAllowed};

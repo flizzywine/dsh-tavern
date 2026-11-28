@@ -2092,4 +2092,97 @@ article.dsh-tavern-story-floor {
 @media (prefers-reduced-motion: reduce) {
   .fd-die-svg.is-rolling, .fd-die-svg.is-settled, .fd-live-card, .fd-composer-popover { animation: none !important; }
 }
+/* 单回合多判定方案详解卡 & 楼层多判定切换条 */
+.fd-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: var(--fd-fill);
+  border: 1px solid var(--fd-line-soft);
+  border-left: 3px solid var(--fd-accent);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.fd-mode-card.is-compact {
+  padding: 8px 10px;
+  gap: 4px;
+}
+.fd-mode-card.is-current {
+  background: var(--fd-accent-soft);
+  border-color: var(--fd-line);
+}
+.fd-mode-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.fd-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--fd-accent-soft);
+  border: 1px solid var(--fd-line);
+}
+.fd-mode-title {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.fd-mode-line {
+  margin: 0;
+  opacity: 0.9;
+}
+.fd-mode-line.is-note {
+  opacity: 0.76;
+}
+.fd-mode-warn {
+  margin: 2px 0 0;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--fd-warn);
+  background: color-mix(in oklab, var(--fd-warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--fd-warn) 32%, transparent);
+}
+.fd-multi-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.fd-multi-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--fd-line);
+  background: var(--fd-fill);
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: background 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+.fd-multi-tab:hover { opacity: 1; }
+.fd-multi-tab.is-active {
+  opacity: 1;
+  font-weight: 600;
+  background: var(--fd-accent-soft);
+  border-color: var(--fd-accent);
+}
+.fd-multi-tab[data-tier="failure"],
+.fd-multi-tab[data-tier="fumble"] {
+  border-color: color-mix(in oklab, var(--fd-bad) 45%, transparent);
+}
+.fd-multi-tab[data-tier="critical"],
+.fd-multi-tab[data-tier="success"] {
+  border-color: color-mix(in oklab, var(--fd-ok) 40%, transparent);
+}
 `

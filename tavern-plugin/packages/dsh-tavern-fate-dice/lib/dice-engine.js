@@ -447,17 +447,36 @@ export function rollCheck(options = {}, draw = randomInt) {
 
 const TAPE_SYMBOLS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']
 
-/** 生成一轮「宿命序列」预掷密码学真骰带（用于无决策模型时的轻量多检定）。 */
-export function generateFateTape({ rule = '2d6', count = 6 } = {}, draw = randomInt) {
+/**
+ * 多检定档位短板聚合：用于叙事阻尼器联动与胶囊整体色调。
+ * 规则：存在大失败 -> fumble；存在失败 -> failure；存在代价成功 -> costly；
+ * 全部成功且含大成功 -> critical；其余 -> success。
+ */
+export function aggregateRollTier(rolls) {
+  const list = (Array.isArray(rolls) ? rolls : []).filter(item => item && typeof item === 'object' && item.tier)
+  if (!list.length) return 'success'
+  if (list.length === 1) return list[0].tier
+  if (list.some(r => r.tier === 'fumble')) return 'fumble'
+  if (list.some(r => r.tier === 'failure')) return 'failure'
+  if (list.some(r => r.tier === 'costly')) return 'costly'
+  if (list.some(r => r.tier === 'critical')) return 'critical'
+  return 'success'
+}
+
+/** 生成一轮「宿命序列」预掷密码学真骰带（用于无决策模型降级，或主骰 + 备用真骰带混合模式）。 */
+export function generateFateTape({ rule = '2d6', count = 6, startIndex = 1 } = {}, draw = randomInt) {
   const activeRule = normalizeRule(rule)
-  const size = Math.max(1, Math.min(TAPE_SYMBOLS.length, Math.trunc(Number(count) || 6)))
+  const start = Math.max(1, Math.min(TAPE_SYMBOLS.length, Math.trunc(Number(startIndex) || 1)))
+  const maxAvailable = TAPE_SYMBOLS.length - start + 1
+  const size = Math.max(1, Math.min(maxAvailable, Math.trunc(Number(count) || 6)))
   const slots = []
   for (let i = 0; i < size; i += 1) {
+    const slotIndex = start + i
     const dice = drawRuleDice(activeRule, draw)
     const rawTotal = dice.reduce((s, n) => s + n, 0)
     slots.push({
-      index: i + 1,
-      symbol: TAPE_SYMBOLS[i],
+      index: slotIndex,
+      symbol: TAPE_SYMBOLS[slotIndex - 1],
       dice,
       rawTotal
     })
@@ -465,72 +484,83 @@ export function generateFateTape({ rule = '2d6', count = 6 } = {}, draw = random
   return {
     rule: activeRule,
     sides: ruleSides(activeRule),
+    startIndex: start,
     slots,
     createdAt: Date.now()
   }
 }
 
-/** 从模型输出正文中提取宿命序列使用标记，严格校验从 ① 开始顺位连续取用，并换算为标准 roll 结果供胶囊登记。 */
-export function parseTapeUsageFromText(text, tape) {
+/**
+ * 从模型输出正文中提取全部宿命序列使用标记，严格校验从 startIndex 开始顺位连续取用，
+ * 全部换算为标准 roll 数组供多检定胶囊落盘。
+ */
+export function parseAllTapeUsagesFromText(text, tape, { maxCount = 6 } = {}) {
   const raw = String(text || '')
-  if (!raw || !tape || !Array.isArray(tape.slots) || !tape.slots.length) return null
+  if (!raw || !tape || !Array.isArray(tape.slots) || !tape.slots.length) return []
   const matches = [...raw.matchAll(/<!--\s*fate-dice-tape:\s*([^>]+?)\s*-->/gi)]
-  if (!matches.length) return null
+  if (!matches.length) return []
 
-  let expectedIndex = 1
-  let lastValid = null
+  let expectedIndex = Math.max(1, Math.trunc(Number(tape.startIndex ?? tape.slots[0]?.index) || 1))
+  const limit = Math.max(1, Math.min(tape.slots.length, Math.trunc(Number(maxCount) || tape.slots.length)))
+  const rolls = []
   for (const match of matches) {
+    if (rolls.length >= limit) break
     const body = String(match[1] || '')
     const slotMatch = /([①②③④⑤⑥⑦⑧]|\d+)/.exec(body)
     if (!slotMatch) break
     const token = slotMatch[1]
     const slot = tape.slots.find(s => s.symbol === token || String(s.index) === token)
     if (!slot || slot.index !== expectedIndex) break
-    lastValid = { slot, body }
     expectedIndex += 1
-  }
-  if (!lastValid) return null
 
-  const { slot, body: lastBody } = lastValid
-  const checkMatch = /check=([^|;,\s]+)/i.exec(lastBody)
-  const diffMatch = /diff=(trivial|easy|moderate|hard|extreme)/i.exec(lastBody)
-  const modMatch = /mod=(-?\d+)/i.exec(lastBody)
-  const difficulty = normalizeDifficulty(diffMatch ? diffMatch[1] : 'moderate')
-  const skillBonus = clampSkillBonus(modMatch ? Number(modMatch[1]) : 0, tape.rule)
-  const evaluated = evaluateOutcome({
-    rule: tape.rule,
-    dice: slot.dice,
-    skillBonus,
-    modifier: 0,
-    difficulty
-  })
-  const checkName = (checkMatch ? checkMatch[1] : '宿命检定').replace(/检定$/, '').slice(0, 16) || '宿命'
-  return {
-    rule: tape.rule,
-    sides: tape.sides,
-    checkType: 'tape',
-    tapeSlot: slot.symbol,
-    check: checkName,
-    skillId: 'tape',
-    skillName: checkName,
-    skillBonus,
-    modifier: 0,
-    totalModifier: skillBonus,
-    modifierEffect: evaluated.modifierEffect,
-    dice: slot.dice,
-    rawTotal: evaluated.rawTotal,
-    total: evaluated.total,
-    target: evaluated.target,
-    tier: evaluated.tier,
-    tierLabel: OUTCOME_LABELS[evaluated.tier],
-    difficulty,
-    difficultyLabel: DIFFICULTY_LABELS[difficulty],
-    hidden: false,
-    attempt: '',
-    reason: `宿命序列 ${slot.symbol} 顺位取骰（无小模型序列模式）`,
-    stakes: '',
-    rolledAt: tape.createdAt || Date.now()
+    const checkMatch = /check=([^|;,\s]+)/i.exec(body)
+    const diffMatch = /diff=(trivial|easy|moderate|hard|extreme)/i.exec(body)
+    const modMatch = /mod=(-?\d+)/i.exec(body)
+    const difficulty = normalizeDifficulty(diffMatch ? diffMatch[1] : 'moderate')
+    const skillBonus = clampSkillBonus(modMatch ? Number(modMatch[1]) : 0, tape.rule)
+    const evaluated = evaluateOutcome({
+      rule: tape.rule,
+      dice: slot.dice,
+      skillBonus,
+      modifier: 0,
+      difficulty
+    })
+    const checkName = (checkMatch ? checkMatch[1] : '宿命检定').replace(/检定$/, '').slice(0, 16) || '宿命'
+    rolls.push({
+      rule: tape.rule,
+      sides: tape.sides,
+      checkType: 'tape',
+      sourceKind: 'tape',
+      tapeSlot: slot.symbol,
+      check: checkName,
+      skillId: 'tape',
+      skillName: checkName,
+      skillBonus,
+      modifier: 0,
+      totalModifier: skillBonus,
+      modifierEffect: evaluated.modifierEffect,
+      dice: slot.dice,
+      rawTotal: evaluated.rawTotal,
+      total: evaluated.total,
+      target: evaluated.target,
+      tier: evaluated.tier,
+      tierLabel: OUTCOME_LABELS[evaluated.tier],
+      difficulty,
+      difficultyLabel: DIFFICULTY_LABELS[difficulty],
+      hidden: false,
+      attempt: '',
+      reason: `宿命序列 ${slot.symbol} 顺位取骰`,
+      stakes: '',
+      rolledAt: (tape.createdAt || Date.now()) + rolls.length
+    })
   }
+  return rolls
+}
+
+/** 兼容旧签名：从模型输出正文中提取最后一条合法顺位取骰结果。 */
+export function parseTapeUsageFromText(text, tape) {
+  const all = parseAllTapeUsagesFromText(text, tape)
+  return all.length ? all[all.length - 1] : null
 }
 
 const EXPR_PATTERN = /^(\d{0,2})d(\d{1,4})(?:\s*([+-])\s*(\d{1,4}))?$/i
