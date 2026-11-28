@@ -244,8 +244,20 @@
 				if (collapsed || typeof document === "undefined" || typeof window === "undefined") return function () {};
 				const root = document.documentElement;
 				let frame = 0;
-				let watching = null;
+				let watched = [];
 				const observer = typeof ResizeObserver === "function" ? new ResizeObserver(function () { schedule(); }) : null;
+				function syncWatch(targets) {
+					if (!observer) return;
+					const next = [];
+					for (let i = 0; i < targets.length; i += 1) {
+						const el = targets[i];
+						if (el && next.indexOf(el) === -1) next.push(el);
+					}
+					if (next.length === watched.length && next.every(function (el, idx) { return el === watched[idx]; })) return;
+					for (let i = 0; i < watched.length; i += 1) observer.unobserve(watched[i]);
+					watched = next;
+					for (let i = 0; i < watched.length; i += 1) observer.observe(watched[i]);
+				}
 				function settle(inset) {
 					if (inset > 0) {
 						const next = inset + "px";
@@ -260,37 +272,59 @@
 					frame = 0;
 					const own = document.querySelector(".dsh-tavern-sidebar:not(.collapsed)");
 					const region = own && own.closest ? own.closest('[data-slot="sidebar.workspaces"]') : null;
-					const area = region ? region.parentElement : null;
-					const column = area ? area.parentElement : null;
+					let area = region ? region.parentElement : null;
+					let column = area ? area.parentElement : null;
+					// DSH 0.2.2 在侧栏根与 _regionArea 之间多了 _scrollRegion 和 [data-sidebar-scrollport] 两层，
+					// 沿祖先链找到同时包含工作区和底栏的宿主侧栏根，避免把 [data-sidebar-scrollport] 误当根导致找不到 sidebar.settings。
+					if (area && column) {
+						let candidateArea = area;
+						let candidateColumn = column;
+						while (
+							candidateColumn &&
+							candidateColumn !== document.body &&
+							candidateColumn !== document.documentElement &&
+							!candidateColumn.matches('[data-slot="root"], [data-mobile-nav="frame"], [class*="_frame"]')
+						) {
+							if (candidateColumn.querySelector('[data-slot="sidebar.settings"], [class*="_footArea"]')) {
+								area = candidateArea;
+								column = candidateColumn;
+								break;
+							}
+							candidateArea = candidateColumn;
+							candidateColumn = candidateColumn.parentElement;
+						}
+					}
 					// 桌面端侧栏不是 fixed（宿主 regionArea 自己让出了底栏），这时不需要让位。
 					if (!own || !area || !column || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
+					const settingsSlot = column.querySelector('[data-slot="sidebar.settings"]');
+					const footArea = column.querySelector('[class*="_footArea"]') || (settingsSlot && settingsSlot.parentElement !== column ? settingsSlot.parentElement : null);
 					const ownBox = own.getBoundingClientRect();
 					const areaBox = area.getBoundingClientRect();
 					// 抽屉在屏外挂载帧（content-visibility: hidden）尚无几何尺寸，保留上次缓存的让位高度，避免误删根变量触发整页样式重算与动画中途跳动。
 					if (ownBox.height <= 0 || areaBox.height <= 0) {
-						if (observer && watching !== column) {
-							if (watching) observer.unobserve(watching);
-							watching = column;
-							observer.observe(column);
-						}
+						syncWatch([column, area, footArea]);
 						return;
 					}
 					const areaBottom = areaBox.bottom;
-					// 要避开的是底栏里的「设置」那一行（宿主的 sidebar.settings 槽，槽是空盒子，
-					// 取它第一个有高度的祖先）。它上面那条 footerActions 在整屏侧栏铺开时画在
-					// 侧栏之下、看不见，也跟着一起让就会空出一块。找不到那一行时退回 regionArea 下沿。
+					// 要避开的是底栏里的「设置」那一行（宿主的 sidebar.settings 槽，槽可能是 display:contents 空盒子，
+					// 取它第一个有高度的祖先或内部按钮）。它上面那条 footerActions 在整屏侧栏铺开时画在
+					// 侧栏之下、看不见，不能把包含 footerActions 的整块 footArea 算进来，否则版本行和「设置」之间会空出一大块。
 					let anchor = null;
-					const settingsSlot = column.querySelector('[data-slot="sidebar.settings"]');
 					for (let node = settingsSlot; node && node !== column; node = node.parentElement) {
+						if (node !== settingsSlot && node.querySelector('[class*="_footerActions"], [data-slot="sidebar.footer.action"]')) break;
 						const box = node.getBoundingClientRect();
 						if (box.height > 0 && box.top >= areaBottom - 1) { anchor = box.top; break; }
 					}
-					settle(Math.max(0, Math.round(ownBox.bottom - (anchor === null ? areaBottom : anchor))));
-					if (observer && watching !== column) {
-						if (watching) observer.unobserve(watching);
-						watching = column;
-						observer.observe(column);
+					if (anchor === null && settingsSlot) {
+						const launcher = settingsSlot.querySelector('[data-slot="settings.launcher"], button');
+						if (launcher) {
+							const box = launcher.getBoundingClientRect();
+							if (box.height > 0 && box.top >= areaBottom - 1) anchor = box.top;
+						}
 					}
+					const fallbackTop = settingsSlot ? ownBox.bottom : areaBottom;
+					settle(Math.max(0, Math.round(ownBox.bottom - (anchor === null ? fallbackTop : anchor))));
+					syncWatch([column, area, footArea]);
 				}
 				function schedule() { if (!frame) frame = window.requestAnimationFrame(measure); }
 				// 延后到下一帧合并测量，并保留上次打开缓存的让位高度，避免点击展开第 0 帧强制同步布局与根样式重算。

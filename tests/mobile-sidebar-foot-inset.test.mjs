@@ -48,7 +48,7 @@ html,body{margin:0;height:100%}
 
 const RUNNING_STATUS = { phase: 'running', host: 'cli', currentVersion: '3.3.0', currentCommit: 'c'.repeat(40), stage: '安装程序', cancellable: true }
 
-async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:1300', status = RUNNING_STATUS } = {}) {
+async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:1300', status = RUNNING_STATUS, html = null } = {}) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const context = await browser.newContext({ viewport: { width: 412, height: 906 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
@@ -56,7 +56,7 @@ async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:
   page.setDefaultTimeout(8000)
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
-  const shell = hostShell(drawer)
+  const shell = html || hostShell(drawer)
   await page.route('http://tavern.test/**', async route => {
     const url = route.request().url()
     if (url.endsWith('/tavern.css')) return route.fulfill({ contentType: 'text/css', body: tavernCss })
@@ -231,4 +231,94 @@ test('手机端未在更新时隐藏底部更新详情行（含检查中与带�
     }
     await page.context().close()
   }
+})
+
+test('DSH 0.2.2 侧栏多了 _scrollRegion 与 scrollport 包裹层时，仍只避开「设置」行且响应底栏异步挂载', async t => {
+  const dsh022Shell = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/tavern.css">
+<style>
+:root{
+  --dsw-alias-label-primary:#231f18; --dsw-alias-label-secondary:#6b655c; --dsw-alias-label-tertiary:#8d877d;
+  --dsw-alias-border-l2:#e2dcd1; --dsw-alias-border-l3:#d8d1c5; --dsw-alias-bg-base:#faf9f5;
+  --dsw-specific-sidebar-fill:#f7f3ec; --dsw-specific-input-major:#fffdf9;
+  --dsw-alias-interactive-bg-hover:#efe8dc; --dsw-alias-button-elevated-fill:#fffdf9;
+  --dsw-alias-button-floating-hover:#f2ece2; --dsw-alias-brand-primary:#c8703c;
+}
+html,body{margin:0;height:100%}
+.hHd-Xa_root{height:100%;display:flex;flex-direction:column;padding:6px 8px;box-sizing:border-box;background:var(--dsw-specific-sidebar-fill)}
+.hHd-Xa_scrollRegion{flex:1;min-height:0;margin-top:4px;display:flex;flex-direction:column;position:relative;container-type:size}
+.hHd-Xa_scrollArea{display:grid;grid-template-columns:4px minmax(0,1fr) 6px;grid-template-rows:8px max-content 2px max-content;align-content:start;flex:1;min-height:0;overflow:hidden auto}
+.hHd-Xa_regionArea{grid-area:4/2;display:flex;flex-direction:column;min-width:0;min-height:0}
+.hHd-Xa_footArea{flex:none;display:flex;flex-direction:column}
+.hHd-Xa_footerActions{flex:none;width:100%;min-width:0;display:flex}
+.hFooterButton{width:100%;height:42px;border:0;background:none;font:inherit;font-size:14px}
+.hHd-Xa_settingsArea{flex:none;width:100%;min-width:0}
+[data-slot="sidebar.settings"]{display:contents}
+.VOzbGW_triggerRow{display:flex;align-items:center;width:100%;margin:4px 0;position:relative}
+.yHnPSG_trigger{display:flex;align-items:center;gap:8px;width:100%;height:44px;padding:6px 10px;border:0;border-radius:10px;background:#ece4d6;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;cursor:pointer}
+</style></head>
+<body class="dsh-tavern-shell-active">
+<div data-slot="root"><div class="host_frame" data-mobile-nav="frame" data-sidebar-drawer>
+  <div class="host_sidebarCol" style="position:fixed;inset:0;z-index:1300">
+    <div class="hHd-Xa_root" role="dialog" data-shortcut-modal="sidebar" aria-modal="true">
+      <div class="hHd-Xa_scrollRegion">
+        <div class="hHd-Xa_scrollArea" data-sidebar-scrollport="">
+          <div class="hHd-Xa_regionArea"><div data-slot="sidebar.workspaces"><main id="sidebar"></main></div></div>
+        </div>
+      </div>
+      <div class="hHd-Xa_footArea">
+        <div class="hHd-Xa_footerActions"><div data-slot="sidebar.footer.action"><button class="hFooterButton">导出会话日志</button></div></div>
+        <div class="hHd-Xa_settingsArea"><div data-slot="sidebar.settings"></div></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</body></html>`
+
+  const { page } = await mountMobileSidebar(t, {
+    html: dsh022Shell,
+    status: { phase: 'idle', host: 'cli', currentVersion: '3.5.0', currentCommit: 'a2fc3a4000000' },
+  })
+  await page.locator('.dsh-tavern-sidebar:not(.collapsed)').waitFor({ state: 'attached' })
+  await page.waitForFunction(() => document.querySelector('.dsh-tavern-update-identity')?.textContent?.includes('v3.5.0'))
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+
+  // 1) sidebar.settings 尚未挂载内容时，不把隐藏的 footerActions 算成底部空白。
+  const beforeSettings = await page.evaluate(() => ({
+    inset: document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset').trim(),
+    footerActionsHeight: Math.round(document.querySelector('.hHd-Xa_footerActions').getBoundingClientRect().height),
+  }))
+  assert.ok(beforeSettings.footerActionsHeight >= 40, 'footerActions 占着高度：' + JSON.stringify(beforeSettings))
+  assert.equal(beforeSettings.inset, '', '设置行未挂载时不应为隐藏的 footerActions 让出空白：' + JSON.stringify(beforeSettings))
+
+  // 2) 宿主异步挂载「设置」按钮后，即使 _root 高度 100% 不变，ResizeObserver 也应立刻重算让位，且只避开 settingsArea。
+  await page.evaluate(() => {
+    document.querySelector('[data-slot="sidebar.settings"]').innerHTML =
+      '<div class="VOzbGW_triggerRow"><div data-slot="settings.launcher"><button class="yHnPSG_trigger" data-signed-out="true" data-collapsed="false"><span>···</span><span>设置</span></button></div></div>'
+  })
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset').trim() !== '')
+
+  const measured = await page.evaluate(() => {
+    const scrollRegion = document.querySelector('.hHd-Xa_scrollRegion').getBoundingClientRect()
+    const sidebar = document.querySelector('.dsh-tavern-sidebar:not(.collapsed)').getBoundingClientRect()
+    const settingsArea = document.querySelector('.hHd-Xa_settingsArea').getBoundingClientRect()
+    const button = document.querySelector('.yHnPSG_trigger').getBoundingClientRect()
+    const update = document.querySelector('.dsh-tavern-update').getBoundingClientRect()
+    return {
+      footOverlap: Math.round(sidebar.bottom - scrollRegion.bottom),
+      settingsOverlap: Math.round(sidebar.bottom - settingsArea.top),
+      insetVar: parseFloat(document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset')),
+      rowGap: Math.round(settingsArea.top - update.bottom),
+      buttonGap: Math.round(button.top - update.bottom),
+      hit: (() => {
+        const el = document.elementFromPoint(button.left + 12, (button.top + button.bottom) / 2)
+        return el ? (el.closest('[data-slot="settings.launcher"]') ? 'settings' : el.className || el.tagName) : null
+      })(),
+    }
+  })
+  assert.ok(measured.footOverlap > measured.settingsOverlap + 30, 'scrollRegion 下沿多出 footerActions：' + JSON.stringify(measured))
+  assert.equal(measured.insetVar, measured.settingsOverlap, '只让出「设置」行本身，不含上方 footerActions：' + JSON.stringify(measured))
+  assert.ok(measured.rowGap >= 0 && measured.rowGap <= 16, '版本行紧贴设置行上方，底部不再留大块空白：' + JSON.stringify(measured))
+  assert.ok(measured.buttonGap >= 4 && measured.buttonGap <= 20, '版本行不压到设置按钮上：' + JSON.stringify(measured))
+  assert.equal(measured.hit, 'settings', '宿主设置按钮仍可点击')
 })
