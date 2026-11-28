@@ -19,7 +19,7 @@ DSH Tavern 的长期目标是在现有酒馆内容生态上，发挥 Agent 能�
 ## 分支与推送
 
 - 日常开发和修复进 `main`
-- 用户说“推送”时，检查项目的工作区、工作树和开发分支，覆盖各对话留下的全部待推送代码。按项目规则验收并提交未提交的代码，推送 `main` 的全部待推送提交，其他开发分支按各自分支同步。备份、实验和临时笔记按原用途保留。
+- 用户说“推送”时，推送 `main` 的全部待推送提交
 - 默认推送到 `origin`（`flizzywine/dsh-tavern`）。仅在用户点名时操作 `bigmalove/dsh-tavern` 的分叉。同步分叉用 merge，rebase 或强推须经用户明确同意。
 - 推送 `main` 前运行 `git fetch origin` 和 `git log --oneline HEAD..origin/main`。若远端仅多出运行清单提交，rebase 到 `origin/main` 再推送。出现其他远端提交时先告知用户。
 
