@@ -26,8 +26,13 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         // The anchor of a page read back (history mode) whose projection or media are still loading, else null.
         const settlingAt = state => state.cursor?.mode === 'history' && (state.pending?.projection || state.pending?.resources) ? state.cursor.anchor : null;
         own(() => stopVoiceSource?.());
+        // A line that failed because the voice service was not running is asked again when its backoff ends (the service
+        // may have been started since); one timer for the whole queue, re-armed by every sync.
+        let voiceRetry = null;
+        own(() => clearTimeout(voiceRetry));
         const syncVoice = () => {
             if (!active()) return;
+            clearTimeout(voiceRetry);
             const id = selection.current() || null;
             const store = id ? owner.get(id) : null;
             if (store !== voiceStore) {
@@ -75,7 +80,13 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
                 add(row.text.pages);
             }
             voice.retain(handles);
-            for (const handle of handles) void handle.prefetch();
+            const asked = handles.map(handle => handle.prefetch());
+            void Promise.all(asked).then(() => {
+                if (!active()) return;
+                const waits = handles.map(handle => handle.retryIn?.()).filter(wait => wait !== null && wait !== undefined);
+                clearTimeout(voiceRetry);
+                if (waits.length) voiceRetry = setTimeout(syncVoice, Math.max(1000, Math.min(...waits)));
+            });
         };
         own(selection.list.subscribe(syncVoice));
         own(entry.shown.subscribe(syncVoice));

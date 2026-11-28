@@ -1,7 +1,7 @@
 import { parse as parseScript } from 'acorn'
 import { parse as parseYaml } from 'yaml'
 import { validateMvuVisibility } from './mvu-visibility.js'
-import { validateMvuLimits } from './mvu-limits.js'
+import { initialMvuLimitViolations, validateMvuLimits } from './mvu-limits.js'
 
 // Static format checks for MVU cards. The card is edited freely like a source
 // file; this only points at things that would break at runtime, with locations
@@ -85,7 +85,10 @@ export function checkMvuCard(data, prefix = '') {
   }
   for (const state of states) {
     // Value limits ($meta.limits next to extensible) the settlement enforces
-    errors.push(...validateMvuLimits(state.value, prefix + state.path).errors)
+    const limits = validateMvuLimits(state.value, prefix + state.path)
+    errors.push(...limits.errors)
+    // A card starts inside its own limits (checked only here, when the card is written: play checks only what changes).
+    errors.push(...initialMvuLimitViolations(state.value, limits.normalized, prefix + state.path))
     const rawMetaVis = object(state.value?.$meta) ? (state.value.$meta.visibility ?? state.value.$meta.hidden) : undefined
     if (rawMetaVis !== undefined) {
       const checked = validateMvuVisibility(rawMetaVis, prefix + state.path + '/$meta/visibility')
@@ -93,6 +96,10 @@ export function checkMvuCard(data, prefix = '') {
       warnings.push(...checked.warnings)
     }
   }
+
+  // Limits in initial values written as a template (EJS) are not read: the structure is known only once rendered.
+  const templated = [...greetings.flatMap(text => [...String(text || '').matchAll(/<initvar>([\s\S]*?)<\/initvar>/gi)].map(block => block[1])), ...initEntries.map(({ entry }) => String(entry.content || ''))]
+  if (templated.some(text => text.includes('<%') && /\blimits\b/.test(text))) warn('/character_book/entries', '这张卡的初值是模板（含 <%），里面写的 limits 没有生效；把 limits 写在不含模板的 [initvar] 条目或 <initvar> 里')
 
   // Background update rules
   if (!entries.some(entry => /^\s*\[mvu_update\]/i.test(commentOf(entry)))) warn('/character_book/entries', '没有 [mvu_update] 条目：后台不知道变量按什么规则更新（若规则在绑定的外部世界书里可忽略）')

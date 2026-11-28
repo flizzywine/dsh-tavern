@@ -8,6 +8,7 @@ import { appendTavernHelperMessages, projectTavernHelperContext, replaceTavernHe
 import { applyChatPluginData, validateChatPluginRequest } from './tavern-chat-plugin-data.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { randomUUID } from 'node:crypto'
+import { admitMvuWrite } from './mvu-write-gate.js'
 import { cardOpeningChoices } from './card-openings.js'
 import { inspectWorldBookDocument, updateWorldBookDocument, exportSillyTavernWorldBook } from './worldbook-resource.js'
 import { hasInitialVariablesEntry } from './worldbook-entry-classification.js'
@@ -36,7 +37,8 @@ function bumpRevision(draft) {
 }
 
 /** Private pre-game state; explicit plugin-setting saves use the profile store. */
-export function createOpeningPreparation({ readCard, worldBooks, generate, generateRaw, readRuntimeExtensions, extensionSettings, now = Date.now, trace = untraced }) {
+// writeGate(card): the card's write gate (lib/mod-tools.js cardWriteGate); the page's variable writes pass it as opening.
+export function createOpeningPreparation({ readCard, worldBooks, generate, generateRaw, readRuntimeExtensions, extensionSettings, writeGate = () => null, now = Date.now, trace = untraced }) {
   const drafts = new Map()
   const generations = createHelperGenerationTasks()
   const lifetime = 2 * 60 * 60 * 1000
@@ -278,7 +280,14 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         const type = args.option?.type
         if (type === 'global') draft.globalVariables = copy(args.variables)
         else if (type === 'character') draft.characterVariables = copy(args.variables)
-        else replaceTavernHelperVariables(draft.chat, args)
+        else {
+          // The preparation page writes the opening: through the card's write gate like any page script (mvu-write-gate.js).
+          const gate = writeGate(draft.card)
+          const before = type === 'chat' ? draft.chat.variables : draft.chat.messages?.at(-1)?.variables?.[Math.max(0, Number(draft.chat.messages?.at(-1)?.swipeId) || 0)]
+          const admitted = gate && args.option?.localMutation === undefined && (!type || type === 'chat' || type === 'message')
+            ? admitMvuWrite(gate, { source: 'opening', before, after: args.variables }).variables : args.variables
+          replaceTavernHelperVariables(draft.chat, { ...args, variables: admitted })
+        }
       } else if (method === 'createTavernHelperMessages') {
         const targets = appendTavernHelperMessages(draft.chat, args.messages, args.option)
         // Each floor is its own storage revision, so a later saveChat names the

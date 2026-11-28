@@ -3,6 +3,8 @@ import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distribution
 import {normalizeMvuVisibility} from './domain/mvu-visibility.js'
 import {assistantResultForTurn} from './domain/session-turn-result.js'
 import {stageParagraphs} from './domain/stage-paragraphs.js'
+import {cardMvuLimits} from './domain/mvu-limits.js'
+import {createMvuWriteGate} from './domain/mvu-write-gate.js'
 // The foreground tools the installed first-party mods declare, each from its folder's optional tools.js
 // (docs/mod-authoring.md). Its default export lists {name, create(core), settlement?}; create returns the tool definition, given
 // the core's turn readers and two mod-scoped callbacks: authorize(chat) (the mod is on for this card) and
@@ -21,11 +23,13 @@ import {stageParagraphs} from './domain/stage-paragraphs.js'
 // games get only the tools the card declares, and the mod switch adds none of the mod's other tools or prompts.
 // hidden(card), if given, maps the stat_data paths a card offering the tool keeps from the player to a hidden-attribute rule,
 // 'masked' or 'unlisted' (withModHidden).
+// variables {owns(card), constraints(card)}, if given, joins the host's one write check (domain/mvu-write-gate.js) for the cards
+// whose rules it reads: owns lists the rule-owned /stat_data paths, constraints is null or {check, settle, describe} (cardVariableRules).
 export const modTools = Object.freeze((await Promise.all(firstPartyModIds.map(async folder => {
   const directory=firstPartyModDirectory(folder)
   if (!await access(new URL('tools.js',directory)).then(()=>true,()=>false)) return []
   const modId=JSON.parse(await readFile(new URL('mod.json',directory),'utf8')).id
-  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:core=>tool.create({...core,storyUnitsBefore:exec=>storyUnitsBefore(exec,core.activeTurnOf(exec))}),...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{}),...(tool.hidden?{hidden:tool.hidden}:{})}))
+  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:core=>tool.create({...core,storyUnitsBefore:exec=>storyUnitsBefore(exec,core.activeTurnOf(exec))}),...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{}),...(tool.hidden?{hidden:tool.hidden}:{}),...(tool.variables?{variables:Object.freeze(tool.variables)}:{})}))
 }))).flat())
 
 // The stage paragraphs (domain/stage-paragraphs.js, the units the stage pages and the director anchors) of the text the
@@ -53,3 +57,25 @@ export function withModHidden(visibility, card) {
 
 /** How a game of this card gets the tool: 'card' (offered by the card), 'withheld' (the card declares another tool of its mod) or null (the mod switch decides). */
 export const cardOffer = (tool, card) => cardOffers(tool, card) ? 'card' : cardGoverns(tool.modId, card) ? 'withheld' : null
+
+/**
+ * What the tools a card offers add to its write gate (domain/mvu-write-gate.js): the rule-owned paths and one set of
+ * constraints joining every tool's (checked together, settled one after another, described in order); null without any.
+ */
+export function cardVariableRules(card) {
+  // each tool's owns/constraints answer for the card itself ([] / null for a card without its rules)
+  const tools = modTools.filter(tool => tool.variables)
+  const ownedPaths = tools.flatMap(tool => tool.variables.owns(card) || [])
+  const all = tools.map(tool => tool.variables.constraints(card)).filter(Boolean)
+  const constraints = !all.length ? null : all.length === 1 ? all[0] : Object.freeze({
+    check: input => all.flatMap(item => item.check(input) || []),
+    settle: after => all.reduce((value, item) => item.settle ? item.settle(value) : value, after),
+    describe: () => all.flatMap(item => item.describe?.() || [])
+  })
+  return { ownedPaths, constraints }
+}
+/** The card's write gate: its $meta.limits and its tools' rules (cardVariableRules); null when it declares neither. */
+export function cardWriteGate(card) {
+  const limits = cardMvuLimits(card) || [], rules = cardVariableRules(card)
+  return limits.length || rules.ownedPaths.length || rules.constraints ? createMvuWriteGate({ limits, ...rules }) : null
+}

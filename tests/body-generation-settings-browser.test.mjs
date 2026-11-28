@@ -91,8 +91,9 @@ test('STcontext 和文风联想的配置从右侧插件管理打开，游玩侧�
   const mode = page.getByRole('combobox', { name: '默认正文生成方式' })
   assert.equal(await mode.inputValue(), 'plugin-direct')
   await mode.selectOption('plugin-tool-call')
-  const regex = page.getByRole('checkbox', { name: '追加宿主正则' })
-  await regex.check()
+  const regex = page.getByRole('checkbox', { name: '追加宿主正则', checked: false })
+  // The controlled checkbox updates from the host response, not from the click itself.
+  await regex.click()
   await page.getByRole('checkbox', { name: '追加宿主正则', checked: true }).waitFor()
   assert.deepEqual(defaults, { mode: 'plugin-tool-call', hostRegex: true })
   await page.getByRole('button', { name: '文风联想', exact: true }).click()

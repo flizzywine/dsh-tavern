@@ -84,7 +84,7 @@ function TavernMvuVariables(props) {
     }
     setBusy(true); setError(''); setNotice('');
     try {
-      const result = await rpc('updateTavernHelperVariables', Object.assign(mvuVariablesUpdateRequest({
+      const result = await rpc('updateMvuPanelVariables', Object.assign(mvuVariablesUpdateRequest({
         sessionId: props.sessionId,
         floor: floor,
         statData: statData,
@@ -95,11 +95,14 @@ function TavernMvuVariables(props) {
         liveTavernView.invalidate(props.sessionId);
         return;
       }
+      // a value past a limit the card brings back (clamp) is saved brought back: show what was saved
+      if (result && result.variables && result.variables.stat_data) statData = result.variables.stat_data;
       const nextEditorData = visibility && typeof maskMvuStatDataForEditor === 'function' ? maskMvuStatDataForEditor(statData, visibility) : statData;
       setDraft(mvuCloneJson(nextEditorData));
       setJsonText(serializeMvuStatData(nextEditorData));
       setDirty(false);
-      setNotice('已保存到当前楼层' + (floor.turn ? '（第 ' + floor.turn + ' 轮）' : ' #' + floor.messageId) + '。下一轮生成会读取新变量。');
+      const clamped = result && Array.isArray(result.clamped) ? result.clamped.length : 0;
+      setNotice('已保存到当前楼层' + (floor.turn ? '（第 ' + floor.turn + ' 轮）' : ' #' + floor.messageId) + '。' + (clamped ? clamped + ' 项超出了卡写的范围，已按范围收回。' : '') + '下一轮生成会读取新变量。');
       liveTavernView.invalidate(props.sessionId);
     } catch (e) { setError(String(e.message || e)); }
     finally { setBusy(false); }

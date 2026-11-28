@@ -11331,8 +11331,13 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         // The anchor of a page read back (history mode) whose projection or media are still loading, else null.
         const settlingAt = state => state.cursor?.mode === 'history' && (state.pending?.projection || state.pending?.resources) ? state.cursor.anchor : null;
         own(() => stopVoiceSource?.());
+        // A line that failed because the voice service was not running is asked again when its backoff ends (the service
+        // may have been started since); one timer for the whole queue, re-armed by every sync.
+        let voiceRetry = null;
+        own(() => clearTimeout(voiceRetry));
         const syncVoice = () => {
             if (!active()) return;
+            clearTimeout(voiceRetry);
             const id = selection.current() || null;
             const store = id ? owner.get(id) : null;
             if (store !== voiceStore) {
@@ -11380,7 +11385,13 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
                 add(row.text.pages);
             }
             voice.retain(handles);
-            for (const handle of handles) void handle.prefetch();
+            const asked = handles.map(handle => handle.prefetch());
+            void Promise.all(asked).then(() => {
+                if (!active()) return;
+                const waits = handles.map(handle => handle.retryIn?.()).filter(wait => wait !== null && wait !== undefined);
+                clearTimeout(voiceRetry);
+                if (waits.length) voiceRetry = setTimeout(syncVoice, Math.max(1000, Math.min(...waits)));
+            });
         };
         own(selection.list.subscribe(syncVoice));
         own(entry.shown.subscribe(syncVoice));
@@ -11852,7 +11863,7 @@ function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availabili
     const request = covered({...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor.cover);
     if (!request) return null;
     const resource = () => readVoice(sessionId,input.general ? {general:true} : {alias:character.alias});
-    return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+    return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request), retryIn:() => player.retryIn(request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
 }
 
@@ -11872,7 +11883,7 @@ function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availab
     if (!request) return null;
     const resource = () => readVoice(sessionId,{narrator:true});
     // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
-    return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+    return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request), retryIn:() => player.retryIn(request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, id:options?.id || id, handoff:options?.handoff === true, automatic:options?.automatic === true})};
 }
 

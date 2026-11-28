@@ -14,6 +14,49 @@ export function createTemplateHandlers(deps) {
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, openingPreparation, pagesInFront,
     projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readPromptTemplateGlobalVariables, readSessionMap, sessionViews,
     str, tavernScriptHostAdapter, updateChat, worldBooks } = deps
+  // Writes the variables of a floor or the chat for a page script or the variable panel. source is set by the RPC, and
+  // only the panel's write records an audited variable edit.
+  async function writeHelperVariables(args, source) {
+    let incomingVariables = args && args.variables
+    let variableUpdate = source === 'panel' ? args && args.variableUpdate : undefined
+    // Non-transaction writes (player MVU editor or display frame scripts) must not overwrite
+    // hidden attributes with masked placeholders or tamper with locked values.
+    if (!args?.eventId && incomingVariables && typeof incomingVariables === 'object' && incomingVariables.stat_data && typeof incomingVariables.stat_data === 'object' && !Array.isArray(incomingVariables.stat_data)) {
+      const headerChat = typeof chatHeaderForSession === 'function'
+        ? await chatHeaderForSession(args?.sessionId, ['id', 'cardPath', 'cardId', 'cardDefinitionSnapshot', 'regexOverrides'])
+        : await chatForSession(args?.sessionId)
+      const extensions = headerChat?.cardPath ? await readCardExtensions(headerChat.cardPath, headerChat) : null
+      if (hasMvuVisibilityRules(extensions?.mvuVisibility)) {
+        const currentChat = headerChat && Array.isArray(headerChat.messages) ? headerChat : await chatForSession(args?.sessionId)
+        let authStatData = null
+        const opt = args.option && typeof args.option === 'object' ? args.option : { type: 'message' }
+        if (opt.type === 'chat') {
+          authStatData = currentChat?.variables?.stat_data || null
+        } else if (!opt.type || opt.type === 'message') {
+          const messages = Array.isArray(currentChat?.messages) ? currentChat.messages : []
+          const rawId = Number(opt.message_id)
+          const msgId = Number.isInteger(rawId) ? (rawId < 0 ? messages.length + rawId : rawId) : messages.length - 1
+          const msg = messages[msgId]
+          const swipeId = Math.max(0, Number(opt.swipe_id ?? msg?.swipeId) || 0)
+          authStatData = msg?.variables?.[swipeId]?.stat_data || null
+        }
+        if (authStatData && typeof authStatData === 'object' && !Array.isArray(authStatData)) {
+          const restored = restoreHiddenMvuStatData(incomingVariables.stat_data, authStatData, extensions.mvuVisibility, { lockHidden: Boolean(variableUpdate) })
+          incomingVariables = { ...incomingVariables, stat_data: restored }
+          if (variableUpdate && typeof variableUpdate === 'object') {
+            variableUpdate = { ...variableUpdate, before: authStatData }
+          }
+        }
+      }
+    }
+    const result = await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, incomingVariables, args && args.expectedLifecycleRevision, args && args.eventId, args && args.contextBaseline, source)
+    // The variable panel's edits, saved as the gate corrected them (a clamp limit).
+    if (variableUpdate && !result?.stale) {
+      await recordVariableUpdate({ chatForSession, updateChat }, args.sessionId, variableUpdate, result?.variables?.stat_data ?? incomingVariables?.stat_data)
+        .catch(error => console.warn('dsh-tavern: 记录变量更新失败:', error?.message || error))
+    }
+    return result
+  }
   const handlers = {
     async generateTavernHelper(args, method) {
       return await helperGenerationTasks.run(args?.sessionId, args?.config?.generation_id, async signal => {
@@ -62,46 +105,13 @@ export function createTemplateHandlers(deps) {
     async updateTavernHelperPrompts(args) {
       return await tavernScriptHostAdapter.updatePrompts(args && args.sessionId, args && args.operation, args && args.expectedLifecycleRevision, args && args.eventId)
     },
+    // A page's script bridge: it writes as a script (the write gate refuses it the rule-owned paths).
     async updateTavernHelperVariables(args) {
-      let incomingVariables = args && args.variables
-      let variableUpdate = args && args.variableUpdate
-      // Non-transaction writes (player MVU editor or display frame scripts) must not overwrite
-      // hidden attributes with masked placeholders or tamper with locked values.
-      if (!args?.eventId && incomingVariables && typeof incomingVariables === 'object' && incomingVariables.stat_data && typeof incomingVariables.stat_data === 'object' && !Array.isArray(incomingVariables.stat_data)) {
-        const headerChat = typeof chatHeaderForSession === 'function'
-          ? await chatHeaderForSession(args?.sessionId, ['id', 'cardPath', 'cardId', 'cardDefinitionSnapshot', 'regexOverrides'])
-          : await chatForSession(args?.sessionId)
-        const extensions = headerChat?.cardPath ? await readCardExtensions(headerChat.cardPath, headerChat) : null
-        if (hasMvuVisibilityRules(extensions?.mvuVisibility)) {
-          const currentChat = headerChat && Array.isArray(headerChat.messages) ? headerChat : await chatForSession(args?.sessionId)
-          let authStatData = null
-          const opt = args.option && typeof args.option === 'object' ? args.option : { type: 'message' }
-          if (opt.type === 'chat') {
-            authStatData = currentChat?.variables?.stat_data || null
-          } else if (!opt.type || opt.type === 'message') {
-            const messages = Array.isArray(currentChat?.messages) ? currentChat.messages : []
-            const rawId = Number(opt.message_id)
-            const msgId = Number.isInteger(rawId) ? (rawId < 0 ? messages.length + rawId : rawId) : messages.length - 1
-            const msg = messages[msgId]
-            const swipeId = Math.max(0, Number(opt.swipe_id ?? msg?.swipeId) || 0)
-            authStatData = msg?.variables?.[swipeId]?.stat_data || null
-          }
-          if (authStatData && typeof authStatData === 'object' && !Array.isArray(authStatData)) {
-            const restored = restoreHiddenMvuStatData(incomingVariables.stat_data, authStatData, extensions.mvuVisibility, { lockHidden: Boolean(variableUpdate) })
-            incomingVariables = { ...incomingVariables, stat_data: restored }
-            if (variableUpdate && typeof variableUpdate === 'object') {
-              variableUpdate = { ...variableUpdate, before: authStatData }
-            }
-          }
-        }
-      }
-      const result = await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, incomingVariables, args && args.expectedLifecycleRevision, args && args.eventId, args && args.contextBaseline)
-      // The variable panel's edits; card scripts never send variableUpdate.
-      if (variableUpdate && !result?.stale) {
-        await recordVariableUpdate({ chatForSession, updateChat }, args.sessionId, variableUpdate, incomingVariables?.stat_data)
-          .catch(error => console.warn('dsh-tavern: 记录变量更新失败:', error?.message || error))
-      }
-      return result
+      return await writeHelperVariables({ ...args, variableUpdate: undefined }, 'script')
+    },
+    // The variable panel only (not in the page bridge's allowed methods): it writes as the player, audited as panel.
+    async updateMvuPanelVariables(args) {
+      return await writeHelperVariables(args, 'panel')
     },
     async updateTavernHelperMessages(args) {
       return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision, args && args.eventId)

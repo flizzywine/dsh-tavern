@@ -88,7 +88,8 @@ test('MVU 面板展开当前楼层、改字段并保留 schema', async () => {
     assert.equal(save.disabled, false)
     await act(async () => { save.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); await new Promise(resolve => setTimeout(resolve, 10)) })
     assert.match(host.textContent, /已保存到当前楼层（第 2 轮）/)
-    const call = calls.find(item => item.method === 'updateTavernHelperVariables')
+    // the panel's own RPC (it writes as the player), not the page scripts' bridge
+    const call = calls.find(item => item.method === 'updateMvuPanelVariables')
     assert.ok(call)
     assert.equal(call.sessionId, 'game')
     assert.deepEqual(call.args.option, { type: 'message', message_id: 1, swipe_id: 0 })

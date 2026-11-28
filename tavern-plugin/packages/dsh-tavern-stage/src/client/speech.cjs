@@ -30,7 +30,7 @@ function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availabili
     const request = covered({...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor.cover);
     if (!request) return null;
     const resource = () => readVoice(sessionId,input.general ? {general:true} : {alias:character.alias});
-    return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+    return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request), retryIn:() => player.retryIn(request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
 }
 
@@ -50,7 +50,7 @@ function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availab
     if (!request) return null;
     const resource = () => readVoice(sessionId,{narrator:true});
     // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
-    return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+    return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request), retryIn:() => player.retryIn(request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, id:options?.id || id, handoff:options?.handoff === true, automatic:options?.automatic === true})};
 }
 

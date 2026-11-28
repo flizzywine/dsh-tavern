@@ -113,8 +113,9 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     async probe(provider, secret) {
       const p = {...provider,config:providerConfig('fish-audio',provider.config)}
       if (!isFishCloud(p.config)) { await info(p, secret, true); return }
-      // /model is public (any key, even a wrong one, answers 200); the account's credit is the free read that checks the key itself.
-      try { await request(p,secret.key,'/wallet/self/api-credit',{method:'GET'},AbortSignal.timeout(10000)) }
+      // /model is public (any key, even a wrong one, answers 200); the account's own models (self=true) need the key and are a
+      // free read. Not the wallet: billing has its own outages (503 billing_maintenance) while speech works.
+      try { await request(p,secret.key,'/model?self=true&page_size=1',{method:'GET'},AbortSignal.timeout(10000)) }
       catch (error) { if (error instanceof TtsError) throw error; fail('SERVICE_OFFLINE') }
     },
     synthesize(provider, secret, spec) {
