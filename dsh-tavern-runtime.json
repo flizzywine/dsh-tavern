@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d46db4e2207e3c5a598d035f221180aae8658285",
-  "releaseSequence": 2283,
+  "revision": "de37347f58567cb3ff791a8488cd59aa0eae5de7",
+  "releaseSequence": 2285,
   "version": "3.5.0",
   "files": [
     {
@@ -1206,13 +1206,13 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "98a299c2007dbae957ad0c35ebf729f55adb4253b3d15b8ec135bb2fe26bc9c3",
-      "size": 530201
+      "sha256": "b684f207368133a7bc4d631ec1f1d574bac4a397f38f00b791137789303e3067",
+      "size": 535020
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "e06193edf296de7a0fc246fd934937bad6f48d7e1de447445582eea1e4f2b868",
-      "size": 770850
+      "sha256": "586f6752fcfc7ef9573bda826bdcc95f340596d06fb26de9492fb8a275bcec2d",
+      "size": 772874
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1256,8 +1256,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "931fe0783be858f1b5e415282c2ffbba6c4e2aa7e2517b0f88ea13f171027dac",
-      "size": 6937420
+      "sha256": "9806396a49e05b5b68c7409041f8826a2b21677dbf0505992e4dac69d9ec1d75",
+      "size": 6965813
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1268,6 +1268,11 @@
       "path": "tavern-plugin/lib/director-probe.js",
       "sha256": "7dca87f34d282f4067833ade51cd6ca6cb20fed7b16e9de87bdf8f502b7ee7ea",
       "size": 5013
+    },
+    {
+      "path": "tavern-plugin/lib/domain/achievement-cover.js",
+      "sha256": "77ebb28ed399d845c5d7697a08b1e59fa27dc2cc3fcf25988a15c319e5bccaa6",
+      "size": 962
     },
     {
       "path": "tavern-plugin/lib/domain/agent-input-frame.js",
@@ -7441,8 +7446,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css",
-      "sha256": "2a1831dd6852267cc314eb95a1d3b9fd00e1149853aa8743286538c4b0047af2",
-      "size": 174523
+      "sha256": "1162f52cc3e0d565635d0a32cc5fbc3837be193dbc8869bb1ec95d9bce8f6ceb",
+      "size": 175674
     },
     {
       "path": "tavern-plugin/packages/dsh-dream-skin/LICENSE",
@@ -7791,8 +7796,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-achievements/lib/index.js",
-      "sha256": "d7d00f27fbb1877887497bcf7c35602b605412152a08ce0389f5a53c6533dc3f",
-      "size": 29201
+      "sha256": "190001794ba68e33e4bbf777ff1017aec3fe210cbf7b20b7ea47d01d756a2be6",
+      "size": 28649
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-achievements/LICENSE",
@@ -7806,8 +7811,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-achievements/README.md",
-      "sha256": "2a294e73fee421170362557fc73b7d83e7891359680f46e05c1ac3bca9500f0e",
-      "size": 1588
+      "sha256": "580ccd334f6f39988892309a3a52fa8a96275a2609106d53a84117e5ea6f6842",
+      "size": 1654
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-audiobook/build.mjs",
@@ -9986,13 +9991,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/index.js",
-      "sha256": "217e219d1f52d84c3bff536a400d6b63e8a9167c0008d648fefb3048ccd4ce5f",
-      "size": 17069
+      "sha256": "4e6e6c6477ef86da30c49ce711d19d245e9718972244b5b97c69bdb21d8f6d8b",
+      "size": 17193
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/achievements.mjs",
-      "sha256": "c43313473e066799beadd31325a55d4bd55de84071d3b53282b88fb8cc069f90",
-      "size": 2140
+      "sha256": "d07d35add04dffbd06349e04d0a695222c4fa4728401efffd10e33fb22233e1a",
+      "size": 4489
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
@@ -10475,9 +10480,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "df323d8468568263f7d4657fc7518dec926bba7a",
+    "commit": "0f5b70280722330aae44ce1fcd90d4cfeec04410",
     "path": "runtime.zip",
-    "sha256": "976e6dd5093aa3c4280920c2a880f11a1636051055e14572b403056bb84821e8",
-    "size": 18402275
+    "sha256": "8f603695be87cfd6e1cff6f2ad10bc5dcf946d553d39803b2050cff83ca49930",
+    "size": 18410539
   }
 }
