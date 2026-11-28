@@ -54,7 +54,7 @@ test('CDN 发布流程生成小分支，清单固定引用上一提交的 ZIP，
   git('clone', '-q', '--branch', 'main', '--depth', '1', pathToFileURL(remote).href, checkout)
   assert.equal(git('-C', checkout, 'rev-parse', '--is-shallow-repository'), 'true')
   await writeFile(path.join(checkout, 'dsh-tavern-runtime.json'), JSON.stringify(initial))
-  for (const name of ['Publish runtime archive', 'Commit manifest']) {
+  for (const name of ['Build runtime archive', 'Publish runtime archive', 'Commit manifest']) {
     const step = workflow.jobs.publish.steps.find(step => step.name === name)
     execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
       cwd: checkout, encoding: 'utf8', timeout: 15000,
@@ -77,6 +77,74 @@ test('CDN 发布流程生成小分支，清单固定引用上一提交的 ZIP，
     assert.deepEqual(bytes, await readFile(path.join(source, file)))
     assert.equal(manifest.files.find(entry => entry.path === file).sha256, hash(bytes))
   }
+})
+
+test('Commit manifest 在源码分支并发推送后仍合并提交，且不会覆盖更高序号的清单', { skip: process.platform === 'win32' }, async t => {
+  const { directory, source } = await fixture(t)
+  const remote = path.join(directory, 'origin.git')
+  const temporary = path.join(directory, 'runner')
+  await mkdir(temporary)
+  const git = (...args) => execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  const runStep = (cwd, name) => {
+    const step = workflow.jobs.publish.steps.find(step => step.name === name)
+    execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      cwd, encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, RUNNER_TEMP: temporary, GITHUB_REF_NAME: 'main', GITHUB_WORKSPACE: cwd },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  }
+  await mkdir(path.join(source, '.github/scripts'), { recursive: true })
+  for (const file of ['check-runtime-archive.mjs', 'attach-runtime-archive.mjs', 'stage-cdn-entrypoints.mjs']) {
+    await writeFile(path.join(source, '.github/scripts', file), await readFile(path.join(root, '.github/scripts', file)))
+  }
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.name', 'Test')
+  git('config', 'user.email', 'test@example.invalid')
+  git('add', '.')
+  git('commit', '-qm', 'source fixture')
+  const revision = git('rev-parse', 'HEAD')
+  const initial = JSON.parse(await readFile(path.join(source, 'dsh-tavern-runtime.json')))
+  initial.revision = revision
+  initial.releaseSequence = 100
+  git('init', '--bare', '-q', remote)
+  git('remote', 'add', 'origin', remote)
+  git('push', '-q', 'origin', 'main')
+
+  // 1) 并发推送非清单提交后，Commit manifest 应重新拉取并把本次清单写到最新历史之上。
+  const checkout = path.join(directory, 'checkout-race')
+  git('clone', '-q', '--branch', 'main', '--depth', '1', pathToFileURL(remote).href, checkout)
+  await writeFile(path.join(checkout, 'dsh-tavern-runtime.json'), JSON.stringify(initial))
+  runStep(checkout, 'Build runtime archive')
+  runStep(checkout, 'Publish runtime archive')
+
+  await writeFile(path.join(source, 'AGENTS.md'), '# concurrent doc commit\n')
+  git('add', 'AGENTS.md')
+  git('commit', '-qm', 'docs: concurrent push')
+  git('push', '-q', 'origin', 'main')
+
+  runStep(checkout, 'Commit manifest')
+  assert.equal(git('--git-dir', remote, 'show', 'main:AGENTS.md'), '# concurrent doc commit')
+  const distribution = git('--git-dir', remote, 'rev-parse', 'runtime-archive-main')
+  const distManifest = JSON.parse(git('--git-dir', remote, 'show', distribution + ':dsh-tavern-runtime.json'))
+  const mainManifest = JSON.parse(git('--git-dir', remote, 'show', 'main:dsh-tavern-runtime.json'))
+  assert.deepEqual(mainManifest, distManifest)
+  assert.equal(mainManifest.releaseSequence, 100)
+
+  // 2) 远端已有更高 releaseSequence 时，旧任务不覆盖新清单且正常退出。
+  const staleCheckout = path.join(directory, 'checkout-stale')
+  git('clone', '-q', '--branch', 'main', '--depth', '1', pathToFileURL(remote).href, staleCheckout)
+  git('pull', '-q', '--ff-only', 'origin', 'main')
+  const newer = { ...distManifest, revision: 'b'.repeat(40), releaseSequence: 200 }
+  await writeFile(path.join(source, 'dsh-tavern-runtime.json'), JSON.stringify(newer))
+  git('add', 'dsh-tavern-runtime.json')
+  git('commit', '-qm', 'chore: newer manifest')
+  git('push', '-q', 'origin', 'main')
+
+  const older = { ...distManifest, revision: 'c'.repeat(40), releaseSequence: 199 }
+  await writeFile(path.join(staleCheckout, 'dsh-tavern-runtime.json'), JSON.stringify(older))
+  runStep(staleCheckout, 'Commit manifest')
+  assert.equal(JSON.parse(git('--git-dir', remote, 'show', 'main:dsh-tavern-runtime.json')).releaseSequence, 200)
+  assert.equal(JSON.parse(await readFile(path.join(staleCheckout, 'dsh-tavern-runtime.json'), 'utf8')).releaseSequence, 200)
 })
 
 test('发布前拒绝 ZIP 或安装入口与清单不一致', async t => {

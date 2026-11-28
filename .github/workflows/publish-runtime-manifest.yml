@@ -114,10 +114,32 @@ jobs:
       - name: Commit manifest
         shell: bash
         run: |
-          git add dsh-tavern-runtime.json
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "chore: publish runtime manifest [skip ci]"
-          git push origin "$GITHUB_REF_NAME"
+          manifest_copy="$RUNNER_TEMP/dsh-tavern-runtime.json"
+          trap 'rm -f "$manifest_copy"' EXIT
+          cp dsh-tavern-runtime.json "$manifest_copy"
+          local_seq=$(node -e 'const fs = require("node:fs"); try { const n = Number(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).releaseSequence); console.log(Number.isSafeInteger(n) && n > 0 ? n : 0) } catch { console.log(0) }' "$manifest_copy")
+          for attempt in 1 2 3 4 5; do
+            git fetch -q --depth 1 origin "refs/heads/$GITHUB_REF_NAME"
+            remote_seq=0
+            if git cat-file -e "FETCH_HEAD:dsh-tavern-runtime.json" 2>/dev/null; then
+              remote_seq=$(git show "FETCH_HEAD:dsh-tavern-runtime.json" | node -e 'const fs = require("node:fs"); try { const n = Number(JSON.parse(fs.readFileSync(0, "utf8")).releaseSequence); console.log(Number.isSafeInteger(n) && n > 0 ? n : 0) } catch { console.log(0) }')
+            fi
+            if [ "$local_seq" -gt 0 ] && [ "$remote_seq" -ge "$local_seq" ]; then
+              git reset --hard -q FETCH_HEAD
+              echo "Skipping manifest commit: remote releaseSequence ($remote_seq) >= local ($local_seq)"
+              exit 0
+            fi
+            git reset --hard -q FETCH_HEAD
+            cp "$manifest_copy" dsh-tavern-runtime.json
+            git add dsh-tavern-runtime.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "chore: publish runtime manifest [skip ci]"
+            if git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"; then exit 0; fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Failed to push runtime manifest after 5 attempts" >&2
+              exit 1
+            fi
+          done
       # jsDelivr caches branch aliases for up to 12h, while installers download code at the
       # manifest's pinned revision. A stale install.ps1/install.sh paired with new
       # files fails ("安装文件不完整"), so refresh the mutable entry points on every

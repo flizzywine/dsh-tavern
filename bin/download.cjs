@@ -163,7 +163,7 @@ const RAW_HOST = 'raw.githubusercontent.com'
 const RAW_ORIGIN = `https://${RAW_HOST}`
 
 // <cdn.jsdelivr.net/gh/OWNER/REPO@ref/PATH> -> <raw.githubusercontent.com/OWNER/REPO/ref/PATH>.
-// The CDN distribution branch carries the source branch name with a `runtime-archive-` prefix.
+// Keep `runtime-archive-<branch>` intact so raw reads the distribution branch manifest published atomically with runtime.zip.
 function rawMirror(url) {
   let parsed
   try { parsed = new URL(url) } catch { return null }
@@ -174,7 +174,7 @@ function rawMirror(url) {
   const at = repoRef.lastIndexOf('@')
   if (!owner || at <= 0) return null
   const repo = repoRef.slice(0, at)
-  const ref = repoRef.slice(at + 1).replace(/^runtime-archive-/, '')
+  const ref = repoRef.slice(at + 1)
   const rest = parts.slice(2).join('/')
   if (!repo || !ref || !rest) return null
   return `${RAW_ORIGIN}/${owner}/${repo}/${ref}/${rest}`

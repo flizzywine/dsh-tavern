@@ -6,7 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { fingerprint, readLatestManifest, runtimeFingerprint } from '../android/native/shims/source-update.mjs'
+import { endpoints, fingerprint, readLatestManifest, runtimeFingerprint } from '../android/native/shims/source-update.mjs'
 
 const TOOL = fileURLToPath(new URL('../android/native/shims/source-update.mjs', import.meta.url))
 
@@ -121,6 +121,28 @@ test('依赖没变的更新：node_modules 直接搬给新源码；成功后清�
   for (const leftover of ['src.prev', 'update-backup']) assert.equal(await exists(path.join(root, leftover)), false, leftover)
 })
 
+test('endpoints 默认从分发分支的 GitHub raw 读取运行清单', () => {
+  const prevCdn = process.env.DSH_TAVERN_CDN_METADATA_URL
+  const prevGithub = process.env.DSH_TAVERN_GITHUB_METADATA_URL
+  delete process.env.DSH_TAVERN_CDN_METADATA_URL
+  delete process.env.DSH_TAVERN_GITHUB_METADATA_URL
+  try {
+    assert.equal(
+      endpoints({ branch: 'main' }).githubMetadataUrl,
+      'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/dsh-tavern-runtime.json',
+    )
+    assert.equal(
+      endpoints({ branch: 'stable' }).githubMetadataUrl,
+      'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-stable/dsh-tavern-runtime.json',
+    )
+  } finally {
+    if (prevCdn === undefined) delete process.env.DSH_TAVERN_CDN_METADATA_URL
+    else process.env.DSH_TAVERN_CDN_METADATA_URL = prevCdn
+    if (prevGithub === undefined) delete process.env.DSH_TAVERN_GITHUB_METADATA_URL
+    else process.env.DSH_TAVERN_GITHUB_METADATA_URL = prevGithub
+  }
+})
+
 test('清单主源优先读 GitHub raw，成功时不碰 jsDelivr；失败时回退到 jsDelivr', async () => {
   const sample = (revision, releaseSequence) => ({
     schemaVersion: 2,
@@ -135,7 +157,7 @@ test('清单主源优先读 GitHub raw，成功时不碰 jsDelivr；失败时回
   // 1) GitHub raw 成功：直接采用，不调用 CDN 兜底
   let cdnCalled = 0
   const ok = await readLatestManifest(
-    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
     {
       fetch: async () => new Response(JSON.stringify(sample(revNew, 1961)), { status: 200 }),
       readCdnManifest: async () => { cdnCalled++; return sample(revOld, 1944) },
@@ -148,7 +170,7 @@ test('清单主源优先读 GitHub raw，成功时不碰 jsDelivr；失败时回
 
   // 2) GitHub raw 失败：自动回退到 jsDelivr，标记 checkSource=jsdelivr
   const fallback = await readLatestManifest(
-    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
     {
       fetch: async () => { throw new Error('timeout') },
       readCdnManifest: async () => { cdnCalled++; return sample(revOld, 1944) },
@@ -175,7 +197,7 @@ test('清单主源优先读 GitHub raw，成功时不碰 jsDelivr；失败时回
   // 4) 两者都失败：错误信息同时包含 GitHub 与备用源原因
   await assert.rejects(
     readLatestManifest(
-      { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+      { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
       {
         fetch: async () => new Response('down', { status: 503 }),
         readCdnManifest: async () => { throw new Error('cdn down') },
