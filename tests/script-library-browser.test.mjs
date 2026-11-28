@@ -17,6 +17,8 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
   const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-script-library-'))
   t.after(() => rm(dataRoot, { recursive: true, force: true }))
   const fileResources = createFileResourceStore({ dataRoot })
+  const card = { name: '旅人' }
+  const cardPath = await fileResources.importCard({ name: 'traveller.json' }, card)
   const readScript = createScriptReader({ resources: fileResources, version: async path => (await fileResources.metadata(path)).updatedAt })
   const library = createScriptLibrary({ fileResources, readScript })
   const organization = createScriptOrganization(createProfileDataStore({ dataRoot }))
@@ -25,11 +27,21 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
     section: 'dsh-tavern: Better Sidebar resources tab', sessionId,
     async respond(method, args) {
       if (method === 'getSession') return { view: { sessionId, mode: 'story' } }
-      if (method === 'listResources') return { resources: await organization.project(await library.listSources()), cards: [] }
+      if (method === 'cardPluginScopes') return { scopes: {} }
+      if (method === 'listResources') {
+        const scriptPath = await fileResources.scriptForCard(cardPath)
+        const binding = { path: cardPath, name: card.name }
+        const resources = (await library.listSources()).map(item => ({ ...item, boundCards: item.path === scriptPath ? [binding] : [] }))
+        return { resources: await organization.project(resources), cards: [{ ...binding, script: scriptPath ? { path: scriptPath } : null }] }
+      }
       if (method === 'getScriptOrganization') return { tags: (await organization.read()).tags }
       if (method === 'organizeScripts') return { tags: (await organization.update(args, await fileResources.list('source'))).tags }
       if (method === 'importSource') return { source: await library.importSource(args.payload) }
       if (method === 'getResource') return getResource(args)
+      if (method === 'bindScript') return { script: await library.bindScript(args.cardPath, args.path) }
+      if (method === 'deleteScript') return library.deleteScript(args.cardPath)
+      if (method === 'renameResource') return { resource: await fileResources.rename(args.path, args.name) }
+      if (method === 'deleteResource') { await fileResources.remove(args.path); return { deleted: true } }
     }
   })
   const epubText = '夜雨落在屋檐。\n\n她关上了窗。'
@@ -91,6 +103,39 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
   await manager.getByRole('button', { name: '关闭', exact: true }).click()
   await rain.getByRole('button', { name: '添加分组' }).waitFor()
   assert.equal(await page.locator('.dsh-tavern-resource-row').count(), 3)
+
+  await t.test('游玩模式可绑定、重命名、解绑和删除剧本', async () => {
+    const itemAction = async (title, action) => {
+      await page.getByLabel('更多操作：' + title, { exact: true }).click()
+      await page.getByRole('menu').getByRole('button', { name: action, exact: true }).click()
+    }
+    await itemAction('夜雨.txt', '绑定人物卡')
+    await page.getByRole('combobox', { name: '选择要绑定的人物卡' }).selectOption(cardPath)
+    await page.getByRole('button', { name: '确认绑定', exact: true }).click()
+    await rain.getByText('已绑定：旅人', { exact: false }).waitFor()
+
+    await itemAction('夜雨.txt', '重命名')
+    const fileName = page.getByRole('dialog', { name: '重命名文件' }).getByRole('textbox')
+    assert.equal(await fileName.inputValue(), '夜雨.txt')
+    await fileName.fill('夜雨改名.txt')
+    await fileName.press('Enter')
+    const renamed = page.getByRole('button', { name: '夜雨改名.txt', exact: true })
+    await renamed.waitFor()
+    assert.equal(await fileResources.scriptForCard(cardPath), 'materials/夜雨改名.txt')
+    assert.equal(await fileResources.readText('materials/夜雨改名.txt'), novels[0].text)
+
+    await itemAction('夜雨改名.txt', '解绑人物卡')
+    await confirmation.getByRole('button', { name: '确认', exact: true }).click()
+    await page.locator('.dsh-tavern-resource-row').filter({ has: renamed }).getByText('未绑定', { exact: false }).waitFor()
+    await itemAction('夜雨改名.txt', '删除')
+    await confirmation.getByText('工作版和原版都会删除。').waitFor()
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+    assert.equal(calls.some(({ method }) => method === 'deleteResource'), false)
+    await itemAction('夜雨改名.txt', '删除')
+    await confirmation.getByRole('button', { name: '删除', exact: true }).click()
+    await renamed.waitFor({ state: 'hidden' })
+    assert.equal(await fileResources.readText('materials/夜雨改名.txt'), undefined)
+  })
 
   await t.test('长篇正文可滚动，页脚可顺序翻页和跳到末页', async () => {
     const name = '长篇小说.txt'
