@@ -2,12 +2,13 @@ import { patchConversationBackground } from './conversation-background.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { SETTINGS_BOUND_STORY_TOOLS, foregroundToolCatalog, normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { nativeNetworkCapability } from './network-tools.js'
+import { STORY_GENERATE_TOOL_NAME } from './story-tool-submission.js'
 import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
 export function createConversationBackgroundSettings({ readConfig, readChat, updateChat, modelCatalog, modelReasoning,
   isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [],
-  hasNativeTool = () => false, toolNetworkFor = () => undefined,
+  hasNativeTool = () => false, toolNetworkFor = () => undefined, bodyGenerationToolAvailable = () => false,
   presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {} }) {
   function requirePlay(chat) {
     if (!chat || !isPlayMode(chat.mode)) throw new Error('请先打开游玩会话')
@@ -23,7 +24,11 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
     const networkEnabled = chat.webSearchEnabled === true
     const builtins = foregroundToolCatalog(chat.mode)
     const known = new Set(builtins.map(tool => tool.name))
-    const tools = builtins.filter(tool => !nativeNetworkCapability(tool.name) || (networkEnabled && hasNativeTool(tool.name, sessionId)))
+    const showBodyGeneration = known.has(STORY_GENERATE_TOOL_NAME) && await bodyGenerationToolAvailable(sessionId)
+    const tools = builtins.filter(({ name }) => {
+      if (name === STORY_GENERATE_TOOL_NAME) return showBodyGeneration
+      return !nativeNetworkCapability(name) || (networkEnabled && hasNativeTool(name, sessionId))
+    })
     let extra
     try { extra = await extraTools(sessionId) } catch { extra = [] }
     for (const tool of Array.isArray(extra) ? extra : []) {

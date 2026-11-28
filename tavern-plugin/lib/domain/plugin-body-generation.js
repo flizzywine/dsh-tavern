@@ -47,12 +47,16 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
     if (control) return { ...configured, ...control }
 
     const mode = stcontextDefaultMode(current)
-    if (mode === 'host') return configured
+    const host = { mode: 'host', provider: '', hostRegex: false }
+    if (mode === 'host') {
+      if (!configured.mode.startsWith('plugin-')) return configured
+      const provider = await providers.require(configured.provider, gameId).catch(() => null)
+      return provider ? configured : host
+    }
     // STcontext's prepare callback validates the selected preset and model without generating.
     // Keep the same snapshot for the operation once this route has been selected.
     const snapshot = await providers.prepare(STCONTEXT_BODY_PROVIDER, { gameId, reason, signal }).catch(() => null)
-    return snapshot ? { ...configured, mode, provider: STCONTEXT_BODY_PROVIDER, snapshot }
-      : { mode: 'host', provider: '', hostRegex: false }
+    return snapshot ? { ...configured, mode, provider: STCONTEXT_BODY_PROVIDER, snapshot } : host
   }
   async function route(sessionId, turn) {
     const chat = await routeChatForSession(sessionId)
@@ -149,6 +153,11 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
   }
   return {
     route,
+    async foregroundToolAvailable(sessionId) {
+      const selected = await route(sessionId).catch(() => null)
+      return selected?.mode === 'plugin-tool-call'
+        && Boolean(await providers.require(selected.provider, sessionId).catch(() => null))
+    },
     async prepare(sessionId) {
       const selected = await route(sessionId)
       if (!selected.mode?.startsWith('plugin-') || selected.snapshot) return selected

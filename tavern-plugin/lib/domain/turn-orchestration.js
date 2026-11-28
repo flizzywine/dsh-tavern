@@ -1504,7 +1504,8 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     // Input replay names the submission tool in history, so either direction
     // requires it to be declared in this request.
-    const pluginGeneration = (await options.bodyGeneration?.(sessionId))?.mode?.startsWith('plugin-')
+    const bodyMode = (await options.bodyGeneration?.(sessionId))?.mode
+    const pluginGeneration = bodyMode?.startsWith('plugin-')
     const outputToolCall = !pluginGeneration && (await options.storyToolCall?.()) === true
     const inputToolCall = (await options.storyInputToolCall?.()) === true
     const storyTools = storyToolCallEnabled(chat, outputToolCall || inputToolCall) ? [STORY_SUBMIT_TOOL_NAME] : []
@@ -1527,7 +1528,8 @@ export function createTurnOrchestrator(options) {
     }
     const names = playToolNames({ mode, webSearchEnabled: chat.webSearchEnabled, modTools, storyTools })
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
-    if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
+    if (bodyMode === 'plugin-direct') disabled.delete(STORY_GENERATE_TOOL_NAME)
+    if (bodyMode === 'plugin-tool-call' && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
     const visible = names.filter(name => !disabled.has(name))
     return { visible, callable: visible.filter(name => !replayOnly.has(name)) }
   }

@@ -3668,6 +3668,7 @@ export async function apply(ctx) {
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),
     isPlayMode: mode => groupOfMode(mode) === 'play',
     hasNativeTool: (name, sessionId) => Boolean(ctx.tools?.get?.(name, agentRegistry.get(sessionId))),
+    bodyGenerationToolAvailable: pluginBodyGeneration.foregroundToolAvailable,
     toolNetworkFor: name => pluginApi.toolNetworkFor(name),
     presentExtras: chat => ({ modModels: chat.modModels || {} }),
     readExtras: async chat => {
