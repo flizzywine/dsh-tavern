@@ -4356,13 +4356,24 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active .dsh-tavern-side-row-more {
     min-width: 28px; min-height: 32px; width: 28px; height: 32px; margin-right: 2px;
   }
-  body.dsh-tavern-shell-active .dsh-tavern-update { margin-top: 4px; padding-top: 5px; }
-  body.dsh-tavern-shell-active .dsh-tavern-update-row { flex-wrap: nowrap; gap: 4px 6px; }
+  body.dsh-tavern-shell-active .dsh-tavern-update {
+    display: flex; flex-direction: column-reverse;
+    margin-top: 4px; padding-top: 6px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update-row {
+    flex-wrap: nowrap; align-items: center; gap: 4px 6px;
+    min-height: var(--dsh-tavern-host-settings-h, 32px);
+    padding-left: var(--dsh-tavern-host-settings-inset, 0px);
+    box-sizing: border-box;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update-row > .dsh-tavern-update-identity {
+    text-align: right;
+  }
   body.dsh-tavern-shell-active .dsh-tavern-update-row .dsh-tavern-update-button {
     min-height: 28px; height: 28px; padding: 0 8px; font-size: 11px; border-radius: 7px;
   }
   body.dsh-tavern-shell-active .dsh-tavern-update-status {
-    margin-top: 3px; font-size: 10px; line-height: 1.35;
+    margin-top: 0; margin-bottom: 4px; font-size: 10px; line-height: 1.35;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   body.dsh-tavern-shell-active .dsh-tavern-update-status[data-mobile-update-detail="hidden"] { display: none; }
@@ -4636,6 +4647,41 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
        再叠一次 env(safe-area-inset-bottom) 会在「设置」上面多空出一条。 */
     padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + 10px);
   }
+  body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed):has(> .dsh-tavern-update) {
+    padding-bottom: var(--dsh-tavern-host-foot-bottom, 0px);
+  }
+  /* 移动端底栏压缩成一行：宿主「设置」按钮缩到左下，版本与检查更新同高排在右侧且互不拦点击。 */
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) :is([class*="_footArea"], [class*="_settingsArea"], [data-slot="sidebar.settings"], [data-slot="sidebar.settings"] *) {
+    pointer-events: none;
+  }
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button *,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] a,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] a *,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="menu"],
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="menu"] *,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="dialog"],
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="dialog"] *,
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_notifications"],
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_notifications"] * {
+    pointer-events: auto;
+  }
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_anchor"] {
+    width: auto !important;
+    display: inline-flex;
+  }
+  body.dsh-tavern-shell-active [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button:not([role="menuitem"]):not([class*="_close"]):not([class*="_action"]) {
+    position: relative;
+    z-index: 1;
+    width: auto !important;
+    flex: 0 0 auto !important;
+    max-width: min(132px, 36vw);
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0 8px !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+  }
   body.dsh-tavern-shell-active .dsh-tavern-update-identity-wide { display: none; }
   body.dsh-tavern-shell-active .dsh-tavern-update-identity-compact { display: inline; }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
@@ -4887,6 +4933,57 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
   padding-left: calc(10px + max(env(safe-area-inset-left, 0px), var(--dsh-app-inset-left, 0px)));
   padding-right: calc(10px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
   padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + 10px);
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-sidebar:not(.collapsed):has(> .dsh-tavern-update),
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-sidebar:not(.collapsed):has(> .dsh-tavern-update) {
+  padding-bottom: var(--dsh-tavern-host-foot-bottom, 0px);
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update {
+  display: flex; flex-direction: column-reverse;
+  margin-top: 4px; padding-top: 6px;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-row {
+  flex-wrap: nowrap; align-items: center; gap: 4px 6px;
+  min-height: var(--dsh-tavern-host-settings-h, 32px);
+  padding-left: var(--dsh-tavern-host-settings-inset, 0px);
+  box-sizing: border-box;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-row > .dsh-tavern-update-identity {
+  text-align: right;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-status {
+  margin-top: 0; margin-bottom: 4px;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) :is([class*="_footArea"], [class*="_settingsArea"], [data-slot="sidebar.settings"], [data-slot="sidebar.settings"] *) {
+  pointer-events: none;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button *,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] a,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] a *,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="menu"],
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="menu"] *,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="dialog"],
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [role="dialog"] *,
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_notifications"],
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_notifications"] * {
+  pointer-events: auto;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] [class*="_anchor"] {
+  width: auto !important;
+  display: inline-flex;
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer]:not([data-sidebar-collapsed]), :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) > [class*="_sidebarCol"]:has(.dsh-tavern-sidebar:not(.collapsed) > .dsh-tavern-update) [data-slot="sidebar.settings"] button:not([role="menuitem"]):not([class*="_close"]):not([class*="_action"]) {
+  position: relative;
+  z-index: 1;
+  width: auto !important;
+  flex: 0 0 auto !important;
+  max-width: min(132px, 36vw);
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+  font-size: 13px !important;
+  line-height: 20px !important;
 }
 body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-side-collapse,
 :root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-side-collapse {

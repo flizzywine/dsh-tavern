@@ -1875,6 +1875,19 @@ button[aria-label*="子智能体"]::before {
   text-decoration-thickness: 1px;
 }
 
+@media (max-width: 1023px) and (pointer: coarse) {
+  /* 移动端侧栏底栏已合并为单行，撤销桌面端把「设置」按钮按侧栏宽度 fixed 到 206px 的定位。 */
+  body.dsh-tavern-shell-active [data-slot="sidebar.settings"] > * {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update {
+    padding: 6px 0 0 !important;
+  }
+}
+
 /* 移动端紧凑排列操作行；运行状态收纳进模型菜单末行，桌面继续显示完整状态。 */
 @media (max-width: 1023px), (pointer: coarse) {
   .dsh-tavern-dock-actions { gap: 5px !important; padding: 4px 8px !important; }

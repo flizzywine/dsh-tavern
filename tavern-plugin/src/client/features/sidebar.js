@@ -237,12 +237,21 @@
 				return function () {
 					if (typeof document !== "undefined" && document.documentElement) {
 						document.documentElement.style.removeProperty("--dsh-tavern-host-foot-inset");
+						document.documentElement.style.removeProperty("--dsh-tavern-host-foot-bottom");
+						document.documentElement.style.removeProperty("--dsh-tavern-host-settings-inset");
+						document.documentElement.style.removeProperty("--dsh-tavern-host-settings-h");
 					}
 				};
 			}, []);
 			React.useEffect(function () {
 				if (collapsed || typeof document === "undefined" || typeof window === "undefined") return function () {};
 				const root = document.documentElement;
+				const FOOT_VARS = [
+					"--dsh-tavern-host-foot-inset",
+					"--dsh-tavern-host-foot-bottom",
+					"--dsh-tavern-host-settings-inset",
+					"--dsh-tavern-host-settings-h",
+				];
 				let frame = 0;
 				let watched = [];
 				const observer = typeof ResizeObserver === "function" ? new ResizeObserver(function () { schedule(); }) : null;
@@ -258,14 +267,21 @@
 					watched = next;
 					for (let i = 0; i < watched.length; i += 1) observer.observe(watched[i]);
 				}
-				function settle(inset) {
-					if (inset > 0) {
-						const next = inset + "px";
-						if (root.style.getPropertyValue("--dsh-tavern-host-foot-inset") !== next) {
-							root.style.setProperty("--dsh-tavern-host-foot-inset", next);
+				function setPxVar(name, px) {
+					if (px > 0) {
+						const next = px + "px";
+						if (root.style.getPropertyValue(name) !== next) {
+							root.style.setProperty(name, next);
 						}
-					} else if (root.style.getPropertyValue("--dsh-tavern-host-foot-inset") !== "") {
-						root.style.removeProperty("--dsh-tavern-host-foot-inset");
+					} else if (root.style.getPropertyValue(name) !== "") {
+						root.style.removeProperty(name);
+					}
+				}
+				function clearVars() {
+					for (let i = 0; i < FOOT_VARS.length; i += 1) {
+						if (root.style.getPropertyValue(FOOT_VARS[i]) !== "") {
+							root.style.removeProperty(FOOT_VARS[i]);
+						}
 					}
 				}
 				function measure() {
@@ -295,36 +311,50 @@
 						}
 					}
 					// 桌面端侧栏不是 fixed（宿主 regionArea 自己让出了底栏），这时不需要让位。
-					if (!own || !area || !column || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
+					if (!own || !area || !column || window.getComputedStyle(own).position !== "fixed") { clearVars(); return; }
 					const settingsSlot = column.querySelector('[data-slot="sidebar.settings"]');
 					const footArea = column.querySelector('[class*="_footArea"]') || (settingsSlot && settingsSlot.parentElement !== column ? settingsSlot.parentElement : null);
+					const settingsButton = settingsSlot ? settingsSlot.querySelector("button") : null;
 					const ownBox = own.getBoundingClientRect();
 					const areaBox = area.getBoundingClientRect();
 					// 抽屉在屏外挂载帧（content-visibility: hidden）尚无几何尺寸，保留上次缓存的让位高度，避免误删根变量触发整页样式重算与动画中途跳动。
 					if (ownBox.height <= 0 || areaBox.height <= 0) {
-						syncWatch([column, area, footArea]);
+						syncWatch([column, area, footArea, settingsButton]);
 						return;
 					}
 					const areaBottom = areaBox.bottom;
-					// 要避开的是底栏里的「设置」那一行（宿主的 sidebar.settings 槽，槽可能是 display:contents 空盒子，
-					// 取它第一个有高度的祖先或内部按钮）。它上面那条 footerActions 在整屏侧栏铺开时画在
-					// 侧栏之下、看不见，不能把包含 footerActions 的整块 footArea 算进来，否则版本行和「设置」之间会空出一大块。
+					// 移动端把版本行与宿主「设置」按钮压在同一行：量出设置按钮的底边偏移、高度和右缘，
+					// 让 .dsh-tavern-update-row 与「设置」垂直对齐且横向错开；没有更新块时仍按设置行上沿让位。
 					let anchor = null;
 					for (let node = settingsSlot; node && node !== column; node = node.parentElement) {
 						if (node !== settingsSlot && node.querySelector('[class*="_footerActions"], [data-slot="sidebar.footer.action"]')) break;
 						const box = node.getBoundingClientRect();
 						if (box.height > 0 && box.top >= areaBottom - 1) { anchor = box.top; break; }
 					}
-					if (anchor === null && settingsSlot) {
-						const launcher = settingsSlot.querySelector('[data-slot="settings.launcher"], button');
-						if (launcher) {
-							const box = launcher.getBoundingClientRect();
-							if (box.height > 0 && box.top >= areaBottom - 1) anchor = box.top;
+					let settingsBox = null;
+					if (settingsButton) {
+						const box = settingsButton.getBoundingClientRect();
+						if (box.height > 0 && box.top >= areaBottom - 1) {
+							settingsBox = box;
+							if (anchor === null) anchor = box.top;
 						}
 					}
 					const fallbackTop = settingsSlot ? ownBox.bottom : areaBottom;
-					settle(Math.max(0, Math.round(ownBox.bottom - (anchor === null ? fallbackTop : anchor))));
-					syncWatch([column, area, footArea]);
+					const footInset = Math.max(0, Math.round(ownBox.bottom - (anchor === null ? fallbackTop : anchor)));
+					setPxVar("--dsh-tavern-host-foot-inset", footInset);
+					if (settingsBox) {
+						const padLeft = parseFloat(window.getComputedStyle(own).paddingLeft) || 0;
+						const footBottom = Math.max(0, Math.round(ownBox.bottom - settingsBox.bottom));
+						const settingsInset = Math.max(0, Math.ceil(settingsBox.right - (ownBox.left + padLeft)) + 8);
+						setPxVar("--dsh-tavern-host-foot-bottom", footBottom);
+						setPxVar("--dsh-tavern-host-settings-inset", settingsInset);
+						setPxVar("--dsh-tavern-host-settings-h", Math.max(0, Math.round(settingsBox.height)));
+					} else {
+						setPxVar("--dsh-tavern-host-foot-bottom", settingsSlot ? 0 : footInset);
+						setPxVar("--dsh-tavern-host-settings-inset", 0);
+						setPxVar("--dsh-tavern-host-settings-h", 0);
+					}
+					syncWatch([column, area, footArea, settingsButton]);
 				}
 				function schedule() { if (!frame) frame = window.requestAnimationFrame(measure); }
 				// 延后到下一帧合并测量，并保留上次打开缓存的让位高度，避免点击展开第 0 帧强制同步布局与根样式重算。
