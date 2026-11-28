@@ -312,7 +312,8 @@ import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { installWorldbookHost } from './host/worldbook.js'
 import { hasWorldbookCooldownHistory } from './domain/worldbook-auto-injection.js'
-import { pluginToolModeAllows, QUERY_LOREBOOK_TOOL, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
+import { QUERY_LOREBOOK_TOOL, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
+import { playPluginTools } from './domain/play-request-policy.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -3680,16 +3681,13 @@ export async function apply(ctx) {
       }
     },
     extraTools: async sessionId => {
-      const cached = foregroundExtraTools.get(String(sessionId))
-      if (cached) return cached
-      // Before this game's first request (or after a restart) fall back to the
-      // host registry: plugin tools that opted into play, plus any other
-      // non-Tavern tool currently registered.
       try {
         const mode = await turnOrchestrator.modeFor(sessionId)
-        return (typeof ctx.tools?.schemas === 'function' ? ctx.tools.schemas() : [])
-          .filter(tool => tool && typeof tool.name === 'string' && !controlledToolNames.has(tool.name))
-          .filter(tool => pluginToolModeAllows(pluginApi.toolModesFor(tool.name), mode))
+        const declared = await pluginApi.playPluginToolNames(sessionId, mode)
+        if (!declared.size) return []
+        const cached = foregroundExtraTools.get(String(sessionId))
+        const tools = cached ?? await ctx.tools?.schemas?.(agentRegistry.get(sessionId)) ?? []
+        return playPluginTools(tools, declared, controlledToolNames)
           .map(extraToolEntry)
           .sort((left, right) => left.name.localeCompare(right.name))
       } catch { return [] }
@@ -4118,11 +4116,7 @@ export async function apply(ctx) {
       // Cache the plugin/extra tools that reached a play request. The settings
       // panel reads this map; Tavern's own tools come from the static catalog.
       recordTools: function (sessionId, tools) {
-        const extra = tools
-          .filter(tool => tool && typeof tool.name === 'string' && !controlledToolNames.has(tool.name))
-          .map(extraToolEntry)
-          .sort((left, right) => left.name.localeCompare(right.name))
-        foregroundExtraTools.set(String(sessionId), extra)
+        foregroundExtraTools.set(String(sessionId), tools)
         if (foregroundExtraTools.size > 300) foregroundExtraTools.delete(foregroundExtraTools.keys().next().value)
       },
       cardPersonaText: function () { return activeCardPersonaText(tavernSettings.snapshot()) },
@@ -4132,7 +4126,8 @@ export async function apply(ctx) {
         return await ensureNativeSystemPrefix(input.payload.agent.session, input.chat)
       },
       controlledToolNames,
-      pluginToolModes: name => pluginApi.toolModesFor(name)
+      pluginToolModes: name => pluginApi.toolModesFor(name),
+      playPluginToolNames: pluginApi.playPluginToolNames
     }
   })
 

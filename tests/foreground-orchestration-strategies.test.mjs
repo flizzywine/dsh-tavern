@@ -53,7 +53,7 @@ test('文风插件接手前台工具后，保留本轮调用并清理旧提示�
     modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
     visibleTools: async () => [other.name],
     controlledToolNames: new Set([other.name]),
-    pluginToolModes: name => name === style.name ? ['story'] : null,
+    playPluginToolNames: async () => new Set([style.name]),
     pluginToolInstructions: (_gameId, names) => names.includes(style.name) ? [{ name: 'tavern-plugin:style:instruction', text: '插件范文说明' }] : [],
     prepareTurn: async ({ userText }) => ({ frame: { userInput: { projectedText: userText } } }),
     appendFrame: ({ messages }) => ({ messages, receipt: {} }), recordFrame() {}
@@ -400,6 +400,7 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
     appendFrame(input) { return { messages: input.messages, receipt: {} } },
     recordFrame() {},
     async visibleTools() { return visibleNames },
+    async playPluginToolNames() { return new Set(['plugin_tool']) },
     recordTools(_sessionId, tools) { recorded = tools },
     async storyOutputToolCall() { return outputToolCall },
     modePrompt() { return 'story' },
@@ -416,7 +417,7 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
   assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /写给玩家的全部内容/)
   assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /content 之外的文字会被丢弃/)
 
-  const normal = await assemble([{ name: 'submit_story' }, { name: 'plugin_tool' }])
+  const normal = await assemble([{ name: 'submit_story' }, { name: 'plugin_tool' }, { name: 'future_dsh_tool' }])
   assert.deepEqual(normal.tools.map(tool => tool.name), ['submit_story', 'plugin_tool'])
   assert.deepEqual(recorded.map(tool => tool.name), ['plugin_tool'])
   assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /可以先调用已开放的其他工具/)

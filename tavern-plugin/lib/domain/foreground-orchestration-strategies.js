@@ -16,7 +16,8 @@ import {
   STORY_SUBMIT_TOOL_NAME,
   buildStorySubmitWireSchema
 } from './story-tool-submission.js'
-import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools, pluginToolModeAllows } from './foreground-tools.js'
+import { NO_FOREGROUND_TOOLS_PROMPT, pluginToolModeAllows } from './foreground-tools.js'
+import { isPlayMode, selectPlayTools } from './play-request-policy.js'
 import { projectEnvelopeRequest, projectHistoryAsToolCalls } from './history-tool-call.js'
 import { isAutoToolOnlyModel } from './tool-protocol-enforcement.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
@@ -696,8 +697,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     })
     const mode = await options.modeFor(input.sessionId)
     const visible = new Set(await options.visibleTools(input.sessionId))
-    const playMode = mode === 'story' || mode === 'script'
-    const disabled = new Set(playMode ? normalizeDisabledForegroundTools(input.chat?.disabledForegroundTools) : [])
+    const playMode = isPlayMode(mode)
     // Play rules arrive in the foreground frame. Still replace the inherited
     // sections explicitly so removing play-mode cannot restore DSH's persona.
     const cardEdit = mode === 'card' && input.chat?.cardEditContext?.version === 1
@@ -724,31 +724,27 @@ export function createNativePlayOrchestrationStrategy(options) {
       sections.unshift(...front)
       frontTexts.set(input.sessionId, front.map(section => section.text))
     }
-    if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
-    // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
+    if (playMode) assembly.contexts = []
+    else if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // Some hosts supply tool schemas separately from the waterfall assembly.
     // Missing metadata must not assert that the host offers no tools.
     const knownTools = Array.isArray(assembly.tools) || Array.isArray(input.toolDefinitions)
     const tools = Array.isArray(input.toolDefinitions) ? input.toolDefinitions : assembly.tools || []
-    // A plugin tool gated by tavern.toolSkills() waits for its Skill like Tavern's own.
-    const pluginNames = tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
-    const unlocked = new Set(options.pluginToolsUnlocked ? await options.pluginToolsUnlocked(input.sessionId, pluginNames) : pluginNames)
-    const filteredTools = tools.filter(function (schema) {
-      if (options.controlledToolNames.has(schema.name)) return visible.has(schema.name)
-      if (!unlocked.has(schema.name)) return false
-      const modes = options.pluginToolModes ? options.pluginToolModes(schema.name) : null
-      return pluginToolModeAllows(modes, mode)
-    })
-    // Record the plugin/extra tools before applying the per-game switches: the
-    // settings panel must keep listing a tool the player has switched off.
-    if (playMode && typeof options.recordTools === 'function') {
-      try {
-        options.recordTools(input.sessionId, filteredTools
-          .filter(schema => !options.controlledToolNames.has(schema.name))
-          .map(schema => ({ name: schema.name, description: String(schema.description || '') })))
-      } catch { /* the tool catalog must never fail the request */ }
+    const unlock = names => options.pluginToolsUnlocked ? options.pluginToolsUnlocked(input.sessionId, names) : names
+    let finalTools
+    if (playMode) {
+      const declared = await options.playPluginToolNames?.(input.sessionId, mode) || new Set()
+      const selection = await selectPlayTools({ tools, visible, declared, unlock, controlled: options.controlledToolNames,
+        disabled: input.chat?.disabledForegroundTools })
+      finalTools = selection.tools
+      // The settings panel also lists explicitly scoped tools that the player switched off.
+      try { options.recordTools?.(input.sessionId, selection.catalog) } catch { /* catalog failures leave the request intact */ }
+    } else {
+      const pluginNames = tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
+      const unlocked = new Set(await unlock(pluginNames))
+      finalTools = tools.filter(schema => options.controlledToolNames.has(schema.name) ? visible.has(schema.name)
+        : unlocked.has(schema.name) && pluginToolModeAllows(options.pluginToolModes?.(schema.name), mode))
     }
-    const finalTools = playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
     if (knownTools) {
       assembly.tools = finalTools
     }

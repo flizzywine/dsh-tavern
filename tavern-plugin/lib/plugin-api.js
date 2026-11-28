@@ -2528,6 +2528,13 @@ export function createTavernPluginApi(deps) {
     return entry ? entry.modes.slice() : null
   }
 
+  async function playPluginToolNames(gameId, mode) {
+    const declared = [...toolScopes.values()].filter(entry => entry.modes.includes('play') || entry.modes.includes(mode))
+    if (!declared.length) return new Set()
+    const { game, disabled } = await choicesFor(gameId)
+    return new Set(game ? declared.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name) : [])
+  }
+
   async function toolInstructionSections(gameId, names) {
     const entries = names.flatMap(name => {
       const entry = toolScopes.get(name)
@@ -2701,7 +2708,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolInstructionSections, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, playPluginToolNames, toolInstructionSections, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     characterDesignAvailable: () => handlers.get(CHARACTER_DESIGN_PLUGIN + '/read')?.owner === CHARACTER_DESIGN_PLUGIN,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.

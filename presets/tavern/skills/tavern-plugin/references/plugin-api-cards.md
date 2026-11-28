@@ -85,7 +85,7 @@ ctx.tavern.toolNetwork({ name: 'reference_lookup', capability: 'search' })
 
 ### `toolModes({ name, modes, instruction? })`
 
-插件用 DSH 的 `tools` 服务注册的工具，默认在游玩和卡片工作台的对话里都会出现。`modes` 接受 `play`（游玩）和 `card`（卡片工作台）。检查 `capabilities.toolInstructions === 1` 后，还可用 `story`（自由游玩）或 `script`（剧本游玩）限定游玩模式。
+插件用 DSH 的 `tools` 服务注册工具。游玩前台要求通过 `toolModes` 明确声明：`play` 用于两种游玩模式，`story` 和 `script` 分别用于自由游玩和剧本游玩。`card` 用于卡片工作台，未声明范围的工具仍可在工作台使用。
 
 `instruction` 可为字符串或接收 `{ gameId }` 的函数。宿主仅在该工具出现在原生正文请求中时加入这段系统说明，空字符串会跳过。此选项也用 `capabilities.toolInstructions === 1` 检查支持。
 
@@ -97,7 +97,7 @@ ctx.tavern.toolModes({ name: 'wrongbook_lookup', modes: ['card'] })  // 只给�
 
 ### `toolSkills({ name, skills })`
 
-只在某些任务里用到的工具，可以等对应 Skill 加载后再出现，平时不占每一步请求的工具清单。`skills` 列出能解锁它的 Skill 名称（加载其中任一个即可，内置 Skill 与插件自己的 Skill 都行）；没声明的插件工具始终提供。
+只在某些任务里用到的工具，可以等对应 Skill 加载后再出现，平时不占每一步请求的工具清单。`skills` 列出能解锁它的 Skill 名称（加载其中任一个即可，内置 Skill 与插件自己的 Skill 都行）。已通过 `toolModes` 获准使用的工具，省略 `toolSkills` 时无需先加载 Skill。
 
 ```js
 ctx.tavern.toolModes({ name: 'wrongbook_edit', modes: ['card'] })

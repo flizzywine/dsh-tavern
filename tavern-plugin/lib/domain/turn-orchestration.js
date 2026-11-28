@@ -20,7 +20,8 @@ import { applyJsonChangesShared, diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
 import { projectPluginBody } from './st-contract-service.js'
 import { STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
-import { normalizeDisabledForegroundTools, QUERY_LOREBOOK_TOOL, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './foreground-tools.js'
+import { normalizeDisabledForegroundTools, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_RUNTIME_TOOLS, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './foreground-tools.js'
+import { playToolNames } from './play-request-policy.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
@@ -1501,7 +1502,6 @@ export function createTurnOrchestrator(options) {
       : await (store.stateForSession || store.chatForSession)(sessionId)
     if (chat === undefined || chat === null) return { visible: [], callable: [] }
     const mode = chat.mode || 'story'
-    const webTools = chat.webSearchEnabled === true ? ['web_search', 'web_fetch'] : []
     // Input replay names the submission tool in history, so either direction
     // requires it to be declared in this request.
     const pluginGeneration = (await options.bodyGeneration?.(sessionId))?.mode?.startsWith('plugin-')
@@ -1525,9 +1525,7 @@ export function createTurnOrchestrator(options) {
       if (offered || (chat.usedModTools || []).includes(tool.name)) modTools.push(tool.name)
       if (!offered) replayOnly.add(tool.name)
     }
-    const names = mode === 'script'
-      ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', QUERY_LOREBOOK_TOOL, ...webTools, ...storyTools]
-      : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', QUERY_LOREBOOK_TOOL, ...webTools, ...storyTools]
+    const names = playToolNames({ mode, webSearchEnabled: chat.webSearchEnabled, modTools, storyTools })
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
     const visible = names.filter(name => !disabled.has(name))

@@ -65715,7 +65715,7 @@ function createConversationSettingsModule({
                 h(packUi.MenuItem, { key: "off", disabled: off || on === 0, onClick: () => { close(); void save([...hiddenDisabled, ...names]); } }, "全部关闭"),
                 h(packUi.MenuItem, { key: "reload", disabled: config.busy, onClick: () => { close(); void config.load(); } }, "刷新")] });
         return h(packUi.StageSection, { title: "前台工具", meta: data ? on + " / " + names.length : undefined, foldKey: FOLD("前台工具"), defaultFolded: true, action: menu,
-                help: "逐项决定正文能用哪些工具，关闭后下一轮生效；后台结算的工具不在这里。标「插件」的来自宿主工具目录，本局生成一次后会按实际请求校正。" },
+                help: "逐项决定正文能用哪些工具，关闭后下一轮生效。插件工具须声明可用于游玩，本局生成后按实际可用范围更新。" },
             !data && !config.error ? h(PanelLoading, { shape: "fields", count: 4 }) : null,
             data && !catalog.length ? h(EmptyState, { compact: true, noun: "前台工具" }) : null,
             catalog.length ? rows(...catalog.map(tool => h(packUi.SwitchRow, { key: tool.name, label: tool.label, help: tool.description || undefined, disabled: off,

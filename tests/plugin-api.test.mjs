@@ -1005,8 +1005,13 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   await assert.rejects(tavern.updateCardRaw({ card: 'cards/a.json', operations: [{ op: 'set', path: 'data' , value: 1 }] }), /JSON Pointer/)
 
   tavern.toolModes({ name: 'wrongbook_lookup', modes: ['card'] })
+  tavern.toolModes({ name: 'script_lookup', modes: ['script'] })
+  tavern.toolModes({ name: 'play_lookup', modes: ['play'] })
   assert.deepEqual(h.api.toolModesFor('wrongbook_lookup'), ['card'])
-  assert.equal(h.api.toolModesFor('narrative_anchor_read'), null, '没声明的插件工具保持原样')
+  assert.equal(h.api.toolModesFor('narrative_anchor_read'), null)
+  assert.deepEqual(await h.api.playPluginToolNames('game-1', 'story'), new Set(['play_lookup']))
+  assert.deepEqual(await h.api.playPluginToolNames('game-1', 'script'), new Set(['script_lookup', 'play_lookup']))
+  assert.deepEqual(await h.api.playPluginToolNames('missing', 'story'), new Set())
   assert.throws(() => tavern.toolModes({ name: 'tavern_read_variables', modes: ['card'] }), /插件自己注册/)
   assert.throws(() => tavern.toolModes({ name: 'x_tool', modes: ['background'] }), /play、card/)
   tavern.toolSkills({ name: 'wrongbook_lookup', skills: ['wrongbook', 'wrongbook'] })
@@ -1025,6 +1030,7 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   fiber.dispose()
   await tick()
   assert.equal(h.api.toolModesFor('wrongbook_lookup'), null, '插件卸载后可见范围撤销')
+  assert.deepEqual(await h.api.playPluginToolNames('game-1', 'story'), new Set())
   assert.equal(h.api.toolSkillsFor('wrongbook_lookup'), null, '插件卸载后解锁 Skill 撤销')
 })
 

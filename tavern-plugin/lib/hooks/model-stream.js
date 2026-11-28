@@ -19,6 +19,7 @@ import { STORY_CONTEXT_TOOL_NAME, STORY_SUBMIT_TOOL_NAME } from '../domain/story
 import { isAutoToolOnlyModel, runWithToolProtocolDirective } from '../domain/tool-protocol-enforcement.js'
 import { createToolReplyStreamTracker } from '../domain/tool-reply-stream-parser.js'
 import { projectWritingPreparationRequest, PURE_WRITING_REQUEST, WRITING_PREPARATION_REQUEST } from '../domain/pure-writing-request.js'
+import { filterPlayMessages, installPlayContextPolicy } from '../domain/play-request-policy.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -113,6 +114,14 @@ export function registerModelStreamHooks({
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
+  installPlayContextPolicy(ctx, {
+    async modeFor(id) {
+      if (backgroundAgentRunner.owns(id)) return null
+      const head = await chatHeaderForSession(str(id), ['mode'])
+      return head ? head.mode || 'story' : null
+    },
+    systemSectionsFor: foregroundStrategies.systemSectionsFor
+  })
   // Keep scripted openings from old saves out of request and compaction context.
   ctx.on('llm/stream', (request, next) => {
     if (!request?.messages?.some(tavernIsLegacySeedTrajectory)) return next()
@@ -134,7 +143,8 @@ export function registerModelStreamHooks({
     // verbatim after the summary; other sessions keep DSH's prompt.
     const head = await chatHeaderForSession(str(request.sessionId), [])
     if (!usesStoryCompaction(head)) return { request: routed }
-    if (foreground) routed = projectWithoutStyleReference(routed)
+    if (foreground) routed = projectWithoutStyleReference({ ...routed, messages: filterPlayMessages(routed.messages,
+      text => foregroundStrategies.systemSectionsFor?.(request.sessionId, text)) })
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
