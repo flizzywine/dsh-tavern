@@ -141,6 +141,13 @@ export function effectiveCardStage(extension, engine) {
   return value
 }
 
+// A card's 对话气泡 for its worldbook's bubble entries (dialogue-bubbles.js deliveredBubbleEntries): 'on' in effect, 'off'
+// switched off on the card (本卡关闭), null neither. extension: the card's dsh_tavern view, null for an ordinary card.
+export function cardBubbleChoice(extension, engine) {
+  if (effectiveCardStage(extension, engine).dialogue) return 'on'
+  return cardStageChoice(extension?.stage, 'dialogue') === 'off' ? 'off' : null
+}
+
 export function cardStageVoicing(extension, engine) {
   const stage = effectiveCardStage(extension, engine)
   return stage.dialogue && stage.voice

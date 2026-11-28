@@ -120,28 +120,17 @@ function image(value) { return typeof value === 'string' && ((value.length <= MA
 function fullUrl(value) { return typeof value === 'string' && (FULL_URL.test(value) || ASSET_IMAGE.test(value)) ? value : '' }
 function cardKey(cardPath) { return createHash('sha256').update(String(cardPath || '')).digest('hex').slice(0, 24) }
 
-export function importedBubbleFormat(entry, cardPath) {
-  const owner = entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles
-  return owner?.version === 1 && owner.cardKey && owner.cardKey !== cardKey(cardPath) && !owner.figure
-    && entry.enabled !== false && entry.constant === true
-}
-
-// An entry the 对话气泡 setting maintains in a worldbook, or a foreground entry generated from that setting.
-export const managedBubbleEntry = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
-
-/** The book a story turn sees: managed entries give way to `generated` (this card's own format and roster). Without a
- * generated format (bubbles off for this card, or the stage module not loaded), a worldbook imported on its own still
- * carries its constant format: it has no settings of its source card to regenerate it from, so it is rendered once and
- * delivered as a fixed constant. render(chat, book) is the worldbook template projection. */
-export async function withBubbleFormat(chat, book, generated, render) {
-  const projected = {...book, view: {...book?.view, entries: [...(book?.view?.entries || []).filter(entry => !managedBubbleEntry(entry)), ...structuredClone(generated)]}}
-  if (generated.some(entry => entry.ref === 'foreground-capabilities:format')) return projected
-  const imported = (book?.view?.entries || []).filter(entry => importedBubbleFormat(entry, chat.cardPath))
-  if (!imported.length) return projected
-  const rendered = await render(chat, {view: {entries: imported}})
-  const texts = new Map(rendered.renderedEntries.map(entry => [entry.ref, entry.text]))
-  projected.view.entries.push(...imported.filter(entry => texts.has(entry.ref)).map(entry => ({...entry, content: texts.get(entry.ref), foregroundCapability: true})))
-  return projected
+/** The 对话气泡 entries of a game's worldbook that the game delivers as worldbook text. `bubbles` is this card's
+ * 对话气泡: 'on' in effect, 'off' switched off on the card, null neither. This card's own entry only mirrors its
+ * settings (the foreground capabilities generate the format and roster from them), so it is never delivered. A format
+ * another card left in a bound book (a worldbook imported on its own) speaks for bubbles like a card that turns them
+ * on: it is an ordinary constant while this card neither has its own format nor switched bubbles off. */
+export function deliveredBubbleEntries(entries, cardPath, bubbles) {
+  const own = cardKey(cardPath)
+  return entries.filter(entry => {
+    const owner = entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles
+    return !owner || (bubbles === null && owner.version === 1 && !!owner.cardKey && owner.cardKey !== own && !owner.figure)
+  })
 }
 
 export function normalizeBubbleConfig(value) {
