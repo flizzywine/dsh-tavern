@@ -6,11 +6,11 @@ This plugin owns global interface appearance: color themes, wallpapers, imported
 
 CSS skins retain their existing profile location, `$DSH_HOME/profile-data/tavern/data/interface-skins/`. Requests use this plugin's authenticated `/dream-skin/api` endpoint. Disposing the CSS skin client aborts pending requests, removes its stylesheet and releases its settings registration and stylesheet observer.
 
-Edit `src/interface-skin.js` and run `node bin/build-tavern-client.mjs`; `--check` verifies both client bundles. The vendoring command also integrates this source. The locally maintained host code is not overwritten by that command.
+Edit `src/interface-skin.js` or `tavern-themes.json` and run `node bin/build-tavern-client.mjs`. The build's `--check` verifies the generated client files. The vendoring command also integrates these sources. The locally maintained host code is not overwritten by that command.
 
 Tavern changes:
-- Add light/dark Tavern Terracotta definitions from `tavern-themes.json`, with display labels in the native skin picker.
-- The native light/dark preference drives which half of that pair is active. The two skins declare a shared `schemeFamily`, and every skin restore resolves the saved id against the built-in preference first — without it the stored (light) Terracotta id overrode a built-in `dark` on every boot, since a skin and the built-in preference share one `ui-theme.preference` slot.
+- The native skin picker includes light and dark versions of Tavern Terracotta and six Bloom palettes. Bloom colors and names are adapted from [webkubor/dsh-bloom-theme](https://github.com/webkubor/dsh-bloom-theme/blob/ab06f1f05058afccfa3c040255ad89dc4a2157ea/src/palette.ts) under the [MIT license](lib/LICENSE-Bloom).
+- Light and dark variants of a palette share a `schemeFamily`. The native light/dark preference selects the matching variant when the saved skin is restored.
 - Fresh preferences select Tavern Terracotta, with no factory image, URL or gradient. Existing user preferences are retained by the upstream persistence logic.
 - Skin selection still offers its built-in gradients; manually chosen wallpapers remain supported.
 

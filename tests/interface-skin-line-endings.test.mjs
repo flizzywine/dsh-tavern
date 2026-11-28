@@ -16,7 +16,7 @@ test('interface skin bundle is identical for LF and CRLF client, source, and CSS
   await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(bin, 'lib/css-syntax-guard.mjs'))
   const sourceFiles = {
     'interface-skin.js': 'const interfaceSkinFixture = 1;\n',
-    'font-library.js': 'const fontLibraryFixture = 2;\n',
+    'font-library.js': "const fontLibraryFixture = new RegExp('font$');\n",
     'font-picker.js': 'const fontPickerFixture = 3;\n',
     'font-picker.css': '.font-picker {\n  color: black;\n}\n',
   }
@@ -25,6 +25,9 @@ test('interface skin bundle is identical for LF and CRLF client, source, and CSS
   const { integrateInterfaceSkin } = await import(pathToFileURL(path.join(bin, 'build-interface-skin-client.mjs')).href)
   const client = '// BEGIN TAVERN INTERFACE SKIN\nold bundle\n// END TAVERN INTERFACE SKIN\n'
   const lfBundle = await integrateInterfaceSkin(client)
+  const upstream = '\t\tfunction apply(ctx) {\n\t\t\tconst wallpaperInjected = null;\n\t\t}\n\t\texports.apply = apply;\n'
+  const firstBuild = await integrateInterfaceSkin(upstream)
+  assert.ok(firstBuild.includes(sourceFiles['font-library.js']))
 
   for (const [name, content] of entries) await writeFile(path.join(packageRoot, 'src', name), content.replace(/\n/g, '\r\n'))
   const crlfBundle = await integrateInterfaceSkin(client.replace(/\n/g, '\r\n'))

@@ -3,7 +3,25 @@ import {readFile, writeFile} from 'node:fs/promises'
 import vm from 'node:vm'
 const root = new URL('../tavern-plugin/packages/dsh-dream-skin/', import.meta.url)
 const start = '// BEGIN TAVERN INTERFACE SKIN\n', end = '// END TAVERN INTERFACE SKIN\n'
+const themesStart = '// BEGIN TAVERN COLOR THEMES\n'
+const themesEnd = '// END TAVERN COLOR THEMES\n'
 const lf = value => value.replace(/\r\n?/g, '\n')
+
+export async function integrateTavernThemes(client) {
+  client = lf(client)
+  const themes = JSON.parse(await readFile(new URL('tavern-themes.json', root), 'utf8'))
+  const block = themesStart + themes.map(theme => JSON.stringify(theme, null, 2) + ',\n').join('') + themesEnd
+  const start = client.indexOf(themesStart)
+  if (start >= 0) {
+    const end = client.indexOf(themesEnd, start)
+    if (end < 0) throw Error('Incomplete Tavern color themes block')
+    return client.slice(0, start) + block + client.slice(end + themesEnd.length)
+  }
+  const marker = 'const SKINS = [\n'
+  if (!client.includes(marker)) throw Error('Missing Dream Skin palette list')
+  return client.replace(marker, () => marker + block)
+}
+
 export async function integrateInterfaceSkin(client) {
   client = lf(client)
   const source = (await Promise.all(['interface-skin.js', 'font-library.js', 'font-picker.js'].map(async name => lf(await readFile(new URL('src/' + name, root), 'utf8'))))).join('\n')
@@ -17,7 +35,7 @@ export async function integrateInterfaceSkin(client) {
   } else {
     const marker = '\t\tfunction apply(ctx) {'
     if (!client.includes(marker)) throw Error('Missing dream-skin apply')
-    client = client.replace(marker, block + marker)
+    client = client.replace(marker, () => block + marker)
     const anchor = '\n\t\t\tconst wallpaperInjected ='
     if (!client.includes(anchor)) throw Error('Missing dream-skin settings integration')
     client = client.replace(anchor, '\n\t\t\tinstallInterfaceSkinSettings(ctx, _react, window.dshDreamSkin);\n' + anchor)
@@ -30,7 +48,7 @@ export async function integrateInterfaceSkin(client) {
 }
 export async function buildInterfaceSkinClient({check = false} = {}) {
   const file = new URL('lib/client.js', root), current = lf(await readFile(file,'utf8'))
-  const next = await integrateInterfaceSkin(current)
+  const next = await integrateInterfaceSkin(await integrateTavernThemes(current))
   if (next === current) return
   if (check) throw Error('Skin client is stale; run node bin/build-tavern-client.mjs')
   await writeFile(file,next)

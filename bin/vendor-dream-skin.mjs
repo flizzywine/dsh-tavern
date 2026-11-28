@@ -1,4 +1,4 @@
-import {integrateInterfaceSkin} from './build-interface-skin-client.mjs'
+import {integrateInterfaceSkin, integrateTavernThemes} from './build-interface-skin-client.mjs'
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import path from 'node:path'
 const source = process.argv[2]
@@ -7,12 +7,10 @@ const root = new URL('../tavern-plugin/packages/dsh-dream-skin/', import.meta.ur
 const manifest = JSON.parse(readFileSync(path.join(source, 'package.json'), 'utf8'))
 if (manifest.name !== 'dsh-dream-skin' || manifest.version !== '9.23.0') throw new Error('Expected dsh-dream-skin 9.23.0')
 let client = readFileSync(path.join(source, 'lib/client.js'), 'utf8').replaceAll('\r\n', '\n')
-const themes = JSON.parse(readFileSync(new URL('tavern-themes.json', root), 'utf8'))
 function replace(pattern, value) {
   if (!client.match(pattern)) throw new Error(`Upstream shape changed: ${pattern}`)
   client = client.replace(pattern, value)
 }
-replace(/const SKINS = \[/, 'const SKINS = [\n' + themes.map(t => JSON.stringify(t, null, 2)).join(',\n') + ',')
 replace(/children: t\(`skin\.\$\{skin.id\}`\)/, 'children: skin.label || t(`skin.${skin.id}`)')
 replace(/\[STORAGE_KEY\]: "nebula",/, '[STORAGE_KEY]: "tavern-terracotta",')
 // Native scheme following. The built-in ui-theme preference (light/dark/system)
@@ -73,10 +71,30 @@ replace(/function writeSavedSkin\(id\) \{\n(\t*)writeStorage\(STORAGE_KEY, id ==
 replace(/\[WALLPAPER_KEY\]: "data:image[^\n]+/, '[WALLPAPER_KEY]: null,')
 replace(/\[WALLPAPER_URL_KEY\]: "https:[^\n]+/, '[WALLPAPER_URL_KEY]: null,')
 replace(/\[WALLPAPER_GRADIENT_KEY\]: "radial-gradient[^\n]+/, '[WALLPAPER_GRADIENT_KEY]: null,')
+replace(/\/\*\* Parse a hex or rgb\(\)\/rgba\(\) color into rgba\(\) with the given alpha\. \*\//, '/** Apply wallpaper opacity to a skin color. */')
+replace(/(if \(rgb !== null\) return [^\n]+;\n\s*)return color\.trim\(\);/, (_, prefix) => prefix + `const wash = \`color-mix(in srgb, \${color.trim()} \${alpha * 100}%, transparent)\`;
+			return alpha < 1 && typeof CSS !== "undefined" && CSS.supports("color", wash) ? wash : color.trim();`)
 // Host routes, package metadata and profile wiring are maintained locally.
 for (const file of ['LICENSE']) copyFileSync(path.join(source, file), new URL(file, root))
 
-replace(/function wallpapersSuggestionsFor\(activeId\) \{/, "function wallpapersSuggestionsFor(activeId) {\n            if (activeId === \"tavern-terracotta\") return \"radial-gradient(ellipse at top right, rgba(204,120,92,.16), transparent 65%), linear-gradient(160deg, #faf9f5, #f5f0e8)\";\n            if (activeId === \"tavern-terracotta-dark\") return \"radial-gradient(ellipse at top right, rgba(212,137,108,.14), transparent 65%), linear-gradient(160deg, #181715, #252320)\";")
+replace(/function wallpapersSuggestionsFor\(activeId\) \{/, `function wallpapersSuggestionsFor(activeId) {
+			const bundledGradient = SKINS.find((skin) => skin.id === activeId)?.wallpaperGradient;
+			if (bundledGradient) return bundledGradient;`)
+replace(/let wallpaperReshadeTimer = null;/, `let wallpaperReshadeTimer = null;
+			let popupPreference = ctx.theme.getTheme().preference;`)
+replace(/if \(wallpaperBackgroundCss\(\) !== null && !_applyingWallpaper\)/, 'if (!_applyingWallpaper && !combinedOverrideApplying && (wallpaperBackgroundCss() !== null || snapshot.preference !== popupPreference))')
+replace(/(wallpaperReshadeTimer = null;\n\s*)applyWallpaper2\(ctx, ctx\.theme\.getTheme\(\)\);/, `$1const current = ctx.theme.getTheme();
+						if (popupPreference !== current.preference) {
+							popupPreference = current.preference;
+							applyModalOverlay(ctx);
+						}
+						if (wallpaperBackgroundCss() === null) return;
+						const gradient = wallpapersSuggestionsFor(current.preference);
+						if (gradient && followsSkin() && gradient !== readWallpaperGradient()) {
+							setWallpaperKind(ctx, "gradient", gradient);
+						} else {
+							applyWallpaper2(ctx, current);
+						}`)
 // Effects may run after materialization; never let the next module claim skin CSS.
 replace(/el\.id = MATERIAL_CSS_SOURCE;/, 'el.dataset.plugin = "dsh-dream-skin";\n\t\t\tel.id = MATERIAL_CSS_SOURCE;')
 // No 主题包 row: packs only held colors, and Tavern's 界面皮肤 row takes custom looks.
@@ -101,4 +119,4 @@ replace(/\t*ctx\.slots\.inject\("settings\.dreamSkin\.item", \(\) => ctx\.slots\
 replace(/\t\t\tconst raw = readStorage\(ACCENT_KEY\);\n/, () => `			// Tavern: the 强调色 row is gone, so an accent saved earlier no longer applies.
 			const raw = null;
 `)
-writeFileSync(new URL('lib/client.js', root), await integrateInterfaceSkin(client))
+writeFileSync(new URL('lib/client.js', root), await integrateInterfaceSkin(await integrateTavernThemes(client)))

@@ -42,6 +42,7 @@ for (const check of [false, true]) {
     await cp(new URL('../tavern-plugin/packages/dsh-dream-skin/src/', import.meta.url), path.join(skin, 'src'), {recursive:true})
     await mkdir(path.join(skin, 'lib'), {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/client.js', import.meta.url), path.join(skin, 'lib/client.js'))
+    await copyFile(new URL('../tavern-plugin/packages/dsh-dream-skin/tavern-themes.json', import.meta.url), path.join(skin, 'tavern-themes.json'))
     const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
     await mkdir(stage, {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))

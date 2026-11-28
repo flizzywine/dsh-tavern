@@ -33,3 +33,12 @@ test('resolveSchemeSkin selects the family member for the scheme', () => {
   assert.equal(resolveSchemeSkin('mist', 'dark'), 'mist')
   assert.equal(resolveSchemeSkin('dream-pack:mist', 'dark'), 'dream-pack:mist')
 })
+
+test('each shipped Bloom palette can switch to its light and dark variants', () => {
+  for (const variant of ['cinnabar', 'osmanthus', 'sage', 'ripple', 'mist', 'lavender']) {
+    const light = `tavern-bloom-${variant}`
+    const dark = `${light}-dark`
+    assert.equal(resolveSchemeSkin(light, 'dark'), dark)
+    assert.equal(resolveSchemeSkin(dark, 'light'), light)
+  }
+})

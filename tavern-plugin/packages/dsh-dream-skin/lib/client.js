@@ -256,6 +256,7 @@ window.__ModuleLoader__.load({
 		 * own entries here and they appear in the Settings picker automatically.
 		 */
 		const SKINS = [
+// BEGIN TAVERN COLOR THEMES
 {
   "id": "tavern-terracotta",
   "colorScheme": "light",
@@ -287,7 +288,8 @@ window.__ModuleLoader__.load({
     "--dsw-alias-markdown-code-block": "#f5f0e8",
     "--dsw-alias-markdown-inline-code": "#eee8e0"
   },
-  "label": "酒馆 · 暖陶土"
+  "label": "酒馆 · 暖陶土",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(204,120,92,.16), transparent 65%), linear-gradient(160deg, #faf9f5, #f5f0e8)"
 },
 {
   "id": "tavern-terracotta-dark",
@@ -320,8 +322,478 @@ window.__ModuleLoader__.load({
     "--dsw-alias-markdown-code-block": "#252320",
     "--dsw-alias-markdown-inline-code": "#302c28"
   },
-  "label": "暖陶土 · 深色"
+  "label": "暖陶土 · 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(212,137,108,.14), transparent 65%), linear-gradient(160deg, #181715, #252320)"
 },
+{
+  "id": "tavern-bloom-cinnabar",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-cinnabar",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(55% 0.18 25)",
+    "--dsw-alias-brand-primary-invert": "oklch(97% 0.005 25)",
+    "--dsw-alias-brand-text": "oklch(97% 0.005 25)",
+    "--dsw-alias-bg-base": "oklch(97% 0.005 25)",
+    "--dsw-alias-bg-layer-1": "oklch(95% 0.005 25)",
+    "--dsw-alias-bg-layer-2": "oklch(92% 0.005 25)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(92% 0.005 25), oklch(25% 0.02 25) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(97% 0.005 25)",
+    "--dsw-alias-bg-overlay": "oklch(95% 0.005 25)",
+    "--dsw-alias-label-primary": "oklch(25% 0.02 25)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(25% 0.02 25), oklch(97% 0.005 25) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(25% 0.02 25), oklch(97% 0.005 25) 32%)",
+    "--dsw-alias-border-l1": "rgba(215, 75, 75, 0.16)",
+    "--dsw-alias-border-l2": "rgba(215, 75, 75, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(97% 0.005 25), rgb(215, 75, 75) 13%)",
+    "--dsw-specific-input-major": "oklch(95% 0.005 25)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(97% 0.005 25), oklch(25% 0.02 25) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(55% 0.18 25), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(55% 0.18 25)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(55% 0.18 25), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(97% 0.005 25)",
+    "--dsw-alias-button-info-fill": "oklch(55% 0.18 25)",
+    "--dsw-alias-state-business-primary": "oklch(55% 0.18 25)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(55% 0.18 25), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(55% 0.18 25), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(55% 0.18 25), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(95% 0.005 25)",
+    "--dsw-alias-markdown-inline-code": "oklch(92% 0.005 25)",
+    "--dsw-alias-label-primary-foreground": "oklch(97% 0.005 25)",
+    "--dsw-specific-menu": "oklch(92% 0.005 25)"
+  },
+  "label": "Bloom · 朱砂",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.005 25), oklch(95% 0.005 25))"
+},
+{
+  "id": "tavern-bloom-cinnabar-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-cinnabar",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(72% 0.12 25)",
+    "--dsw-alias-brand-primary-invert": "oklch(28% 0.02 25)",
+    "--dsw-alias-brand-text": "oklch(28% 0.02 25)",
+    "--dsw-alias-bg-base": "oklch(28% 0.02 25)",
+    "--dsw-alias-bg-layer-1": "oklch(34% 0.02 25)",
+    "--dsw-alias-bg-layer-2": "oklch(40% 0.02 25)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(40% 0.02 25), oklch(96% 0.01 25) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(28% 0.02 25)",
+    "--dsw-alias-bg-overlay": "oklch(34% 0.02 25)",
+    "--dsw-alias-label-primary": "oklch(96% 0.01 25)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.01 25), oklch(28% 0.02 25) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.01 25), oklch(28% 0.02 25) 32%)",
+    "--dsw-alias-border-l1": "rgba(215, 75, 75, 0.18)",
+    "--dsw-alias-border-l2": "rgba(215, 75, 75, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(28% 0.02 25), rgb(215, 75, 75) 10%)",
+    "--dsw-specific-input-major": "oklch(34% 0.02 25)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(28% 0.02 25), oklch(96% 0.01 25) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(72% 0.12 25), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(72% 0.12 25)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(72% 0.12 25), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(28% 0.02 25)",
+    "--dsw-alias-button-info-fill": "oklch(72% 0.12 25)",
+    "--dsw-alias-state-business-primary": "oklch(72% 0.12 25)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(72% 0.12 25), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(72% 0.12 25), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(72% 0.12 25), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(34% 0.02 25)",
+    "--dsw-alias-markdown-inline-code": "oklch(40% 0.02 25)",
+    "--dsw-alias-label-primary-foreground": "oklch(28% 0.02 25)",
+    "--dsw-specific-menu": "oklch(40% 0.02 25)"
+  },
+  "label": "Bloom · 朱砂 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 25), oklch(34% 0.02 25))"
+},
+{
+  "id": "tavern-bloom-osmanthus",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-osmanthus",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(50% 0.12 98)",
+    "--dsw-alias-brand-primary-invert": "oklch(97.8% 0.006 95)",
+    "--dsw-alias-brand-text": "oklch(97.8% 0.006 95)",
+    "--dsw-alias-bg-base": "oklch(97.8% 0.006 95)",
+    "--dsw-alias-bg-layer-1": "oklch(95.8% 0.008 95)",
+    "--dsw-alias-bg-layer-2": "oklch(93% 0.01 95)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(93% 0.01 95), oklch(24% 0.014 95) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(97.8% 0.006 95)",
+    "--dsw-alias-bg-overlay": "oklch(95.8% 0.008 95)",
+    "--dsw-alias-label-primary": "oklch(24% 0.014 95)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(24% 0.014 95), oklch(97.8% 0.006 95) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(24% 0.014 95), oklch(97.8% 0.006 95) 32%)",
+    "--dsw-alias-border-l1": "rgba(214, 186, 92, 0.16)",
+    "--dsw-alias-border-l2": "rgba(214, 186, 92, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(97.8% 0.006 95), rgb(214, 186, 92) 13%)",
+    "--dsw-specific-input-major": "oklch(95.8% 0.008 95)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(97.8% 0.006 95), oklch(24% 0.014 95) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(50% 0.12 98), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(50% 0.12 98)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(50% 0.12 98), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(97.8% 0.006 95)",
+    "--dsw-alias-button-info-fill": "oklch(50% 0.12 98)",
+    "--dsw-alias-state-business-primary": "oklch(50% 0.12 98)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(50% 0.12 98), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(50% 0.12 98), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(50% 0.12 98), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(95.8% 0.008 95)",
+    "--dsw-alias-markdown-inline-code": "oklch(93% 0.01 95)",
+    "--dsw-alias-label-primary-foreground": "oklch(97.8% 0.006 95)",
+    "--dsw-specific-menu": "oklch(93% 0.01 95)"
+  },
+  "label": "Bloom · 轻黄",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.006 95), oklch(95.8% 0.008 95))"
+},
+{
+  "id": "tavern-bloom-osmanthus-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-osmanthus",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(86% 0.14 98)",
+    "--dsw-alias-brand-primary-invert": "oklch(24% 0.008 95)",
+    "--dsw-alias-brand-text": "oklch(24% 0.008 95)",
+    "--dsw-alias-bg-base": "oklch(24% 0.008 95)",
+    "--dsw-alias-bg-layer-1": "oklch(30% 0.012 95)",
+    "--dsw-alias-bg-layer-2": "oklch(36% 0.015 95)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(36% 0.015 95), oklch(96% 0.008 95) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(24% 0.008 95)",
+    "--dsw-alias-bg-overlay": "oklch(30% 0.012 95)",
+    "--dsw-alias-label-primary": "oklch(96% 0.008 95)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.008 95), oklch(24% 0.008 95) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.008 95), oklch(24% 0.008 95) 32%)",
+    "--dsw-alias-border-l1": "rgba(214, 186, 92, 0.18)",
+    "--dsw-alias-border-l2": "rgba(214, 186, 92, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(24% 0.008 95), rgb(214, 186, 92) 10%)",
+    "--dsw-specific-input-major": "oklch(30% 0.012 95)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(24% 0.008 95), oklch(96% 0.008 95) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(86% 0.14 98), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(86% 0.14 98)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(86% 0.14 98), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(24% 0.008 95)",
+    "--dsw-alias-button-info-fill": "oklch(86% 0.14 98)",
+    "--dsw-alias-state-business-primary": "oklch(86% 0.14 98)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(86% 0.14 98), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(86% 0.14 98), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(86% 0.14 98), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(30% 0.012 95)",
+    "--dsw-alias-markdown-inline-code": "oklch(36% 0.015 95)",
+    "--dsw-alias-label-primary-foreground": "oklch(24% 0.008 95)",
+    "--dsw-specific-menu": "oklch(36% 0.015 95)"
+  },
+  "label": "Bloom · 轻黄 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.008 95), oklch(30% 0.012 95))"
+},
+{
+  "id": "tavern-bloom-sage",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-sage",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(54.1% 0.111 115)",
+    "--dsw-alias-brand-primary-invert": "oklch(97% 0.011 112)",
+    "--dsw-alias-brand-text": "oklch(97% 0.011 112)",
+    "--dsw-alias-bg-base": "oklch(97% 0.011 112)",
+    "--dsw-alias-bg-layer-1": "oklch(94.9% 0.009 113)",
+    "--dsw-alias-bg-layer-2": "oklch(91.9% 0.009 113)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(91.9% 0.009 113), oklch(25% 0.02 116) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(97% 0.011 112)",
+    "--dsw-alias-bg-overlay": "oklch(94.9% 0.009 113)",
+    "--dsw-alias-label-primary": "oklch(25% 0.02 116)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(25% 0.02 116), oklch(97% 0.011 112) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(25% 0.02 116), oklch(97% 0.011 112) 32%)",
+    "--dsw-alias-border-l1": "rgba(138, 154, 91, 0.16)",
+    "--dsw-alias-border-l2": "rgba(138, 154, 91, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(97% 0.011 112), rgb(138, 154, 91) 13%)",
+    "--dsw-specific-input-major": "oklch(94.9% 0.009 113)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(97% 0.011 112), oklch(25% 0.02 116) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(54.1% 0.111 115), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(54.1% 0.111 115)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(54.1% 0.111 115), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(97% 0.011 112)",
+    "--dsw-alias-button-info-fill": "oklch(54.1% 0.111 115)",
+    "--dsw-alias-state-business-primary": "oklch(54.1% 0.111 115)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(54.1% 0.111 115), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(54.1% 0.111 115), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(54.1% 0.111 115), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(94.9% 0.009 113)",
+    "--dsw-alias-markdown-inline-code": "oklch(91.9% 0.009 113)",
+    "--dsw-alias-label-primary-foreground": "oklch(97% 0.011 112)",
+    "--dsw-specific-menu": "oklch(91.9% 0.009 113)"
+  },
+  "label": "Bloom · 竹青",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.011 112), oklch(94.9% 0.009 113))"
+},
+{
+  "id": "tavern-bloom-sage-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-sage",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(71.9% 0.120 115)",
+    "--dsw-alias-brand-primary-invert": "oklch(20% 0.019 113)",
+    "--dsw-alias-brand-text": "oklch(20% 0.019 113)",
+    "--dsw-alias-bg-base": "oklch(20% 0.019 113)",
+    "--dsw-alias-bg-layer-1": "oklch(27.9% 0.02 116)",
+    "--dsw-alias-bg-layer-2": "oklch(34% 0.03 116)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(34% 0.03 116), oklch(96% 0.011 118) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(20% 0.019 113)",
+    "--dsw-alias-bg-overlay": "oklch(27.9% 0.02 116)",
+    "--dsw-alias-label-primary": "oklch(96% 0.011 118)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.011 118), oklch(20% 0.019 113) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.011 118), oklch(20% 0.019 113) 32%)",
+    "--dsw-alias-border-l1": "rgba(138, 154, 91, 0.18)",
+    "--dsw-alias-border-l2": "rgba(138, 154, 91, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(20% 0.019 113), rgb(138, 154, 91) 10%)",
+    "--dsw-specific-input-major": "oklch(27.9% 0.02 116)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(20% 0.019 113), oklch(96% 0.011 118) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(71.9% 0.120 115), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(71.9% 0.120 115)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(71.9% 0.120 115), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(20% 0.019 113)",
+    "--dsw-alias-button-info-fill": "oklch(71.9% 0.120 115)",
+    "--dsw-alias-state-business-primary": "oklch(71.9% 0.120 115)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(71.9% 0.120 115), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(71.9% 0.120 115), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(71.9% 0.120 115), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(27.9% 0.02 116)",
+    "--dsw-alias-markdown-inline-code": "oklch(34% 0.03 116)",
+    "--dsw-alias-label-primary-foreground": "oklch(20% 0.019 113)",
+    "--dsw-specific-menu": "oklch(34% 0.03 116)"
+  },
+  "label": "Bloom · 竹青 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.019 113), oklch(27.9% 0.02 116))"
+},
+{
+  "id": "tavern-bloom-ripple",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-ripple",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(51% 0.12 195)",
+    "--dsw-alias-brand-primary-invert": "oklch(96% 0.01 195)",
+    "--dsw-alias-brand-text": "oklch(96% 0.01 195)",
+    "--dsw-alias-bg-base": "oklch(96% 0.01 195)",
+    "--dsw-alias-bg-layer-1": "oklch(94% 0.01 195)",
+    "--dsw-alias-bg-layer-2": "oklch(92% 0.01 195)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(92% 0.01 195), oklch(25% 0.02 195) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(96% 0.01 195)",
+    "--dsw-alias-bg-overlay": "oklch(94% 0.01 195)",
+    "--dsw-alias-label-primary": "oklch(25% 0.02 195)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(25% 0.02 195), oklch(96% 0.01 195) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(25% 0.02 195), oklch(96% 0.01 195) 32%)",
+    "--dsw-alias-border-l1": "rgba(95, 168, 178, 0.16)",
+    "--dsw-alias-border-l2": "rgba(95, 168, 178, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(96% 0.01 195), rgb(95, 168, 178) 13%)",
+    "--dsw-specific-input-major": "oklch(94% 0.01 195)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(96% 0.01 195), oklch(25% 0.02 195) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(51% 0.12 195), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(51% 0.12 195)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(51% 0.12 195), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(96% 0.01 195)",
+    "--dsw-alias-button-info-fill": "oklch(51% 0.12 195)",
+    "--dsw-alias-state-business-primary": "oklch(51% 0.12 195)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(51% 0.12 195), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(51% 0.12 195), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(51% 0.12 195), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(94% 0.01 195)",
+    "--dsw-alias-markdown-inline-code": "oklch(92% 0.01 195)",
+    "--dsw-alias-label-primary-foreground": "oklch(96% 0.01 195)",
+    "--dsw-specific-menu": "oklch(92% 0.01 195)"
+  },
+  "label": "Bloom · 天青",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 195), oklch(94% 0.01 195))"
+},
+{
+  "id": "tavern-bloom-ripple-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-ripple",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(75% 0.12 195)",
+    "--dsw-alias-brand-primary-invert": "oklch(20% 0.02 195)",
+    "--dsw-alias-brand-text": "oklch(20% 0.02 195)",
+    "--dsw-alias-bg-base": "oklch(20% 0.02 195)",
+    "--dsw-alias-bg-layer-1": "oklch(28% 0.02 195)",
+    "--dsw-alias-bg-layer-2": "oklch(38% 0.02 195)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(38% 0.02 195), oklch(96% 0.01 195) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(20% 0.02 195)",
+    "--dsw-alias-bg-overlay": "oklch(28% 0.02 195)",
+    "--dsw-alias-label-primary": "oklch(96% 0.01 195)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.01 195), oklch(20% 0.02 195) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.01 195), oklch(20% 0.02 195) 32%)",
+    "--dsw-alias-border-l1": "rgba(95, 168, 178, 0.18)",
+    "--dsw-alias-border-l2": "rgba(95, 168, 178, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(20% 0.02 195), rgb(95, 168, 178) 10%)",
+    "--dsw-specific-input-major": "oklch(28% 0.02 195)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(20% 0.02 195), oklch(96% 0.01 195) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(75% 0.12 195), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(75% 0.12 195)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(75% 0.12 195), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(20% 0.02 195)",
+    "--dsw-alias-button-info-fill": "oklch(75% 0.12 195)",
+    "--dsw-alias-state-business-primary": "oklch(75% 0.12 195)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(75% 0.12 195), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(75% 0.12 195), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(75% 0.12 195), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(28% 0.02 195)",
+    "--dsw-alias-markdown-inline-code": "oklch(38% 0.02 195)",
+    "--dsw-alias-label-primary-foreground": "oklch(20% 0.02 195)",
+    "--dsw-specific-menu": "oklch(38% 0.02 195)"
+  },
+  "label": "Bloom · 天青 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.02 195), oklch(28% 0.02 195))"
+},
+{
+  "id": "tavern-bloom-mist",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-mist",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(50% 0.08 240)",
+    "--dsw-alias-brand-primary-invert": "oklch(96% 0.01 240)",
+    "--dsw-alias-brand-text": "oklch(96% 0.01 240)",
+    "--dsw-alias-bg-base": "oklch(96% 0.01 240)",
+    "--dsw-alias-bg-layer-1": "oklch(94% 0.01 240)",
+    "--dsw-alias-bg-layer-2": "oklch(91% 0.01 240)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(91% 0.01 240), oklch(25% 0.02 240) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(96% 0.01 240)",
+    "--dsw-alias-bg-overlay": "oklch(94% 0.01 240)",
+    "--dsw-alias-label-primary": "oklch(25% 0.02 240)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(25% 0.02 240), oklch(96% 0.01 240) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(25% 0.02 240), oklch(96% 0.01 240) 32%)",
+    "--dsw-alias-border-l1": "rgba(146, 168, 179, 0.16)",
+    "--dsw-alias-border-l2": "rgba(146, 168, 179, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(96% 0.01 240), rgb(146, 168, 179) 13%)",
+    "--dsw-specific-input-major": "oklch(94% 0.01 240)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(96% 0.01 240), oklch(25% 0.02 240) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(50% 0.08 240), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(50% 0.08 240)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(50% 0.08 240), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(96% 0.01 240)",
+    "--dsw-alias-button-info-fill": "oklch(50% 0.08 240)",
+    "--dsw-alias-state-business-primary": "oklch(50% 0.08 240)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(50% 0.08 240), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(50% 0.08 240), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(50% 0.08 240), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(94% 0.01 240)",
+    "--dsw-alias-markdown-inline-code": "oklch(91% 0.01 240)",
+    "--dsw-alias-label-primary-foreground": "oklch(96% 0.01 240)",
+    "--dsw-specific-menu": "oklch(91% 0.01 240)"
+  },
+  "label": "Bloom · 黛蓝",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 240), oklch(94% 0.01 240))"
+},
+{
+  "id": "tavern-bloom-mist-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-mist",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(72% 0.12 240)",
+    "--dsw-alias-brand-primary-invert": "oklch(28% 0.02 240)",
+    "--dsw-alias-brand-text": "oklch(28% 0.02 240)",
+    "--dsw-alias-bg-base": "oklch(28% 0.02 240)",
+    "--dsw-alias-bg-layer-1": "oklch(34% 0.02 240)",
+    "--dsw-alias-bg-layer-2": "oklch(40% 0.02 240)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(40% 0.02 240), oklch(96% 0.01 240) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(28% 0.02 240)",
+    "--dsw-alias-bg-overlay": "oklch(34% 0.02 240)",
+    "--dsw-alias-label-primary": "oklch(96% 0.01 240)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.01 240), oklch(28% 0.02 240) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.01 240), oklch(28% 0.02 240) 32%)",
+    "--dsw-alias-border-l1": "rgba(146, 168, 179, 0.18)",
+    "--dsw-alias-border-l2": "rgba(146, 168, 179, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(28% 0.02 240), rgb(146, 168, 179) 10%)",
+    "--dsw-specific-input-major": "oklch(34% 0.02 240)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(28% 0.02 240), oklch(96% 0.01 240) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(72% 0.12 240), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(72% 0.12 240)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(72% 0.12 240), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(28% 0.02 240)",
+    "--dsw-alias-button-info-fill": "oklch(72% 0.12 240)",
+    "--dsw-alias-state-business-primary": "oklch(72% 0.12 240)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(72% 0.12 240), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(72% 0.12 240), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(72% 0.12 240), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(34% 0.02 240)",
+    "--dsw-alias-markdown-inline-code": "oklch(40% 0.02 240)",
+    "--dsw-alias-label-primary-foreground": "oklch(28% 0.02 240)",
+    "--dsw-specific-menu": "oklch(40% 0.02 240)"
+  },
+  "label": "Bloom · 黛蓝 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 240), oklch(34% 0.02 240))"
+},
+{
+  "id": "tavern-bloom-lavender",
+  "colorScheme": "light",
+  "schemeFamily": "tavern-bloom-lavender",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(52% 0.11 295)",
+    "--dsw-alias-brand-primary-invert": "oklch(97% 0.012 295)",
+    "--dsw-alias-brand-text": "oklch(97% 0.012 295)",
+    "--dsw-alias-bg-base": "oklch(97% 0.012 295)",
+    "--dsw-alias-bg-layer-1": "oklch(95% 0.014 295)",
+    "--dsw-alias-bg-layer-2": "oklch(92.5% 0.016 295)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(92.5% 0.016 295), oklch(25% 0.02 295) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(97% 0.012 295)",
+    "--dsw-alias-bg-overlay": "oklch(95% 0.014 295)",
+    "--dsw-alias-label-primary": "oklch(25% 0.02 295)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(25% 0.02 295), oklch(97% 0.012 295) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(25% 0.02 295), oklch(97% 0.012 295) 32%)",
+    "--dsw-alias-border-l1": "rgba(164, 148, 190, 0.16)",
+    "--dsw-alias-border-l2": "rgba(164, 148, 190, 0.28)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(97% 0.012 295), rgb(164, 148, 190) 13%)",
+    "--dsw-specific-input-major": "oklch(95% 0.014 295)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(97% 0.012 295), oklch(25% 0.02 295) 3%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(52% 0.11 295), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(52% 0.11 295)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(52% 0.11 295), black 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(97% 0.012 295)",
+    "--dsw-alias-button-info-fill": "oklch(52% 0.11 295)",
+    "--dsw-alias-state-business-primary": "oklch(52% 0.11 295)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(52% 0.11 295), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(52% 0.11 295), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(52% 0.11 295), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(95% 0.014 295)",
+    "--dsw-alias-markdown-inline-code": "oklch(92.5% 0.016 295)",
+    "--dsw-alias-label-primary-foreground": "oklch(97% 0.012 295)",
+    "--dsw-specific-menu": "oklch(92.5% 0.016 295)"
+  },
+  "label": "Bloom · 青莲",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.012 295), oklch(95% 0.014 295))"
+},
+{
+  "id": "tavern-bloom-lavender-dark",
+  "colorScheme": "dark",
+  "schemeFamily": "tavern-bloom-lavender",
+  "tokens": {
+    "--dsw-alias-brand-primary": "oklch(75% 0.11 295)",
+    "--dsw-alias-brand-primary-invert": "oklch(26% 0.02 295)",
+    "--dsw-alias-brand-text": "oklch(26% 0.02 295)",
+    "--dsw-alias-bg-base": "oklch(26% 0.02 295)",
+    "--dsw-alias-bg-layer-1": "oklch(32% 0.022 295)",
+    "--dsw-alias-bg-layer-2": "oklch(38% 0.024 295)",
+    "--dsw-alias-bg-layer-3": "color-mix(in oklch, oklch(38% 0.024 295), oklch(96% 0.012 295) 5%)",
+    "--dsw-alias-bg-module-platform": "oklch(26% 0.02 295)",
+    "--dsw-alias-bg-overlay": "oklch(32% 0.022 295)",
+    "--dsw-alias-label-primary": "oklch(96% 0.012 295)",
+    "--dsw-alias-label-secondary": "color-mix(in oklch, oklch(96% 0.012 295), oklch(26% 0.02 295) 25%)",
+    "--dsw-alias-label-tertiary": "color-mix(in oklch, oklch(96% 0.012 295), oklch(26% 0.02 295) 32%)",
+    "--dsw-alias-border-l1": "rgba(164, 148, 190, 0.18)",
+    "--dsw-alias-border-l2": "rgba(164, 148, 190, 0.3)",
+    "--dsw-specific-sidebar-fill": "color-mix(in oklch, oklch(26% 0.02 295), rgb(164, 148, 190) 10%)",
+    "--dsw-specific-input-major": "oklch(32% 0.022 295)",
+    "--dsw-specific-bubble": "color-mix(in oklch, oklch(26% 0.02 295), oklch(96% 0.012 295) 6%)",
+    "--dsw-specific-bubble-highlight": "color-mix(in oklch, oklch(75% 0.11 295), transparent 84%)",
+    "--dsw-alias-button-primary-fill": "oklch(75% 0.11 295)",
+    "--dsw-alias-button-primary-hover": "color-mix(in oklch, oklch(75% 0.11 295), white 8%)",
+    "--dsw-alias-button-primary-dimmed": "oklch(26% 0.02 295)",
+    "--dsw-alias-button-info-fill": "oklch(75% 0.11 295)",
+    "--dsw-alias-state-business-primary": "oklch(75% 0.11 295)",
+    "--dsw-alias-state-business-tertiary": "color-mix(in oklch, oklch(75% 0.11 295), transparent 84%)",
+    "--dsw-alias-interactive-bg-hover": "color-mix(in oklch, oklch(75% 0.11 295), transparent 88%)",
+    "--dsw-alias-interactive-bg-active": "color-mix(in oklch, oklch(75% 0.11 295), transparent 76%)",
+    "--dsw-alias-markdown-code-block": "oklch(32% 0.022 295)",
+    "--dsw-alias-markdown-inline-code": "oklch(38% 0.024 295)",
+    "--dsw-alias-label-primary-foreground": "oklch(26% 0.02 295)",
+    "--dsw-specific-menu": "oklch(38% 0.024 295)"
+  },
+  "label": "Bloom · 青莲 深色",
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.02 295), oklch(32% 0.022 295))"
+},
+// END TAVERN COLOR THEMES
 			{
 				id: "abyss",
 				colorScheme: "dark",
@@ -1852,7 +2324,7 @@ window.__ModuleLoader__.load({
 		/** The injected liquid-glass <style> node (leaf-card backdrop blur). */
 		let materialStyleEl = null;
 
-		/** Parse a hex or rgb()/rgba() color into rgba() with the given alpha. */
+		/** Apply wallpaper opacity to a skin color. */
 		function toRgba(color, alpha) {
 			const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
 			if (hex !== null) {
@@ -1863,7 +2335,8 @@ window.__ModuleLoader__.load({
 			}
 			const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/i.exec(color.trim());
 			if (rgb !== null) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
-			return color.trim();
+			const wash = `color-mix(in srgb, ${color.trim()} ${alpha * 100}%, transparent)`;
+			return alpha < 1 && typeof CSS !== "undefined" && CSS.supports("color", wash) ? wash : color.trim();
 		}
 
 		/**
@@ -3970,8 +4443,8 @@ window.__ModuleLoader__.load({
 
 		/** Suggested wallpaper gradient for a theme (P0-3 per-skin recommendation). */
 		function wallpapersSuggestionsFor(activeId) {
-            if (activeId === "tavern-terracotta") return "radial-gradient(ellipse at top right, rgba(204,120,92,.16), transparent 65%), linear-gradient(160deg, #faf9f5, #f5f0e8)";
-            if (activeId === "tavern-terracotta-dark") return "radial-gradient(ellipse at top right, rgba(212,137,108,.14), transparent 65%), linear-gradient(160deg, #181715, #252320)";
+			const bundledGradient = SKINS.find((skin) => skin.id === activeId)?.wallpaperGradient;
+			if (bundledGradient) return bundledGradient;
 			// iOS 弥散光高级感：多层 radial-gradient 表达柔和光斑 + 同色系暗部分层。
 			// 每套皮肤对应一套与配色呼应的弥散光背景（而非生硬的 3 段线性渐变）。
 			const suggestions = {
@@ -5740,6 +6213,7 @@ return FontPicker;
 			// revision doesn't bump as expected — so the selected card follows instantly.
 			let skinRevision = 0;
 			let wallpaperReshadeTimer = null;
+			let popupPreference = ctx.theme.getTheme().preference;
 			const syncSkinWith = (id) => {
 				skinBound?.sync(id, ++skinRevision);
 				// Do NOT re-shade the wallpaper here (issue #29): right after
@@ -5760,11 +6234,22 @@ return FontPicker;
 				// Run after the current event stack instead. Events emitted by our own
 				// override happen while _applyingWallpaper is true and must not enqueue a
 				// second pass.
-				if (wallpaperBackgroundCss() !== null && !_applyingWallpaper) {
+				if (!_applyingWallpaper && !combinedOverrideApplying && (wallpaperBackgroundCss() !== null || snapshot.preference !== popupPreference)) {
 					if (wallpaperReshadeTimer !== null) clearTimeout(wallpaperReshadeTimer);
 					wallpaperReshadeTimer = setTimeout(() => {
 						wallpaperReshadeTimer = null;
-						applyWallpaper2(ctx, ctx.theme.getTheme());
+						const current = ctx.theme.getTheme();
+						if (popupPreference !== current.preference) {
+							popupPreference = current.preference;
+							applyModalOverlay(ctx);
+						}
+						if (wallpaperBackgroundCss() === null) return;
+						const gradient = wallpapersSuggestionsFor(current.preference);
+						if (gradient && followsSkin() && gradient !== readWallpaperGradient()) {
+							setWallpaperKind(ctx, "gradient", gradient);
+						} else {
+							applyWallpaper2(ctx, current);
+						}
 					}, 0);
 				}
 			};
