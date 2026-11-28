@@ -107,6 +107,60 @@ for (const look of Object.keys(LOOKS)) {
   })
 }
 
+// bug:backlog-react-185-r3 (live, Triangle Agency, 11-28): at a fractional device pixel ratio (1707 x 960 at 1.5) a row's
+// measured height can stand a pixel off its drawn one, so drawing or dropping it at the window's edge moves the scroll
+// position by that pixel through the browser's anchoring - across the edge and back on each layout pass, until React
+// stopped the stage (#185). Reading up through long history a few pixels at a time, the 履历 stays open.
+test('reading up through long history at a fractional pixel ratio never loops the window', { timeout: 240000 }, async t => {
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 1707, height: 960 }, deviceScaleFactor: 1.5 })
+  const errors = []
+  page.on('pageerror', error => errors.push(String(error)))
+  await page.setContent('<!doctype html><div id="root" class="fork-gal-stage" data-theme="classic"></div>')
+  await page.addStyleTag({ content: await stageThemeCss() + '\n#root { height: 960px; }\n' })
+  await page.addScriptTag({ content: await browserReactScript() + `
+    const React=modules.react, ReactDOM=modules['react-dom/client'];
+    ${stageClientPage()}
+    const stage=stageClient.start({options:stageHost.options(),sessionInputs:()=>stageHost.sessionInputs({native:stageHost.nativeSession().native})});
+    if(!stage.views)throw new Error('stage client did not mount: '+stage.errors.map(args=>String(args[1]?.stack||args[1])).join('\\n'));
+    window.GalBacklog=stage.views.backlogView.Backlog;
+    ` })
+  await page.evaluate(() => {
+    // 130 earlier rounds of a seeded mix: short and long lines, wrapped narration and long lists.
+    let s = 1
+    const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647, count = n => 1 + Math.floor(rnd() * n)
+    const list = n => Array.from({ length: n }, (_, k) => '- 条目' + k + '：' + '很长的一段文字，'.repeat(count(6))).join('\n')
+    const unit = i => {
+      const r = rnd()
+      if (r < 0.1) return { kind: 'narration', text: 'R' + i + ' ' + list(4 + count(60)), para: i + 1 }
+      if (r < 0.5) return { kind: 'narration', text: 'R' + i + ' ' + '叙述文字会换行。'.repeat(count(30)), para: i + 1 }
+      return { kind: 'line', alias: 'sayo', name: '小夜', text: 'R' + i + ' ' + '一句台词。'.repeat(count(20)), para: i + 1 }
+    }
+    const index = new Map(Array.from({ length: 130 }, (_, t) => [t + 1, { units: Array.from({ length: 2 + count(12) }, (_, i) => unit(t * 100 + i)) }]))
+    const inputs = Object.fromEntries(Array.from({ length: 131 }, (_, i) => [i + 1, 'R-in' + i + ' ' + '我说的话。'.repeat(i % 7 + 1)]))
+    const current = Array.from({ length: 12 }, (_, i) => ({ kind: 'narration', text: 'R-now' + i + ' ' + 'This round. '.repeat(i % 5 + 1), para: i + 1 }))
+    modules['react-dom'].flushSync(() => ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(GalBacklog, {
+      sessionId: 'offline', turn: 131, pages: current, page: 9, textIndex: index, inputs, config: {},
+      colorOf: () => '', avatarOf: () => null, nameOf: alias => alias, onClose() {}, onJump() {}
+    })))
+  })
+  await page.waitForTimeout(300)
+  // 7 px a frame from 300 px above the end, each step read, measured and anchored before the next
+  const steps = await page.evaluate(() => new Promise(done => {
+    let step = 0
+    const tick = () => {
+      const box = document.querySelector('.fork-gal-backlog-list')
+      if (!box || step >= 1600) return done(step)
+      box.scrollTop = box.scrollHeight - box.clientHeight - 300 - 7 * step++
+      requestAnimationFrame(() => requestAnimationFrame(tick))
+    }
+    tick()
+  }))
+  assert.deepEqual(errors, [])
+  assert.equal(steps, 1600, 'the 履历 closed after ' + steps + ' steps')
+})
+
 test('at the end a new page keeps the end in view; scrolled up it keeps the rows where they are', { timeout: 120000 }, async t => {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
