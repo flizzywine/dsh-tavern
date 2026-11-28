@@ -117,6 +117,28 @@ test('first reference is stable and prepares prompt once without changing transc
   await f.say(f.grant()); assert.equal(f.calls[0].slot,undefined); assert.equal(f.calls[0].text,'global'); assert.equal(f.calls[0].reference.promptText,'global'); assert.equal(f.calls[0].reference.transcript,'abc')
   await f.tts.dispose()
 })
+test('a reference voice reads its pool once and while the line ahead still speaks; a replaced source reads anew',async () => {
+  // bug:drama3-voice-slow: each line re-read the whole pool from the asset library inside the provider lane, so a local
+  // worker sat idle between lines for as long as those reads waited behind pack writes.
+  const tts=createTts({profileId:'test'}), reads=[], spoken=[], first=deferred()
+  tts.registerProvider('test',{id:'p',kind:'reference',revision:'one',capabilities:{paid:false,voiceKinds:['reference'],referenceInput:['bytes-list-v1']},
+    synthesize:async input => {spoken.push(input.text); if (input.text === 'one') await first.promise; return audio}})
+  const pool=name => ({...voice,id:name,kind:'reference',params:{},references:[1,2,3].map(n => ({sha256:hash(Buffer.from(name+n)),transcript:name+n,language:'ja'}))})
+  const register=revision => tts.registerVoiceSource({owner:'consumer',sourceId:'card',revision,voices:[pool('a'),pool('b')],bindings:{a:'p',b:'p'},readReference:async sha => {reads.push(sha);return audio}})
+  const source=register('one'), consumer=() => tts.grantConsumer({source:'card',principal:'user',scope:'card'}).grant
+  let grant=consumer()
+  const say=(id,text) => tts.synthesize({voice:{source:'card',id},text,language:'ja'},{grant,scope:'card'})
+  const one=say('a','one'); await new Promise(r => setTimeout(r,5))
+  const two=say('b','two'); await new Promise(r => setTimeout(r,5))
+  assert.deepEqual(spoken,['one'])
+  assert.equal(reads.length,6,'the waiting line has read its pool before the line ahead finishes')
+  first.resolve(); await one; await two
+  await say('a','three'); await say('b','four')
+  assert.equal(reads.length,6,'later lines of the same voices read nothing')
+  source.replace({owner:'consumer',sourceId:'card',revision:'two',voices:[pool('a'),pool('b')],bindings:{a:'p',b:'p'},readReference:async sha => {reads.push(sha);return audio}},'one')
+  grant=consumer(); await say('a','five'); assert.equal(reads.length,9)
+  await tts.dispose()
+})
 test('single flight joins, cancelling one waiter does not cancel the other',async () => {
   const f=fixture(), pending=deferred(); f.register(() => pending.promise); f.source()
   const g=f.grant(), c=new AbortController(); const one=f.say(g,undefined,c.signal), two=f.say(g)

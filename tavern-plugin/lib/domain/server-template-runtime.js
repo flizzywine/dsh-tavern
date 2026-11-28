@@ -3,7 +3,7 @@ import { fork } from 'node:child_process'
 import { randomUUID, createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { redactMvuLoadError } from './mvu-diagnostics.js'
 
 const rpcMethods = new Set(['getFullPromptTemplateState', 'saveFullPromptTemplateState',
@@ -60,10 +60,11 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     // Do not inherit API keys, NODE_OPTIONS or arbitrary launch flags. File access
     // is limited to executable dependencies and plugin code, never profile data.
     const modules = dirname(dirname(require.resolve('jsdom/package.json')))
+    const jsdomEntry = pathToFileURL(require.resolve('jsdom')).href
     const plugin = fileURLToPath(new URL('../../', import.meta.url))
     // Node 24 removed the experimental alias; older hosts still need it.
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
-    const child = fork(worker, [], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+    const child = fork(worker, [jsdomEntry], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
       execArgv: [permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=' + heapMb],
       stdio: ['ignore', 'ignore', 'pipe', 'ipc', 'pipe'], serialization: 'advanced', windowsHide: true })
     const record = { child, sessionId, pending: new Map(), busy: true, ready: false, closed: false, stderr: '', usedAt: Date.now(), writes: Promise.resolve() }

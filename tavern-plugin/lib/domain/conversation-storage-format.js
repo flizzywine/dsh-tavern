@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+// Load node:sqlite on first use so CLIs that only import this module do not print its ExperimentalWarning.
+const DatabaseSync = new Proxy(class {}, { construct: (_, args) => new (process.getBuiltinModule('node:sqlite').DatabaseSync)(...args) })
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { createConversationPageStore } from './conversation-page-store.js'
 import { SQLITE_FILENAME, SQLITE_FORMAT } from './conversation-sqlite-store.js'
