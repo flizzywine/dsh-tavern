@@ -15,7 +15,7 @@ const ANATOMY = { figureTop: 0.02, headTop: 0.02, chin: 0.164, feet: 0.99, visib
 // makes a figure descriptor whose still is a plain canvas.
 async function scenePage(t) {
   const { chromium } = await import('playwright')
-  const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required'] }); t.after(() => browser.close())
+  const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }); t.after(() => browser.close())
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } }), errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
@@ -55,6 +55,30 @@ async function scenePage(t) {
   }, ANATOMY)
   return { page, errors }
 }
+
+test('a static figure paints visible pixels on the stage canvas', { timeout: 120000 }, async t => {
+  const { page, errors } = await scenePage(t)
+  await page.evaluate(() => show(figure('static', '#00ff00', {})))
+  await page.waitForFunction(() => scene.debug.stats().figures[0]?.ready, null, { timeout: 30000 })
+  const png = await page.locator('body canvas').screenshot({ timeout: 10000 })
+  const greenPixels = await page.evaluate(async base64 => {
+    const image = new Image()
+    image.src = `data:image/png;base64,${base64}`
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width; canvas.height = image.height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(image, 0, 0)
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    let count = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] < 64 && pixels[i + 1] > 128 && pixels[i + 2] < 64) count++
+    }
+    return count
+  }, png.toString('base64'))
+  assert.ok(greenPixels > 100, `expected the green figure on the stage canvas; found ${greenPixels} green pixels`)
+  assert.deepEqual(errors.filter(text => !/favicon/.test(text)), [])
+})
 
 test('a speaking figure with idle and talking loops keeps the scene frame running and plays its idle loop', { timeout: 120000 }, async t => {
   const { page, errors } = await scenePage(t)
