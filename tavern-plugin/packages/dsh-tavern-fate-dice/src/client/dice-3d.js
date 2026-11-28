@@ -1047,6 +1047,61 @@ void main() {
         }
         col = col * (1.0 - rawOcc * 0.52) + causticGI;
       }
+      if (v2 == 6) {
+        // [12] 剧场切卡 · 化物语高反差平面构成舞台
+        vec2 rotP = rot2(-0.24) * p;
+        float diagStripe = smoothstep(0.012, 0.0, abs(fract(rotP.x * 2.2) - 0.5) - 0.46);
+        float gridFineX = smoothstep(0.008, 0.0, abs(fract(p.x * 3.6 + 0.5) - 0.5));
+        float gridFineY = smoothstep(0.008, 0.0, abs(fract(p.y * 3.6 + 0.5) - 0.5));
+        float archGrid = max(gridFineX, gridFineY) * 0.22;
+
+        vec3 baseDark = vec3(0.032, 0.030, 0.038);
+        vec3 accentRed = vec3(0.86, 0.11, 0.16);
+        vec3 accentGold = vec3(0.95, 0.72, 0.24);
+        vec3 accentViolet = vec3(0.52, 0.30, 0.78);
+
+        vec3 stageAccent = u_tier == 1 ? mix(accentRed, accentGold, 0.35)
+                         : u_tier == 5 ? accentRed
+                         : u_tier == 4 ? vec3(0.45, 0.46, 0.50)
+                         : u_tier == 3 ? accentViolet
+                         : accentRed;
+
+        float slashBand = smoothstep(0.015, -0.015, rotP.x + 0.38) * smoothstep(-0.82, -0.78, rotP.x);
+        float redRibbon = smoothstep(0.012, 0.0, abs(rotP.x - 0.42) - 0.018);
+
+        col = baseDark;
+        col = mix(col, vec3(0.095, 0.092, 0.105), slashBand * 0.85 * distFade);
+        col = mix(col, vec3(0.24, 0.23, 0.25), archGrid * distFade);
+        col = mix(col, stageAccent * (0.68 + 0.35 * max(u_climax, u_charge)), redRibbon * 0.85 * distFade);
+        col = mix(col, vec3(0.14, 0.13, 0.16), diagStripe * 0.14 * distFade);
+
+        float r = length(p);
+        float a = atan(p.y, p.x) + u_time * (0.18 + u_charge * 1.4);
+        float aa = max(0.003, fwidth(r) * 1.25);
+        float ringOuter = smoothstep(aa, 0.0, abs(r - (0.88 - u_charge * 0.08)));
+        float ringInner = smoothstep(aa * 0.9, 0.0, abs(r - 0.52));
+        float ticks = (r > 0.82 && r < 0.88) ? smoothstep(0.09, 0.0, abs(sin(a * 36.0))) * 0.65 : 0.0;
+        float axisCross = (smoothstep(aa * 0.9, 0.0, abs(p.x)) + smoothstep(aa * 0.9, 0.0, abs(p.y))) * step(0.18, r) * step(r, 0.92) * 0.36;
+
+        col = mix(col, vec3(0.92, 0.90, 0.86), clamp((ringOuter * 0.65 + ticks + axisCross) * distFade, 0.0, 1.0));
+        col = mix(col, stageAccent, clamp(ringInner * (0.45 + 0.55 * max(u_climax, u_charge)) * distFade, 0.0, 1.0));
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 0.95) continue;
+          float pr = imp.z / 0.95;
+          float d = length(hit.xy - imp.xy);
+          float wRing = smoothstep(2.0, 0.0, abs(d - (14.0 + pr * 78.0))) * (1.0 - pr) * imp.w;
+          float rRing = smoothstep(2.4, 0.0, abs(d - (8.0 + pr * 54.0))) * (1.0 - pr) * imp.w;
+          col = mix(col, vec3(0.96, 0.94, 0.90), clamp(wRing * 0.92, 0.0, 0.95));
+          col = mix(col, stageAccent, clamp(rRing * 0.95, 0.0, 0.95));
+        }
+
+        float hardShadow = smoothstep(0.16, 0.42, rawOcc);
+        float shadowRim = smoothstep(0.10, 0.24, rawOcc) * (1.0 - hardShadow);
+        col = mix(col, vec3(0.012, 0.010, 0.015), hardShadow * 0.88);
+        col += stageAccent * shadowRim * (0.28 + 0.42 * max(u_climax, u_charge));
+      }
     } else {
       float distFade = exp(-rad * rad * 0.42);
 
@@ -1208,6 +1263,10 @@ void main() {
     float skyH = clamp(rayDir.z * 3.0, 0.0, 1.0);
     if (u_theme == 8) col = mix(vec3(0.76, 0.71, 0.62), vec3(0.62, 0.57, 0.49), skyH);
     else if (u_theme == 10) col = mix(vec3(0.80, 0.79, 0.77), vec3(0.72, 0.71, 0.69), skyH);
+    else if (u_theme == 12) {
+      vec3 duskRed = u_tier == 4 ? vec3(0.16, 0.16, 0.18) : vec3(0.42, 0.055, 0.085);
+      col = mix(duskRed, vec3(0.025, 0.018, 0.032), pow(skyH, 0.7));
+    }
     else if (u_theme == 6) col = mix(vec3(0.05, 0.035, 0.022), vec3(0.015, 0.012, 0.008), skyH);
     else if (u_theme >= 6) col = mix(vec3(0.03, 0.035, 0.055), vec3(0.008, 0.01, 0.018), skyH);
     else if (u_theme == 4) col = mix(vec3(0.58, 0.56, 0.52), vec3(0.32, 0.34, 0.36), skyH);
@@ -1644,6 +1703,47 @@ void main() {
     }
 
     // [11: murano] 深海星仪：威尼斯微磨砂海琉璃 & 斯涅尔真实背景星轨折射
+    if (v2 == 6) {
+      // [12] 剧场切卡 · 化物语赛璐璐高反差黑白红双色骰
+      bool isIvory = (u_dieIndex % 2) == 1;
+      vec3 crimson = vec3(0.88, 0.11, 0.16);
+      vec3 gold = vec3(0.96, 0.76, 0.28);
+
+      float ndl = dot(N, L1);
+      float celBand = ndl > 0.58 ? 1.0 : (ndl > 0.16 ? 0.64 : 0.30);
+
+      vec3 bodyHi = isIvory ? vec3(0.96, 0.94, 0.90) : vec3(0.14, 0.135, 0.16);
+      vec3 bodyMid = isIvory ? vec3(0.84, 0.81, 0.77) : vec3(0.075, 0.072, 0.09);
+      vec3 bodyLo = isIvory ? vec3(0.64, 0.61, 0.58) : vec3(0.032, 0.030, 0.042);
+
+      vec3 body = celBand > 0.8 ? bodyHi : (celBand > 0.45 ? bodyMid : bodyLo);
+      if (celBand < 0.45) {
+        float hatch = smoothstep(0.15, 0.0, abs(fract((gl_FragCoord.x + gl_FragCoord.y) * 0.16) - 0.5) - 0.32);
+        body = mix(body, isIvory ? vec3(0.46, 0.44, 0.43) : vec3(0.018, 0.016, 0.024), hatch * 0.38);
+      }
+
+      vec3 edgeCol = isIvory ? vec3(0.08, 0.07, 0.09) : crimson;
+      body = mix(body, edgeCol, ridgeLine * (isIvory ? 0.78 : 0.62) * (1.0 - glyphMask));
+
+      float inkRim = smoothstep(0.30, 0.14, NdotV);
+      body = mix(body, isIvory ? vec3(0.04, 0.035, 0.05) : vec3(0.92, 0.14, 0.20) * 0.55, inkRim * 0.78);
+
+      vec3 glyphCol = isIvory ? vec3(0.06, 0.055, 0.07) : vec3(0.96, 0.94, 0.90);
+      if (isMaxFace || (u_settled > 0.5 && isWinFace && u_tier == 1)) {
+        glyphCol = u_tier == 1 && u_settled > 0.5 ? mix(crimson, gold, 0.45) : crimson;
+      } else if (!isIvory && isWinFace && u_settled > 0.5) {
+        glyphCol = vec3(1.0, 0.98, 0.95);
+      }
+
+      vec3 moatCol = isIvory ? vec3(0.96, 0.94, 0.90) : vec3(0.03, 0.028, 0.04);
+      body = mix(body, moatCol, moatMask * 0.82);
+      body = mix(body, glyphCol, glyphMask);
+      if (u_settled > 0.5 && !isWinFace) body *= 0.80;
+
+      fragColor = vec4(applyContestSideTint(body, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
     vec3 env = sampleStudioEnv(R, 5);
     vec3 refrDir = refract(-V, N, 1.0 / 1.51);
     float tFloor = -v_worldPos.z / min(-0.18, refrDir.z);
@@ -2057,6 +2157,15 @@ uniform float u_chroma;
 uniform float u_bulletTime;
 uniform float u_bloomStrength;
 uniform float u_time;
+uniform int u_tier;
+uniform float u_fxFlash;
+uniform float u_fxMono;
+
+float hashFilmMono(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
 
 vec3 acesFilm(vec3 x) {
   const float a = 2.51;
@@ -2118,6 +2227,35 @@ void main() {
       vec3 c = hdr * lightVig;
       c = c / (1.0 + max(vec3(0.0), c - 0.92) * 0.8);
       fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      return;
+    }
+    if (u_theme == 12) {
+      vec2 uv = clamp(v_uv, 0.001, 0.999);
+      float ca = (0.0022 + u_fxFlash * 0.016) * (0.4 + length(fromCenter) * 1.4);
+      vec3 c;
+      c.r = texture(u_sceneTex, clamp(uv + vec2(ca, 0.0), 0.001, 0.999)).r;
+      c.g = texture(u_sceneTex, uv).g;
+      c.b = texture(u_sceneTex, clamp(uv - vec2(ca, 0.0), 0.001, 0.999)).b;
+      if (u_bloomStrength > 0.001) {
+        c += texture(u_bloomTex, uv).rgb * u_bloomStrength;
+      }
+      c = clamp((c - 0.03) * 1.12, 0.0, 1.0);
+      float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      if (u_fxMono > 0.01) {
+        if (u_tier == 5) {
+          float redness = clamp((c.r - max(c.g, c.b)) * 2.4, 0.0, 1.0);
+          vec3 bw = vec3(smoothstep(0.12, 0.82, luma));
+          c = mix(c, mix(bw, vec3(0.95, 0.08, 0.14), redness), u_fxMono);
+        } else {
+          c = mix(c, vec3(luma * 0.96, luma * 0.98, luma * 1.04), u_fxMono);
+        }
+      }
+      if (u_fxFlash > 0.35) {
+        c = mix(c, vec3(1.0) - c, smoothstep(0.35, 0.85, u_fxFlash) * 0.78);
+      }
+      float grain = (hashFilmMono(gl_FragCoord.xy + fract(u_time * 17.3) * 100.0) - 0.5) * 0.045;
+      float vig = 1.0 - dot(fromCenter, fromCenter) * 0.34;
+      fragColor = vec4(clamp(c * vig + grain, 0.0, 1.0), 1.0);
       return;
     }
     float vig = 1.0 - dot(fromCenter, fromCenter) * 0.28;
@@ -2420,8 +2558,8 @@ class WebGLDiceRenderer {
 
     this.compositeProg = cacheUniforms(linkProgram(gl, FULLSCREEN_VERT, COMPOSITE_FRAG), [
       'u_sceneTex', 'u_bloomTex', 'u_resolution', 'u_sceneTexSize',
-      'u_theme', 'u_shockwave', 'u_chroma', 'u_bulletTime',
-      'u_bloomStrength', 'u_time'
+      'u_theme', 'u_tier', 'u_shockwave', 'u_chroma', 'u_bulletTime',
+      'u_bloomStrength', 'u_time', 'u_fxFlash', 'u_fxMono'
     ])
 
     this.emptyVAO = gl.createVertexArray()
@@ -2654,10 +2792,11 @@ class WebGLDiceRenderer {
 
     const {
       time, themeId, tierCode, climax, charge,
-      camEye, camTarget, camFovRad,
+      camEye, camTarget, camFovRad, camRollRad = 0,
       dice, impacts, slashes,
       particles, shockwave, chroma, bulletTime,
-      usePipsForD6, hiddenMask, bloomEnabled
+      usePipsForD6, hiddenMask, bloomEnabled,
+      fxFlash = 0, fxMono = 0
     } = frame
 
     const isPixelTheme = themeId === 7
@@ -2666,7 +2805,8 @@ class WebGLDiceRenderer {
 
     const aspect = this.width / Math.max(1, this.height)
     mat4Perspective(this._proj, camFovRad, aspect, 18.0, 2600.0)
-    mat4LookAt(this._view, camEye, camTarget, [0, 0, 1])
+    const upVec = Math.abs(camRollRad) > 1e-4 ? [Math.sin(camRollRad), 0, Math.cos(camRollRad)] : [0, 0, 1]
+    mat4LookAt(this._view, camEye, camTarget, upVec)
     mat4Multiply(this._viewProj, this._proj, this._view)
     mat4Invert(this._invViewProj, this._viewProj)
 
@@ -2727,7 +2867,7 @@ class WebGLDiceRenderer {
 
     gl.useProgram(this.diceProg.prog)
     const du = this.diceProg.u
-    const styleSlot = isCuratedV2 ? (themeId - 6) : 4
+    const styleSlot = themeId === 12 ? 0 : (isCuratedV2 ? Math.min(5, themeId - 6) : 4)
     gl.uniformMatrix4fv(du.u_viewProj, false, this._viewProj)
     gl.uniform3f(du.u_camPos, camEye[0], camEye[1], camEye[2])
     gl.uniform1f(du.u_time, time)
@@ -2795,10 +2935,10 @@ class WebGLDiceRenderer {
         gl.blendFunc(gl.ONE, gl.ONE)
       }
       this._drawRibbonsAndSlashes(dice, slashes, camEye, time, themeId, tierCode)
-    } else if (themeId === 8 || themeId === 9 || themeId === 11) {
+    } else if (themeId === 8 || themeId === 9 || themeId === 11 || themeId === 12) {
       gl.depthMask(false)
       gl.enable(gl.BLEND)
-      if (themeId === 8) {
+      if (themeId === 8 || themeId === 12) {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       } else {
         gl.blendFunc(gl.ONE, gl.ONE)
@@ -2813,7 +2953,7 @@ class WebGLDiceRenderer {
     } else {
       gl.depthMask(false)
       gl.enable(gl.BLEND)
-      if (themeId === 8 || themeId === 9 || themeId === 10) {
+      if (themeId === 8 || themeId === 9 || themeId === 10 || themeId === 12) {
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       } else {
         gl.blendFunc(gl.ONE, gl.ONE)
@@ -2900,11 +3040,14 @@ class WebGLDiceRenderer {
     gl.uniform2f(cu.u_resolution, this.width, this.height)
     gl.uniform2f(cu.u_sceneTexSize, activeTarget.w, activeTarget.h)
     gl.uniform1i(cu.u_theme, themeId)
+    gl.uniform1i(cu.u_tier, tierCode)
     gl.uniform4f(cu.u_shockwave, shockwave[0], shockwave[1], shockwave[2], shockwave[3])
     gl.uniform1f(cu.u_chroma, chroma)
     gl.uniform1f(cu.u_bulletTime, bulletTime)
     gl.uniform1f(cu.u_bloomStrength, bloomStr)
     gl.uniform1f(cu.u_time, time)
+    gl.uniform1f(cu.u_fxFlash, fxFlash)
+    gl.uniform1f(cu.u_fxMono, fxMono)
 
     gl.bindVertexArray(this.emptyVAO)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -3545,6 +3688,30 @@ class ProceduralDiceAudio {
     const amp = Math.min(1, Math.max(0.08, strength))
     const jitter = 0.94 + Math.random() * 0.14
 
+    if (preset === 'monogatari') {
+      const wood = ctx.createOscillator()
+      const wg = ctx.createGain()
+      wood.type = 'triangle'
+      wood.frequency.setValueAtTime(1180 * jitter, now)
+      wood.frequency.exponentialRampToValueAtTime(420, now + 0.034)
+      wg.gain.setValueAtTime(0.22 * amp, now)
+      wg.gain.exponentialRampToValueAtTime(0.001, now + 0.042)
+      wood.connect(wg); this._connectPanned(wg, pan)
+
+      const clip = ctx.createOscillator()
+      const cg = ctx.createGain()
+      clip.type = 'sine'
+      clip.frequency.setValueAtTime(3640 * jitter, now)
+      cg.gain.setValueAtTime(0.042 * amp * amp, now)
+      cg.gain.exponentialRampToValueAtTime(0.0008, now + 0.055)
+      clip.connect(cg); this._connectPanned(cg, pan)
+
+      wood.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      wood.start(now); clip.start(now)
+      wood.stop(now + 0.048); clip.stop(now + 0.06)
+      return
+    }
+
     if (preset === 'pixel') {
       const osc = ctx.createOscillator()
       const g = ctx.createGain()
@@ -3721,6 +3888,44 @@ class ProceduralDiceAudio {
     const ctx = this.ensureContext()
     if (!ctx) return
     const now = ctx.currentTime
+
+    if (preset === 'monogatari') {
+      if (this.noiseBuffer) {
+        const clicks = tier === 'fumble' ? [0, 0.055, 0.11] : [0, 0.068]
+        for (const off of clicks) {
+          const ns = ctx.createBufferSource()
+          ns.buffer = this.noiseBuffer
+          const f = ctx.createBiquadFilter()
+          f.type = 'highpass'
+          f.frequency.value = 1800
+          const ng = ctx.createGain()
+          ng.gain.setValueAtTime(0.11, now + off)
+          ng.gain.exponentialRampToValueAtTime(0.001, now + off + 0.022)
+          ns.connect(f); f.connect(ng); ng.connect(this.masterGain)
+          ns.start(now + off); ns.stop(now + off + 0.026)
+        }
+      }
+      let notes = [523.25, 659.25, 783.99, 987.77]
+      if (tier === 'critical') notes = [587.33, 739.99, 880.0, 1108.73, 1479.98]
+      else if (tier === 'costly') notes = [440.0, 523.25, 622.25]
+      else if (tier === 'failure') notes = [392.0, 369.99]
+      else if (tier === 'fumble') notes = [311.13, 220.0, 155.56]
+      notes.forEach((freq, i) => {
+        const t0 = now + 0.04 + i * (tier === 'fumble' ? 0.06 : 0.042)
+        const dur = tier === 'critical' ? 0.48 : (tier === 'fumble' ? 0.34 : 0.26)
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = tier === 'fumble' ? 'sawtooth' : 'triangle'
+        osc.frequency.setValueAtTime(freq, t0)
+        if (tier === 'fumble') osc.frequency.exponentialRampToValueAtTime(freq * 0.72, t0 + dur)
+        g.gain.setValueAtTime(0.001, t0)
+        g.gain.linearRampToValueAtTime(tier === 'fumble' ? 0.055 : 0.082, t0 + 0.012)
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur)
+        osc.connect(g); g.connect(this.masterGain)
+        osc.start(t0); osc.stop(t0 + dur + 0.02)
+      })
+      return
+    }
 
     if (preset === 'pixel') {
       let notes = [523.25, 659.25, 783.99]
@@ -3904,6 +4109,17 @@ const NEXTGEN_THEMES = Object.freeze([
     accent: '#78cad2',
     swatch: 'radial-gradient(circle at 35% 30%, #4ea8b4 0%, #14364a 58%, #08131f 100%)',
     soundPreset: 'murano'
+  },
+  {
+    id: 'monogatari',
+    themeIndex: 12,
+    name: '物语怪异 · 剧场切卡与四主角实拍',
+    subtitle: 'SHAFT Koma & 4-Heroine Cast',
+    badge: '🎬 前置实拍 · 切卡演出',
+    desc: '致敬《化物语》高反差平面构成与新房剪辑：前置按需加载四主角（战场原/忍野忍/黑羽川/八九寺）四镜头实拍动画，随后 60fps 丝滑掷骰与全屏黒/赤/白コマ切卡揭晓结果。',
+    accent: '#d91e2a',
+    swatch: 'linear-gradient(120deg, #0b0a0e 0%, #0b0a0e 48%, #d91e2a 48.5%, #d91e2a 76%, #f4f1ea 76.5%, #f4f1ea 100%)',
+    soundPreset: 'monogatari'
   },
   {
     id: 'astral',
@@ -4499,6 +4715,7 @@ class CinematicDiceStage {
     this.pinSettled = Boolean(options.pinSettled)
 
     this.theme = THEME_BY_ID.atelier
+    this.monogatari = new FdMonogatariDirector()
     this.quality = 'ultra'
     this.usePipsForD6 = false
     this.cinematicCamEnabled = !this.compactMode
@@ -4855,10 +5072,23 @@ class CinematicDiceStage {
     this.revealed = true
     this.settleTime = 0
     this.climax = 1.0
+    if (this.theme.themeIndex === 12) {
+      this.monogatari.onRevealHidden()
+      this.monogatari.onSettle({ mode: 'normal', tier: this.tier, silentStatic: false })
+    }
     this._triggerClimaxFX()
     if (this.audio) this.audio.playSettle(this.theme.soundPreset, this.tier)
     if (this.onRollSettled) this.onRollSettled(this)
     this.wake()
+  }
+
+  skipMonogatariIntro() {
+    if (this.theme.themeIndex !== 12 || !this.monogatari) return false
+    const skipped = this.monogatari.skipIntro()
+    if (skipped && this.audio) {
+      this.audio.playThrowWhoosh(this.theme.soundPreset, 1.0, this.mode)
+    }
+    return skipped
   }
 
   _spawnSpark(opts) {
@@ -5247,6 +5477,15 @@ class CinematicDiceStage {
     this.rollTime = 0
     this.simTime = 0
     this.bouncePlayCursor = 0
+
+    if (this.theme.themeIndex === 12) {
+      this.monogatari.onThrow({
+        mode: this.mode,
+        tier: this.tier,
+        silentStatic: Boolean(spec.silentStatic),
+        compactMode: this.compactMode
+      })
+    }
 
     if (this.audio && !spec.silentStatic) {
       this.audio.playThrowWhoosh(this.theme.soundPreset, 0.95 + power * 0.75, this.mode)
@@ -5782,6 +6021,9 @@ class CinematicDiceStage {
       })
     }
 
+    if (id === 12 && this.monogatari) {
+      this.monogatari.onBounce({ x: b.x, y: b.y, z: b.z || 6, strength: b.strength, isHeavyFirst: heavyFirstHit })
+    }
     if (this.audio) {
       const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
       this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
@@ -5966,6 +6208,7 @@ class CinematicDiceStage {
 
       const hasImpacts = this.impacts.some(imp => imp.strength > 0.001 || (imp._delay && imp._delay > 0))
       const hasSlashes = this.slashes.some(sl => sl.active)
+      const hasMonoFx = this.theme.themeIndex === 12 && this.monogatari && this.monogatari.hasActiveFX()
       const hiddenIdle = this.mode === 'hidden' && !this.revealed && this.settleTime < 3.2
       const sleepAfter = this.theaterMode ? 3.8 : 2.6
       if (
@@ -5975,6 +6218,7 @@ class CinematicDiceStage {
         this.particles.aliveCount === 0 &&
         !hasImpacts &&
         !hasSlashes &&
+        !hasMonoFx &&
         !hiddenIdle
       ) {
         this.running = false
@@ -6177,6 +6421,23 @@ class CinematicDiceStage {
         }
       }
     } else if (!this.settled) {
+      // 化物语皮肤：前置播放开场字卡 + 主角四镜头实拍动画，结束后才放行 3D 骰子落地揭晓结果
+      if (this.theme.themeIndex === 12 && !this.compactMode && this.monogatari && this.monogatari.isHoldingRoll()) {
+        this.rollTime += rawDt
+        this.monogatari.step(rawDt, {
+          charging: this.charging,
+          chargeTime: this.chargeTime,
+          chargeMode: this.chargeMode,
+          settled: this.settled,
+          settleTime: this.settleTime,
+          tier: this.tier,
+          mode: this.mode,
+          fateSlowAmount: this.fateSlowAmount
+        })
+        this._updateSpringCamera(rawDt)
+        return
+      }
+
       const remainingSim = this.maxSimDuration - this.simTime
       const prog = this.simTime / Math.max(0.35, this.maxSimDuration)
       const pwr = this.lastChargePower || 0
@@ -6321,6 +6582,9 @@ class CinematicDiceStage {
           d.settled = true
         }
         if (this.mode !== 'hidden') {
+          if (this.theme.themeIndex === 12 && this.monogatari) {
+            this.monogatari.onSettle({ mode: this.mode, tier: this.tier, silentStatic: false })
+          }
           this._triggerClimaxFX()
           if (this.audio) this.audio.playSettle(this.theme.soundPreset, this.tier)
         }
@@ -6372,6 +6636,17 @@ class CinematicDiceStage {
 
     const slowParticleFactor = Math.max(this.bulletTimeAmount * 0.65, this.fateSlowAmount * 0.55)
     this._stepParticles(rawDt * (1 - slowParticleFactor))
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.step(rawDt, {
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        fateSlowAmount: this.fateSlowAmount
+      })
+    }
     this._updateSpringCamera(rawDt)
   }
 
@@ -6583,6 +6858,7 @@ class CinematicDiceStage {
     const hiddenMask = this.mode === 'hidden' && !this.revealed
     const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
+    const isMono = this.theme.themeIndex === 12
     this.renderer.render({
       time: this.clock,
       themeId: this.theme.themeIndex,
@@ -6592,6 +6868,7 @@ class CinematicDiceStage {
       camEye: this.camEye,
       camTarget: this.camTarget,
       camFovRad: this.camFov,
+      camRollRad: isMono && this.monogatari ? this.monogatari.camRollRad : 0,
       dice: this.dice,
       impacts: this.impacts,
       slashes: this.slashes,
@@ -6601,7 +6878,9 @@ class CinematicDiceStage {
       bulletTime: this.bulletTimeAmount,
       usePipsForD6: this.usePipsForD6,
       hiddenMask,
-      bloomEnabled: this.quality !== 'lite'
+      bloomEnabled: this.quality !== 'lite',
+      fxFlash: isMono && this.monogatari ? this.monogatari.fxFlash : 0,
+      fxMono: isMono && this.monogatari ? this.monogatari.fxMono : 0
     })
 
     if (this.hudCtx) {
@@ -6619,6 +6898,28 @@ class CinematicDiceStage {
     ctx.clearRect(0, 0, W, H)
 
     this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
+
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.renderOverlay(ctx, {
+        W, H,
+        clock: this.clock,
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        mode: this.mode,
+        total: this.total,
+        dice: this.dice,
+        hiddenMask,
+        compactMode: this.compactMode,
+        fateSlowAmount: this.fateSlowAmount,
+        projectToUV: (x, y, z, out) => this.renderer.projectToUV(x, y, z, out)
+      })
+      ctx.restore()
+      return
+    }
 
     if (this.settled && !this.charging && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
       drawThemeSealOverlay(ctx, {
@@ -6973,6 +7274,28 @@ class CinematicDiceStage {
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
 
       this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
+
+    if (this.theme.themeIndex === 12 && this.monogatari) {
+      this.monogatari.renderOverlay(ctx, {
+        W, H,
+        clock: this.clock,
+        charging: this.charging,
+        chargeTime: this.chargeTime,
+        chargeMode: this.chargeMode,
+        settled: this.settled,
+        settleTime: this.settleTime,
+        tier: this.tier,
+        mode: this.mode,
+        total: this.total,
+        dice: this.dice,
+        hiddenMask,
+        compactMode: this.compactMode,
+        fateSlowAmount: this.fateSlowAmount,
+        projectToUV: (x, y, z, out) => this.renderer.projectToUV(x, y, z, out)
+      })
+      ctx.restore()
+      return
+    }
 
       const sealWindow = this.pinSettled ? Infinity : (this.theaterMode ? 3.5 : 2.5)
       if (this.mode !== "contest" && this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {

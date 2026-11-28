@@ -2,14 +2,16 @@
 
 宿主侧 `ctx.tavern` 中挂图片等媒体、保存插件数据、声明本局配置项的接口。
 
-## 剧本库（`scriptLibrary: 1`）
+## 剧本库（`scriptLibrary: 1`、`scriptLibraryRead: 1`）
 
-全局插件可以用下面的只读接口选取剧本库中的原文。用 `ctx.tavern.capabilities.scriptLibrary === 1` 检查支持。
+全局插件可以用下面的只读接口选取剧本库中的原文。用 `ctx.tavern.capabilities.scriptLibrary === 1` 检查检索能力，用 `ctx.tavern.capabilities.scriptLibraryRead === 1` 检查顺序分页读取能力。
 
 - `listScriptSources()` 返回 `[{ path, title }]`，可用于构建剧本选择器。
 - `searchScriptSource({ path, query?, limit?, selection? })` 返回 `{ path, title, chunks: [{ id, text }] }`。`path` 取自列表，`query` 最长 2000 字，`limit` 为 1–12，默认 8。每段最多 1000 字，来源已移除时返回 `null`。
   - `selection: 'candidates'` 是默认值，结合关键词匹配和全书抽样返回候选。
   - `selection: 'best-match'` 只返回 BM25 分数最高的一段非空原文，并列时随机取一段。没有关键词命中时，所有非空片段同为零分。
+- `getScriptSourceInfo({ path })`（需 `scriptLibraryRead === 1`）返回 `{ path, title, sourceChars, chunkCount, chunkSize, contentHash }`，来源不存在时返回 `null`。
+- `readScriptRange({ path, start?, count? })`（需 `scriptLibraryRead === 1`）顺序分页读取剧本块。`start` 为起始块下标（默认 0，须为非负整数），`count` 为 1–20 的整数（默认 8）。返回 `{ path, title, sourceChars, totalChunks, start, nextStart, hasMore, chunks: [{ id, order, text }] }`（每段最多 1600 字），来源不存在时返回 `null`。
 
 ## 生图模型与人物、服装库（`imageModels: 1`、`imageLibrary: 1`）
 

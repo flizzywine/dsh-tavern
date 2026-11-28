@@ -249,14 +249,6 @@
   "tavern-plugin/packages/dsh-tavern/lib/state.mjs": [
     "@deepseek-ai/dsh-desktop"
   ],
-  "tavern-plugin/packages/dsh-tavern-dshgo/lib/hosts.js": [
-    "@deepseek-ai/dsh-agent",
-    "@deepseek-ai/dsh-settings",
-    "@deepseek-ai/dsh-skill-filesystem",
-    "@deepseek-ai/dsh-subagent",
-    "@deepseek-ai/dsh-tools",
-    "@deepseek-ai/dsh-typert-protocol"
-  ],
   "tavern-plugin/packages/dsh-tavern-remote/lib/client.js": [
     "@deepseek-ai/dsh-api-gateway/client"
   ],

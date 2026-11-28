@@ -2074,3 +2074,18 @@ test('单回合多判定 1+2+3：发前条件拆解 / Agent 实时真骰工具 /
   assert.match(clientCode, /发前拆解 \+ Agent 实时真骰工具/)
   assert.match(clientCode, /发前拆解 \+ 备用宿命序列/)
 })
+
+test('物语怪异皮肤：白名单设置持久化、外置按需默认源与四主角前置演出契约', async () => {
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.monogatariActor, 'auto')
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.monogatariIntroMode, 'full')
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.monogatariMediaBase, '')
+
+  const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  assert.match(clientCode, /id: 'monogatari'/)
+  assert.match(clientCode, /themeIndex: 12/)
+  assert.match(clientCode, /flizzywine\/dsh-tavern@media-assets\/fate-dice\/monogatari/)
+  assert.match(clientCode, /dsh-fate-dice-monogatari-v1/)
+  assert.match(clientCode, /物语演出角色/)
+  assert.match(clientCode, /物语演出节奏/)
+  assert.match(clientCode, /CLICK TO SKIP/)
+})

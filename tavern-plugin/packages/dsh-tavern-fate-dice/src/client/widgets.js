@@ -169,7 +169,7 @@ function LiveRollBanner(props) {
     }, animation === 'compact' ? 320 : (use3D ? 1120 : 760))
     const hider = setTimeout(() => {
       if (typeof onDismiss === 'function') onDismiss()
-    }, use3D ? 5200 : 4200)
+    }, animation === 'monogatari' ? 12500 : (use3D ? 5200 : 4200))
     return () => {
       if (ticker) clearInterval(ticker)
       clearTimeout(stopper)
@@ -1897,13 +1897,23 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
       clearTimeout(ov.safetyTimer)
       ov.safetyTimer = 0
     }
+    const baseMs = (theme && theme.id === 'monogatari') ? 15000 : 7200
     ov.safetyTimer = setTimeout(() => {
       ov.safetyTimer = 0
       if (!fdFloorRollOverlays.has(ov)) return
       ov.settled = true
       fdToggleNodeClass(wrap, 'is-settled', true)
       ov.scheduleExit(0)
-    }, 7200 + Math.round(Math.max(0, Number(powerVal) || 0) * 500))
+    }, baseMs + Math.round(Math.max(0, Number(powerVal) || 0) * 500))
+  }
+
+  /* 物语怪异前置演出期间轻触剧场可一键跳过动画直达掷骰 */
+  if (typeof wrap.addEventListener === 'function') {
+    wrap.addEventListener('pointerdown', () => {
+      if (ov.stage && typeof ov.stage.skipMonogatariIntro === 'function') {
+        ov.stage.skipMonogatariIntro()
+      }
+    })
   }
 
   const syncPaneGeometry = () => {

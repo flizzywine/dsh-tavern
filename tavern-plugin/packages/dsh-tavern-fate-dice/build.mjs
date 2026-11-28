@@ -11,6 +11,7 @@ export const CLIENT_SOURCE_FILES = [
   'styles.js',
   'bridge.js',
   'uikit.js',
+  'monogatari.js',
   'dice-3d.js',
   'widgets.js',
   'pre-send-gate.js',

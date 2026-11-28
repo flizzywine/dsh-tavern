@@ -1179,3 +1179,771 @@ test('plot-compass:model-reasoning 兼容 DSH 标准 info.reasoning.efforts 与�
 
   mounted.dispose()
 })
+
+test('小说参考纯域逻辑：粘贴切块、骨架合并续拆、结构化用与顺轨改编提示词、游标边界钳制与防泄露', async () => {
+  const {
+    MAX_PASTE_TEXT_CHARS,
+    NOVEL_EXCERPT_TOOL_NAME,
+    NOVEL_INSPECT_TOOL_NAME,
+    advanceNovelCursorOnComplete,
+    applyNovelCursorUpdate,
+    buildNovelAnalyzePrompt,
+    buildNovelReferenceSection,
+    executeNovelToolCall,
+    mergeNovelBlueprintBatch,
+    parseNovelBlueprintSubmission,
+    projectBlueprintForClient,
+    splitPasteTextToChunks
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/novel-reference.js')
+  const {
+    applyPlotCompassNovelRef,
+    buildPlotCompassMaterial,
+    mergePlotCompassUpdate,
+    parsePlotCompassSubmission,
+    plotCompassBodyText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  // 1. 粘贴切块按约 500 汉字/块且单块不超 1600 字符
+  const longText = Array.from({ length: 120 }, (_, i) => `第${i + 1}句雨夜长街风声急，暗处有人低声试探残图下落。`).join('')
+  const chunks = splitPasteTextToChunks(longText, 500)
+  assert.ok(chunks.length >= 4 && MAX_PASTE_TEXT_CHARS === 30000)
+  assert.ok(chunks.every((c, idx) => c.order === idx && c.text.length > 0 && c.text.length <= 1600))
+
+  // 2. 拆书解析与增量续拆合并
+  const analyzePrompt1 = buildNovelAnalyzePrompt({
+    title: '夜雨暗卷',
+    chunks: chunks.slice(0, 2),
+    totalChunks: 4,
+    startChunk: 0,
+    sampledChunks: [{ order: 3, text: '末章采样文本。' }]
+  })
+  assert.match(analyzePrompt1, /<source_window>/)
+  assert.match(analyzePrompt1, /<book_wide_samples>/)
+
+  const parsedBatch1 = parseNovelBlueprintSubmission({
+    dna: {
+      toneAndPacing: '冷峻悬疑，三拍一小转折',
+      conflictEngines: ['信息差反制'],
+      frictionPatterns: ['盟友各自隐瞒底牌'],
+      twistTechniques: ['先抑后扬亮出后手'],
+      arcStructure: '试探 → 反制 → 揭底'
+    },
+    units: [
+      {
+        chapterLabel: '暗室试探与反咬筹码',
+        scenePatterns: ['试探谈判', '信息差'],
+        dramaticCore: '[主角方] 借半枚假筹码迫使 [施压者] 露出真正诉求。',
+        conflictEngine: '双方各怀秘密，谁先交底谁吃亏',
+        frictionDesign: '[施压者] 早已在门外安排耳目并设下三息倒计时',
+        twistOrPayoff: '反客为主掌握谈判主导权',
+        stakes: '筹码归属与合作破裂风险',
+        chunkStart: 0,
+        chunkEnd: 99 // 应被钳制到 maxChunkOrder
+      }
+    ],
+    sourceEntities: ['谢无咎', '天机阁']
+  }, { startIndex: 0, minChunkOrder: 0, maxChunkOrder: 1 })
+  assert.equal(parsedBatch1.units[0].chunkEnd, 1)
+
+  const bp1 = mergeNovelBlueprintBatch(null, parsedBatch1, {
+    id: 'bp-test',
+    title: '夜雨暗卷',
+    sourceKind: 'paste',
+    sourceHash: 'abc123',
+    totalChunks: 4,
+    nextIndexedChunks: 2,
+    sourceChars: longText.length,
+    pasteChunks: chunks,
+    now: 1000
+  })
+
+  const parsedBatch2 = parseNovelBlueprintSubmission({
+    dna: {
+      toneAndPacing: '冷峻悬疑',
+      conflictEngines: ['信息差反制', '限时突围'],
+      frictionPatterns: ['第三方势力趁乱插手'],
+      twistTechniques: ['借刀杀人反制'],
+      arcStructure: '升级 → 决裂'
+    },
+    units: [
+      {
+        chapterLabel: '雨夜断桥截杀',
+        scenePatterns: ['追逃交锋'],
+        dramaticCore: '[主角方] 在退路被封时借 [第三方势力] 搅浑局势脱身。',
+        conflictEngine: '多方势力狭窄地形遭遇',
+        frictionDesign: '桥头伏兵封死常规出口，强行硬闯必留伤势代价',
+        twistOrPayoff: '弃车保帅反将追兵引向对手阵营',
+        chunkStart: 2,
+        chunkEnd: 3
+      }
+    ],
+    sourceEntities: ['断云桥']
+  }, { startIndex: 1, minChunkOrder: 2, maxChunkOrder: 3 })
+
+  const bp2 = mergeNovelBlueprintBatch(bp1, parsedBatch2, {
+    nextIndexedChunks: 4,
+    now: 2000
+  })
+  assert.equal(bp2.units.length, 2)
+  assert.deepEqual(bp2.units.map(u => u.index), [0, 1])
+  assert.deepEqual(bp2.dna.conflictEngines, ['信息差反制', '限时突围'])
+  assert.deepEqual(bp2.sourceEntities, ['谢无咎', '天机阁', '断云桥'])
+
+  // 投影给前端时不暴露 pasteChunks 和 sourceEntities
+  const projected = projectBlueprintForClient(bp2)
+  assert.equal('pasteChunks' in projected, false)
+  assert.equal('sourceEntities' in projected, false)
+
+  // 3. 结构化用 vs 顺轨改编 Prompt 与优先级声明、黑名单防串戏
+  let compass = applyPlotCompassNovelRef({ version: 1 }, {
+    blueprintId: bp2.id,
+    enabled: true,
+    mode: 'adapt_structure',
+    weight: 'balanced'
+  }, { totalUnits: bp2.units.length })
+  compass = readPlotCompass({
+    ...compass,
+    goal: { enabled: true, horizon: 'shortTerm', text: '迫使苏晚交出北岭真图' }
+  })
+
+  const materialAdapt = buildPlotCompassMaterial({
+    card: { name: '苏晚', description: '夜行侠客' },
+    messages: [{ role: 'user', turn: 1, text: '我盯着她袖口。' }, { role: 'assistant', turn: 1, text: '苏晚按住剑柄。' }],
+    compass,
+    novelContext: { blueprint: bp2, novelRef: compass.novelRef }
+  })
+  assert.match(materialAdapt, /<novel_reference_blueprint>/)
+  assert.match(materialAdapt, /ADAPT_STRUCTURE/)
+  assert.match(materialAdapt, /<latest_scene_snapshot>.*<player_goal>.*<novel_reference_blueprint>/)
+  assert.match(materialAdapt, /FORBIDDEN source proper nouns.*谢无咎.*天机阁.*断云桥/)
+  assert.match(materialAdapt, /beats\[\]\.friction/)
+
+  // 顺轨改编游标模式
+  const compassTrack = applyPlotCompassNovelRef(compass, { mode: 'track_arc', cursorUnit: 0 }, { totalUnits: bp2.units.length })
+  const trackSection = buildNovelReferenceSection({
+    blueprint: bp2,
+    novelRef: compassTrack.novelRef,
+    maxRoutes: 4,
+    hasActiveGoal: false,
+    hasScriptWindow: false
+  })
+  assert.match(trackSection, /TRACK_ARC/)
+  assert.match(trackSection, /CURRENT CURSOR UNIT/)
+  assert.match(trackSection, /Upcoming Lookahead Units/)
+  assert.match(trackSection, /novelCursorUpdate/)
+
+  // 4. 提交解析、游标边界钳制与前台零串戏检查
+  const sub = parsePlotCompassSubmission({
+    playArchetypes: ['悬疑调查'],
+    situationDigest: '雨夜对峙一触即发。',
+    shortTerm: [
+      {
+        id: 'st-n1', tag: '假图试探', title: '以半卷残页诈出真图去向', summary: '借信息差反向试探对方底线。',
+        beats: [{ text: '抛出假线索逼问反应', turns: 2, friction: '苏晚同样怀疑你在设局拖延', doneWhen: '苏晚失言漏出真图线索' }],
+        novelTechnique: '借假筹码制造信息差反客为主',
+        sourceHook: '顺轨改编'
+      },
+      { id: 'st-n2', tag: '撤离破庙', title: '暂避锋芒另寻切口', summary: '先拉开距离观察敌动向。', beats: [{ text: '退到庙檐下僵持', turns: 2, friction: '大雨倾盆视线受阻', doneWhen: '摸清庙外埋伏人数' }] }
+    ],
+    midTerm: [
+      { id: 'mt-n1', tag: '北岭对局', title: '潜入北岭核对旧账', summary: '顺线索摸向旧寨。', milestones: ['摸进外围', '质询证人'] },
+      { id: 'mt-n2', tag: '借势脱身', title: '引第三方搅局', summary: '借追兵彼此牵制。', milestones: ['散布风声', '趁乱破局'] }
+    ],
+    longTerm: [
+      { id: 'lt-n1', tag: '真相大白', title: '掀开北岭旧案', vision: '双双直面旧日真凶。' },
+      { id: 'lt-n2', tag: '各自天涯', title: '交易两清分道扬镳', vision: '拿到所需后各奔前程。' }
+    ],
+    novelCursorUpdate: {
+      nextCursorUnit: 99,
+      markAdaptedUnits: [0],
+      graftNote: '已借暗室试探嫁接进破庙对峙，顺延至下一单元'
+    }
+  })
+  assert.equal(sub.shortTerm[0].novelTechnique, '借假筹码制造信息差反客为主')
+
+  const mergedCompass = mergePlotCompassUpdate(
+    { ...compassTrack, pinned: { shortTerm: 'st-n1', midTerm: null, longTerm: null } },
+    sub,
+    { scope: 'all', turn: 2, novelTotalUnits: bp2.units.length }
+  )
+  assert.equal(mergedCompass.novelRef.cursorUnit, 1, 'nextCursorUnit 越界时钳制为最后一个单元下标')
+  assert.deepEqual(mergedCompass.novelRef.adaptedUnits, [0])
+  assert.match(mergedCompass.novelRef.graftNote, /破庙对峙/)
+
+  const pinnedCompass = readPlotCompass({ ...mergedCompass, pinned: { shortTerm: 'st-n1', midTerm: null, longTerm: null } })
+  const body = plotCompassBodyText(pinnedCompass)
+  assert.doesNotMatch(body, /夜雨暗卷|borrow|借假筹码制造信息差反客为主|单元 #/, '前台正文不得泄露参考小说书名、单元号或技巧标签')
+
+  // 游标辅助函数
+  const advanced = advanceNovelCursorOnComplete({ ...compassTrack.novelRef, cursorUnit: 0 }, 2)
+  assert.equal(advanced.cursorUnit, 1)
+  assert.deepEqual(advanced.adaptedUnits, [0])
+  const clampedUpdate = applyNovelCursorUpdate(advanced, { nextCursorUnit: -5, markSkippedUnits: [0, 99] }, 2)
+  assert.equal(clampedUpdate.cursorUnit, 0)
+  assert.deepEqual(clampedUpdate.skippedUnits, [0])
+
+  // 只读参考工具调用
+  const inspectRes = JSON.parse(await executeNovelToolCall({
+    call: { name: NOVEL_INSPECT_TOOL_NAME, arguments: { query: '断桥' } },
+    blueprint: bp2
+  }))
+  assert.equal(inspectRes.ok, true)
+  assert.equal(inspectRes.matched[0].chapterLabel, '雨夜断桥截杀')
+
+  const excerptRes = JSON.parse(await executeNovelToolCall({
+    call: { name: NOVEL_EXCERPT_TOOL_NAME, arguments: { startChunk: 0, count: 2 } },
+    blueprint: bp2
+  }))
+  assert.equal(excerptRes.ok, true)
+  assert.equal(excerptRes.chunks.length, 2)
+  assert.match(excerptRes.warning, /严禁照搬原著/)
+})
+
+test('小说参考全链路 RPC：剧本库分批拆书、跨对话全局共享、粘贴拆书、多工具检索转译、游标更新与优雅降级', async () => {
+  const { createScriptLibrary } = await import('../tavern-plugin/lib/domain/script-library.js')
+  const storyEvents = createStoryEvents()
+  const gameDataMap = new Map()
+  const pluginDataMap = new Map()
+  const runTaskCalls = []
+
+  const sourcePath = 'materials/孤城谍影.txt'
+  let bookChunks = Array.from({ length: 26 }, (_, order) => ({
+    id: `chunk-${String(order + 1).padStart(5, '0')}`,
+    order,
+    text: `第${order + 1}段原著情报战剧情：角色顾沉在老钟表店用暗号试探对手，钟摆声倒计时逼近。`
+  }))
+  const scriptLibrary = createScriptLibrary({
+    fileResources: { list: async () => [sourcePath] },
+    readScript: async p => p === sourcePath
+      ? { path: sourcePath, title: '孤城谍影.txt', sourceChars: 2600, chunkSize: 500, chunks: bookChunks }
+      : undefined
+  })
+
+  const games = {
+    g1: { chatId: 'c1', sessionId: 'g1', cardName: '林月', cardDesc: '民国暗桩' },
+    g2: { chatId: 'c2', sessionId: 'g2', cardName: '白术', cardDesc: '修仙丹师' }
+  }
+
+  let analyzeCallCount = 0
+  let compassToolTrace = []
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    scriptLibrary,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gid => games[gid] ? { chatId: games[gid].chatId, sessionId: gid, cardPath: `cards/${gid}.json` } : null,
+    readLatestSettledTurn: async gid => ({ chatId: games[gid]?.chatId, sessionId: gid, turn: 2, key: '2:0', text: '雨丝斜落石阶，对面的茶摊还亮着灯。' }),
+    readPendingTurn: async gid => ({ chatId: games[gid]?.chatId, sessionId: gid, turn: 2, key: '2:0', text: '雨丝斜落石阶，对面的茶摊还亮着灯。' }),
+    currentKey: async () => '2:0',
+    readTurn: async gid => ({ chatId: games[gid]?.chatId, sessionId: gid, key: '2:0', turn: 2, rawText: '雨丝斜落石阶，对面的茶摊还亮着灯。', text: '雨丝斜落石阶，对面的茶摊还亮着灯。' }),
+    readHistory: async () => [{ turn: 2, input: '推门进茶摊', rawText: '雨丝斜落石阶，对面的茶摊还亮着灯。', text: '雨丝斜落石阶，对面的茶摊还亮着灯。' }],
+    readCard: async gid => ({ name: games[gid]?.cardName || '角色', description: games[gid]?.cardDesc || '' }),
+    readPlayerName: async () => '你',
+    backgroundModel: async () => ({ provider: 'bg', model: 'bg-m' }),
+    foregroundModel: async () => ({ provider: 'fg', model: 'fg-m' }),
+    data: {
+      readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
+      saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      updateSettings: async () => {}
+    },
+    pluginData: {
+      read: async owner => pluginDataMap.get(owner) ?? null,
+      save: async (owner, data) => { pluginDataMap.set(owner, structuredClone(data)) }
+    },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async input => {
+      runTaskCalls.push(input)
+      if (input.tools.some(t => t.name === 'novel_blueprint_submit')) {
+        analyzeCallCount++
+        const isContinuation = /Incremental Continuation Batch/.test(input.prompt)
+        await input.call('novel_blueprint_submit', {
+          dna: {
+            toneAndPacing: '暗流高压、倒计时逼近',
+            conflictEngines: [isContinuation ? '双向暴露危机' : '暗号错位试探'],
+            frictionPatterns: ['对手用反常沉默逼主角先露破绽'],
+            twistTechniques: ['表面服软实则反手锁定退路'],
+            arcStructure: '错位试探 → 定时反咬 → 破局撤离'
+          },
+          units: [
+            {
+              chapterLabel: isContinuation ? '真假身份对峙二番战' : '茶肆暗号试探交锋',
+              scenePatterns: ['试探谈判'],
+              dramaticCore: isContinuation
+                ? '[施压者] 亮出第二枚物证逼迫 [主角方] 站队。'
+                : '[主角方] 借错位暗号反测 [施压者] 是否真知内情。',
+              conflictEngine: '信息不对称下的身份猜疑',
+              frictionDesign: '[施压者] 故意留半句错漏反钓鱼，且外街巡哨正在合拢',
+              twistOrPayoff: '借势把怀疑转移到第三方势力头上',
+              chunkStart: isContinuation ? 16 : 0,
+              chunkEnd: isContinuation ? 25 : 15
+            }
+          ],
+          sourceEntities: ['顾沉', '老钟表店']
+        })
+        return { text: '', traceSessionId: `trace-analyze-${analyzeCallCount}` }
+      }
+
+      // 罗盘推演阶段：若挂载了小说参考只读工具，先检视与翻阅再提交
+      if (input.tools.some(t => t.name === 'novel_blueprint_inspect')) {
+        const r1 = JSON.parse(await input.call('novel_blueprint_inspect', { unitIndex: 0 }))
+        const r2 = JSON.parse(await input.call('novel_excerpt_read', { startChunk: 0, count: 2 }))
+        compassToolTrace.push({ inspected: r1.ok, excerptCount: r2.chunks?.length || 0 })
+      }
+      await input.call('plot_compass_submit', {
+        playArchetypes: ['悬疑调查'],
+        situationDigest: '雨夜茶摊，对方似在试探底细。',
+        shortTerm: [
+          {
+            id: 'st-1', tag: '错位试探', title: '故意抛出半真半假的消息试探茶客', summary: '借信息差反向套出对方真实来意。',
+            beats: [{ text: '反咬一口引出对方后手', turns: 2, friction: '茶客故意留半句错漏反钓鱼，街口更鼓渐近', doneWhen: '茶客露出口风承认在等人' }],
+            novelTechnique: '借错位暗号钓鱼试探与倒计时施压',
+            sourceHook: '顺轨改编'
+          },
+          { id: 'st-2', tag: '绕后查探', title: '借点茶之际查看后院动静', summary: '观察茶摊外围接应人手。', beats: [{ text: '试探后门动向', turns: 2, friction: '伙计紧盯柜台', doneWhen: '确认门外伏兵人数' }] }
+        ],
+        midTerm: [
+          { id: 'mt-1', tag: '暗桩揭底', title: '顺线索反追幕后接头点', summary: '由茶摊顺藤摸瓜。', milestones: ['核对令牌', '反制接头人'] },
+          { id: 'mt-2', tag: '借刀脱身', title: '把巡夜视线引向竞争势力', summary: '坐收渔利趁乱退场。', milestones: ['嫁祸风声', '安全撤离'] }
+        ],
+        longTerm: [
+          { id: 'lt-1', tag: '执棋反杀', title: '反控整条情报暗网', vision: '成为暗线真正执棋人。' },
+          { id: 'lt-n2', tag: '隐姓埋名', title: '销毁账册抽身远遁', vision: '了结旧账悄然退隐。' }
+        ],
+        ...(input.tools[0].parameters.properties.novelCursorUpdate
+          ? {
+              novelCursorUpdate: {
+                nextCursorUnit: 1,
+                markAdaptedUnits: [0],
+                graftNote: '茶摊试探已承接第 1 单元，推进至第 2 单元对峙'
+              }
+            }
+          : {})
+      })
+      return { text: '', traceSessionId: 'trace-compass-novel' }
+    }
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx)
+
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g2', enabled: true })
+
+  // 1. 列出剧本库
+  const srcRes = await pluginApi.callHandler('plot-compass:list-script-sources', {})
+  assert.equal(srcRes.available, true)
+  assert.deepEqual(srcRes.sources.map(s => s.path), [sourcePath])
+
+  // 2. g1 从剧本库拆第一批（16/26 块，且因 >24 块携带全书抽样）
+  const a1 = await pluginApi.callHandler('plot-compass:analyze-novel', {
+    gameId: 'g1',
+    sourceKind: 'script',
+    sourcePath,
+    wait: true,
+    bindToGame: true
+  })
+  assert.equal(a1.status, 'done')
+  assert.equal(a1.blueprint.indexedChunks, 16)
+  assert.equal(a1.blueprint.totalChunks, 26)
+  assert.equal(a1.blueprint.units.length, 1)
+  assert.match(runTaskCalls[0].prompt, /<book_wide_samples>/)
+
+  // 同 hash 再次拆书自动复用不重耗模型
+  const reused = await pluginApi.callHandler('plot-compass:analyze-novel', {
+    gameId: 'g1',
+    sourceKind: 'script',
+    sourcePath,
+    wait: true
+  })
+  assert.equal(reused.reused, true)
+  assert.equal(analyzeCallCount, 1)
+
+  // 3. 续拆下一批（16..26）
+  const cont = await pluginApi.callHandler('plot-compass:continue-novel', {
+    gameId: 'g1',
+    blueprintId: a1.blueprint.id,
+    wait: true
+  })
+  assert.equal(cont.status, 'done')
+  assert.equal(cont.blueprint.indexedChunks, 26)
+  assert.equal(cont.blueprint.units.length, 2)
+
+  // 4. g2 状态共享同一全局骨架，但默认未启用；g2 独立勾选启用顺轨模式
+  const g2StateBefore = await pluginApi.callHandler('plot-compass:state', { gameId: 'g2' })
+  assert.equal(g2StateBefore.novelBlueprints.length, 1)
+  assert.equal(g2StateBefore.plotCompass.novelRef.enabled, false)
+
+  await pluginApi.callHandler('plot-compass:set-novel-ref', {
+    gameId: 'g2',
+    blueprintId: a1.blueprint.id,
+    enabled: true,
+    mode: 'track_arc',
+    weight: 'strong'
+  })
+
+  // 5. g2 推演：Agent 先调用 inspect 和 excerpt 只读工具，再提交路线和游标更新
+  const g2Gen = await pluginApi.callHandler('plot-compass:generate', { gameId: 'g2', scope: 'all', wait: true })
+  assert.equal(g2Gen.status, 'done')
+  assert.deepEqual(compassToolTrace, [{ inspected: true, excerptCount: 2 }])
+  assert.equal(g2Gen.plotCompass.shortTerm[0].novelTechnique, '借错位暗号钓鱼试探与倒计时施压')
+  assert.equal(g2Gen.plotCompass.novelRef.cursorUnit, 1)
+  assert.deepEqual(g2Gen.plotCompass.novelRef.adaptedUnits, [0])
+
+  // 6. 粘贴小说片段拆书（校验过短报错 + 正常提交）
+  await assert.rejects(
+    pluginApi.callHandler('plot-compass:analyze-novel', {
+      gameId: 'g1',
+      sourceKind: 'paste',
+      title: '过短片段',
+      text: '不足两百字。',
+      wait: true
+    }),
+    /至少需要 200 字/
+  )
+  const pasteBody = '黑夜风雪卷过山门，'.repeat(30)
+  const pasteRes = await pluginApi.callHandler('plot-compass:analyze-novel', {
+    gameId: 'g1',
+    sourceKind: 'paste',
+    title: '山门风雪神回',
+    text: pasteBody,
+    wait: true
+  })
+  assert.equal(pasteRes.status, 'done')
+  assert.equal(pasteRes.blueprint.sourceKind, 'paste')
+  assert.equal('pasteChunks' in pasteRes.blueprint, false, '返回给客户端的视图已剥离 pasteChunks')
+
+  // 7. 删除全局骨架后，g2 推演依然优雅降级成功（不会崩溃）
+  const delRes = await pluginApi.callHandler('plot-compass:delete-novel', { blueprintId: a1.blueprint.id })
+  assert.equal(delRes.removed, true)
+  const g2GenAfterDelete = await pluginApi.callHandler('plot-compass:generate', { gameId: 'g2', scope: 'all', wait: true })
+  assert.equal(g2GenAfterDelete.status, 'done')
+
+  mounted.dispose()
+})
+
+test('顺轨改编自动闭环：节拍完成自动进游标与近末尾自动续拆、路线失效偏离嫁接、全新生成与全局模型并发保鲜', async () => {
+  const { createScriptLibrary } = await import('../tavern-plugin/lib/domain/script-library.js')
+  const storyEvents = createStoryEvents()
+  const gameDataMap = new Map()
+  const pluginDataMap = new Map()
+  const genPrompts = []
+
+  const sourcePath = 'materials/长卷试炼.txt'
+  const bookChunks = Array.from({ length: 30 }, (_, order) => ({
+    id: `chunk-${String(order + 1).padStart(5, '0')}`,
+    order,
+    text: `第${order + 1}段试炼原文内容。`
+  }))
+  const scriptLibrary = createScriptLibrary({
+    fileResources: { list: async () => [sourcePath] },
+    readScript: async p => p === sourcePath
+      ? { path: sourcePath, title: '长卷试炼.txt', sourceChars: 3000, chunkSize: 500, chunks: bookChunks }
+      : undefined
+  })
+
+  let currentTurn = 1
+  let currentProse = '苏晚打开密匣确认了第一枚机关钥匙。'
+  let progressOutcomeJson = JSON.stringify({
+    completed: [{ key: 'shortTerm:st-1:0', evidence: '苏晚打开密匣确认了第一枚机关钥匙' }],
+    lapsed: []
+  })
+  let analyzeBatchCount = 0
+
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    scriptLibrary,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gid => gid === 'g1' ? { chatId: 'c1', sessionId: 'g1', cardPath: 'cards/a.json' } : null,
+    readLatestSettledTurn: async () => ({ chatId: 'c1', sessionId: 'g1', turn: currentTurn, key: `${currentTurn}:0`, text: currentProse, source: currentProse, card: { path: 'cards/a.json', name: '苏晚' } }),
+    readPendingTurn: async () => ({ chatId: 'c1', sessionId: 'g1', turn: currentTurn, key: `${currentTurn}:0`, text: currentProse, source: currentProse, card: { path: 'cards/a.json', name: '苏晚' } }),
+    currentKey: async () => `${currentTurn}:0`,
+    readTurn: async () => ({ chatId: 'c1', sessionId: 'g1', key: `${currentTurn}:0`, turn: currentTurn, rawText: currentProse, text: currentProse, source: currentProse, card: { path: 'cards/a.json', name: '苏晚' } }),
+    readHistory: async () => [{ turn: currentTurn, input: '试着开启密匣', rawText: currentProse, text: currentProse }],
+    readCard: async () => ({ name: '苏晚', description: '旅人' }),
+    readPlayerName: async () => '你',
+    backgroundModel: async () => ({ provider: 'bg', model: 'bg-m' }),
+    foregroundModel: async () => ({ provider: 'fg', model: 'fg-m' }),
+    data: {
+      readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
+      saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      updateSettings: async () => {}
+    },
+    pluginData: {
+      read: async owner => pluginDataMap.get(owner) ?? null,
+      save: async (owner, data) => { pluginDataMap.set(owner, structuredClone(data)) }
+    },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async input => {
+      if (input.tools.some(t => t.name === 'novel_blueprint_submit')) {
+        analyzeBatchCount++
+        await input.call('novel_blueprint_submit', {
+          dna: {
+            toneAndPacing: '试炼递增',
+            conflictEngines: ['机关解谜'],
+            frictionPatterns: ['机关暗锁连锁反应'],
+            twistTechniques: ['假门引真路'],
+            arcStructure: '开门 → 闯关'
+          },
+          units: analyzeBatchCount === 1
+            ? [
+                { chapterLabel: '试炼第一重', scenePatterns: ['机关'], dramaticCore: '[主角方] 破解第一重机关。', conflictEngine: '限时解码', frictionDesign: '错一步即毒箭齐发', twistOrPayoff: '暗格弹出真钥', chunkStart: 0, chunkEnd: 7 },
+                { chapterLabel: '试炼第二重', scenePatterns: ['陷阱'], dramaticCore: '[主角方] 穿越连环石室。', conflictEngine: '重力失衡', frictionDesign: '队友立场动摇不愿冒险垫后', twistOrPayoff: '利用坠石卡死机关', chunkStart: 8, chunkEnd: 15 }
+              ]
+            : [
+                { chapterLabel: '试炼第三重', scenePatterns: ['boss战'], dramaticCore: '[主角方] 直面守关傀儡。', conflictEngine: '以弱博强', frictionDesign: '傀儡核心被多层护甲保护', twistOrPayoff: '共鸣声波震碎核心', chunkStart: 16, chunkEnd: 29 }
+              ]
+        })
+        return { text: '', traceSessionId: `trace-b-${analyzeBatchCount}` }
+      }
+
+      genPrompts.push(input.prompt)
+      await input.call('plot_compass_submit', {
+        playArchetypes: ['副本闯关'],
+        situationDigest: '推进下一幕试炼。',
+        shortTerm: [
+          { id: 'st-1', tag: '开锁', title: '破解密匣开启石门', summary: '开启第一道石门。', beats: [{ text: '确认密匣机关钥匙', turns: 2, friction: '暗锁随时可能反锁', doneWhen: '确认了第一枚机关钥匙' }] },
+          { id: 'st-2', tag: '绕道', title: '绕道通风井', summary: '走暗道绕行。', beats: [{ text: '撬开铁栅', turns: 2, friction: '铁栅锈死易出声', doneWhen: '撬开井盖' }] }
+        ],
+        midTerm: [
+          { id: 'mt-1', tag: '闯关', title: '贯通地下石室', summary: '打通整座秘境。', milestones: ['越过石室', '夺得核心'] },
+          { id: 'mt-2', tag: '折返', title: '封印秘境撤离', summary: '毁掉入口离开。', milestones: ['封门', '脱身'] }
+        ],
+        longTerm: [
+          { id: 'lt-1', tag: '登顶', title: '取得最终传承', vision: '继承试炼遗泽。' },
+          { id: 'lt-2', tag: '归隐', title: '带走秘宝归隐', vision: '远走江湖。' }
+        ]
+      })
+      return { text: '', traceSessionId: 'trace-g' }
+    }
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx, {
+    llm: {
+      async stream() {
+        return progressOutcomeJson
+      }
+    }
+  })
+
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
+  const analyzed = await pluginApi.callHandler('plot-compass:analyze-novel', {
+    gameId: 'g1',
+    sourceKind: 'script',
+    sourcePath,
+    wait: true,
+    bindToGame: true
+  })
+  await pluginApi.callHandler('plot-compass:set-novel-ref', {
+    gameId: 'g1',
+    blueprintId: analyzed.blueprint.id,
+    enabled: true,
+    mode: 'track_arc'
+  })
+  await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', wait: true })
+  await pluginApi.callHandler('plot-compass:pin', { gameId: 'g1', horizon: 'shortTerm', routeId: 'st-1' })
+
+  // 1. 回合结算：今期路线全部达成 -> 游标从 0 进到 1（接近 2 个单元末尾），自动触发续拆（analyzeBatchCount 变为 2，单元数变为 3）并重推今期
+  currentTurn = 2
+  await pluginApi.turnSettled('g1')
+  await new Promise(resolve => setTimeout(resolve, 60))
+
+  const afterComplete = await pluginApi.callHandler('plot-compass:state', { gameId: 'g1' })
+  assert.equal(afterComplete.plotCompass.novelRef.cursorUnit, 1)
+  assert.deepEqual(afterComplete.plotCompass.novelRef.adaptedUnits, [0])
+  assert.equal(analyzeBatchCount, 2, '游标接近末尾且原文未拆完时应自动续拆下一段')
+  assert.equal(afterComplete.novelBlueprints[0].units.length, 3)
+
+  // 2. 偏离失效触发：guidance 中应包含偏离嫁接指导
+  currentTurn = 3
+  currentProse = '你一脚踹塌了石门，直接奔向外部悬崖。'
+  progressOutcomeJson = JSON.stringify({
+    completed: [],
+    lapsed: [{ horizon: 'shortTerm', routeId: 'st-1', reason: '玩家已踹塌石门离开密室' }]
+  })
+  await pluginApi.turnSettled('g1')
+  await new Promise(resolve => setTimeout(resolve, 60))
+  assert.ok(genPrompts.some(p => /游标.*第 2 单元|偏离|嫁接/.test(p)), '偏离失效重推应携带顺轨嫁接指导')
+
+  // 3. 全新生成（fresh: true）不丢失 novelRef，且修改全局模型不覆盖全局 novelBlueprints
+  await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', fresh: true, wait: true })
+  await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g1', model: 'foreground' })
+  const afterModelAndFresh = await pluginApi.callHandler('plot-compass:state', { gameId: 'g1' })
+  assert.equal(afterModelAndFresh.modelSelection, 'foreground')
+  assert.equal(afterModelAndFresh.novelBlueprints.length, 1, '修改全局模型不得覆盖全局骨架库')
+  assert.equal(afterModelAndFresh.plotCompass.novelRef.enabled, true, '全新生成保留小说参考绑定')
+  assert.equal(afterModelAndFresh.plotCompass.novelRef.blueprintId, analyzed.blueprint.id)
+
+  mounted.dispose()
+})
+
+test('剧情罗盘面板小说参考 UI：三页签保留原有问号、小说参考页签交互、游标控制与盲盒隐藏化用手法', async t => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://tavern.test/' })
+  const restore = []
+  const install = (name, value) => { restore.push([name, globalThis[name]]); globalThis[name] = value }
+  install('window', dom.window)
+  install('document', dom.window.document)
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  t.after(() => {
+    for (const [name, value] of restore.reverse()) globalThis[name] = value
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+    dom.window.close()
+  })
+
+  const React = (await import('react')).default
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  let def = null
+  vm.runInContext(source, vm.createContext({
+    window: { __ModuleLoader__: { load: v => { def = v } } },
+    console
+  }), { filename: 'dsh-tavern-plot-compass/client.js' })
+  const mod = def.factory(spec => {
+    if (spec === 'react') return React
+    throw new Error('意外依赖：' + spec)
+  })
+
+  const statePayload = {
+    enabled: true,
+    modelSelection: 'background',
+    latestAssistantTurn: 4,
+    scriptLibraryAvailable: true,
+    novelBlueprintTask: { status: 'idle', blueprintId: '', title: '', progressText: '', error: '' },
+    novelBlueprints: [
+      {
+        id: 'bp-ui-1',
+        title: '孤城暗卷',
+        sourceKind: 'script',
+        sourcePath: 'materials/孤城暗卷.txt',
+        sourceHash: 'deadbeef',
+        sourceChars: 2000,
+        totalChunks: 12,
+        indexedChunks: 8,
+        dna: {
+          toneAndPacing: '暗流拉扯',
+          conflictEngines: ['信息差反制'],
+          frictionPatterns: ['对手留半句诱饵'],
+          twistTechniques: ['反客为主'],
+          arcStructure: '试探 → 反转'
+        },
+        units: [
+          { index: 0, id: 'unit-1', chapterLabel: '雨夜茶摊试探', scenePatterns: ['试探'], dramaticCore: '借暗号摸底', conflictEngine: '猜疑', frictionDesign: '对方留错漏钓鱼', twistOrPayoff: '反将一军', chunkStart: 0, chunkEnd: 3 },
+          { index: 1, id: 'unit-2', chapterLabel: '钟表店对峙', scenePatterns: ['对峙'], dramaticCore: '倒计时逼供', conflictEngine: '倒计时', frictionDesign: '外街巡哨逼近', twistOrPayoff: '脱身反控', chunkStart: 4, chunkEnd: 7 }
+        ]
+      }
+    ],
+    plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+    plotCompass: {
+      strength: 'guided',
+      pace: 'natural',
+      stalledTurns: 0,
+      blindBox: false,
+      customDirective: '',
+      goal: { enabled: false, horizon: 'shortTerm', text: '' },
+      novelRef: {
+        enabled: true,
+        blueprintId: 'bp-ui-1',
+        mode: 'track_arc',
+        weight: 'balanced',
+        cursorUnit: 0,
+        adaptedUnits: [],
+        skippedUnits: [],
+        graftNote: '已承接雨夜试探切口'
+      },
+      autoUpdateInterval: 0,
+      maxRoutes: 4,
+      playArchetypes: ['悬疑调查'],
+      customArchetypes: [],
+      situationDigest: '雨夜对峙。',
+      shortTerm: [
+        {
+          id: 'st-1',
+          tag: '套话',
+          title: '以假情报钓鱼试探',
+          summary: '顺势套出相手后手。',
+          novelTechnique: '借错位暗号钓鱼试探',
+          beats: [{ text: '抛出半真半假消息', turns: 2, friction: '对方先装傻反问', doneWhen: '对方露出口风', done: false }]
+        }
+      ],
+      midTerm: [],
+      longTerm: [],
+      pinned: { shortTerm: 'st-1', midTerm: null, longTerm: null },
+      archived: [],
+      chatHistory: [],
+      basedOnTurn: 4
+    }
+  }
+
+  const calls = []
+  const ui = {
+    async callHost(name, args) {
+      calls.push([name, args])
+      if (name === 'plot-compass:state') return structuredClone(statePayload)
+      if (name === 'plot-compass:list-script-sources') {
+        return { available: true, sources: [{ path: 'materials/孤城暗卷.txt', title: '孤城暗卷.txt' }] }
+      }
+      if (name === 'plot-compass:set-novel-ref') {
+        Object.assign(statePayload.plotCompass.novelRef, args)
+        return { plotCompass: structuredClone(statePayload.plotCompass) }
+      }
+      if (name === 'plot-compass:analyze-novel') {
+        return { status: 'running', blueprintId: 'bp-new' }
+      }
+      return { ok: true }
+    }
+  }
+
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+
+  await act(async () => { root.render(React.createElement(mod.PlotCompassPanel, { ui, gameId: 'g-ui-novel' })) })
+
+  // 1. 路线与推演页展示 3 页签、小说参考快捷栏及化用手法
+  const tabLabels = [...host.querySelectorAll('button[role="tab"]')].map(b => b.textContent)
+  assert.equal(tabLabels.includes('路线与推演'), true)
+  assert.equal(tabLabels.includes('小说参考'), true)
+  assert.equal(tabLabels.includes('罗盘设置'), true)
+  assert.match(host.textContent, /📖 化用手法：借错位暗号钓鱼试探/)
+  assert.match(host.textContent, /顺轨 #1\/2/)
+
+  // 2. 切到「小说参考」页签：检验开关、游标微调、从剧本库拆书与粘贴片段表单
+  const novelTab = [...host.querySelectorAll('button[role="tab"]')].find(b => b.textContent === '小说参考')
+  await act(async () => { novelTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.match(host.textContent, /本局小说参考/)
+  assert.match(host.textContent, /全局叙事骨架库/)
+  assert.match(host.textContent, /雨夜茶摊试探/)
+
+  // 点击「▶ 下一单元」微调游标
+  const nextUnitBtn = [...host.querySelectorAll('button')].find(b => b.textContent === '▶ 下一单元')
+  assert.ok(nextUnitBtn)
+  await act(async () => { nextUnitBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.ok(calls.some(([name, args]) => name === 'plot-compass:set-novel-ref' && args.cursorUnit === 1))
+
+  // 打开「+ 从剧本库拆书」触发列表加载
+  const fromScriptBtn = [...host.querySelectorAll('button')].find(b => b.textContent === '+ 从剧本库拆书')
+  await act(async () => { fromScriptBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.ok(calls.some(([name]) => name === 'plot-compass:list-script-sources'))
+  assert.match(host.textContent, /孤城暗卷\.txt/)
+
+  // 切回「路线与推演」并验证盲盒遮罩隐藏 novelTechnique
+  statePayload.plotCompass.blindBox = true
+  const routesTab = [...host.querySelectorAll('button[role="tab"]')].find(b => b.textContent === '路线与推演')
+  await act(async () => { routesTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  // 触发状态重新读取（通过点选节拍或再点一次刷新态，直接重挂载一份验证初始 blindBox 即可）
+  await act(async () => { root.render(React.createElement(mod.PlotCompassPanel, { ui, gameId: 'g-ui-novel-2' })) })
+  assert.match(host.textContent, /盲盒防剧透已开启/)
+  assert.doesNotMatch(host.textContent, /借错位暗号钓鱼试探/)
+
+  await act(async () => { root.unmount() })
+})

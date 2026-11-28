@@ -1,7 +1,23 @@
+import { createHash } from 'node:crypto'
 import { chatHistoryScriptText } from './chat-history-import.js'
 import { bm25Scores, buildBm25Index, tokenizeBigram } from './bm25.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { prepareTextImport } from './text-resource-import.js'
+
+const contentHashes = new WeakMap()
+
+function hashSource(source) {
+  const cached = contentHashes.get(source)
+  if (cached) return cached
+  const hash = createHash('sha256')
+  for (const chunk of source.chunks || []) {
+    hash.update(String(chunk.text ?? ''))
+    hash.update('\0')
+  }
+  const digest = hash.digest('hex').slice(0, 16)
+  contentHashes.set(source, digest)
+  return digest
+}
 
 function bestMatchingChunk(chunks, scores) {
   let highestScore = -Infinity
@@ -91,6 +107,39 @@ export function createScriptLibrary({ fileResources, readScript }) {
     return { path: source.path, title: source.title,
       chunks: selected.map(chunk => ({ id: chunk.id, text: chunk.text.trim().slice(0, 1000) })) }
   }
+  async function inspectSource({ path }) {
+    const source = await readSource(path)
+    if (!source) return null
+    return {
+      path: source.path,
+      title: source.title,
+      sourceChars: source.sourceChars,
+      chunkCount: source.chunks.length,
+      chunkSize: source.chunkSize || 500,
+      contentHash: hashSource(source)
+    }
+  }
+  async function readSourceRange({ path, start = 0, count = 8 }) {
+    const source = await readSource(path)
+    if (!source) return null
+    const totalChunks = source.chunks.length
+    const safeStart = Math.max(0, Math.min(totalChunks, start))
+    const slice = source.chunks.slice(safeStart, safeStart + count)
+    return {
+      path: source.path,
+      title: source.title,
+      sourceChars: source.sourceChars,
+      totalChunks,
+      start: safeStart,
+      nextStart: safeStart + slice.length,
+      hasMore: safeStart + slice.length < totalChunks,
+      chunks: slice.map(chunk => ({
+        id: chunk.id,
+        order: chunk.order,
+        text: chunk.text.trim().slice(0, 1600)
+      }))
+    }
+  }
   async function importSource(payload) {
     const prepared = prepareScriptImport(payload)
     const sourcePath = await fileResources.importText('source', prepared)
@@ -98,5 +147,5 @@ export function createScriptLibrary({ fileResources, readScript }) {
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
 
-  return { importScript, bindScript, deleteScript, readSource, listSources, listSourceTitles, searchSource, importSource }
+  return { importScript, bindScript, deleteScript, readSource, listSources, listSourceTitles, searchSource, inspectSource, readSourceRange, importSource }
 }

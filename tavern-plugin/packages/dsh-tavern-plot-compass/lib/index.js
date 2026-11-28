@@ -10,6 +10,7 @@ import {
   plotCompassWorldbookScanText,
   readPlotCompass
 } from './plot-compass.js'
+import { normalizeNovelBlueprints } from './novel-reference.js'
 import {
   createPlotCompassService,
   extractSectionsFallback,
@@ -49,7 +50,8 @@ function normalizeGlobalDefaults(raw) {
     strength: normalizePlotCompassStrength(src.strength),
     autoUpdateInterval: interval,
     maxRoutes,
-    modelSelection: normalizePlotCompassModel(src.modelSelection) || 'background'
+    modelSelection: normalizePlotCompassModel(src.modelSelection) || 'background',
+    novelBlueprints: normalizeNovelBlueprints(src.novelBlueprints)
   }
 }
 
@@ -81,12 +83,19 @@ export function apply(ctx, options = {}) {
   const knownGameIds = new Set()
   let globalCache = null
   let globalReadInflight = null
+  let globalWriteLock = Promise.resolve()
   let hasExplicitGlobalModel = false
 
   function serializeGame(gameId, work) {
     const id = str(gameId)
     const run = (gameLocks.get(id) || Promise.resolve()).then(work, work)
     gameLocks.set(id, run.catch(() => {}))
+    return run
+  }
+
+  function serializeGlobal(work) {
+    const run = globalWriteLock.then(work, work)
+    globalWriteLock = run.catch(() => {})
     return run
   }
 
@@ -120,24 +129,38 @@ export function apply(ctx, options = {}) {
     return globalReadInflight
   }
 
-  async function saveDefaults(patch = {}, { broadcastExcept = '' } = {}) {
-    const prev = await readDefaults()
-    const modelChanged = patch && typeof patch === 'object' && patch.modelSelection !== undefined
-    if (modelChanged && normalizePlotCompassModel(patch.modelSelection)) {
-      hasExplicitGlobalModel = true
+  function broadcastAllKnown(exceptId = '') {
+    const skip = str(exceptId)
+    for (const gid of knownGameIds) {
+      if (gid && gid !== skip) void publishCompassState(gid)
     }
-    const next = normalizeGlobalDefaults({ ...prev, ...patch })
-    globalCache = next
-    try {
-      if (typeof tavern.savePluginData === 'function') await tavern.savePluginData({ data: next })
-    } catch {}
-    if (modelChanged) {
-      const skip = str(broadcastExcept)
-      for (const gid of knownGameIds) {
-        if (gid && gid !== skip) void publishCompassState(gid)
+  }
+
+  async function updateDefaults(updater, { broadcastExcept = '', broadcastAll = false } = {}) {
+    let modelChanged = false
+    const next = await serializeGlobal(async () => {
+      const prev = await readDefaults()
+      const patch = typeof updater === 'function' ? await updater(structuredClone(prev)) : updater
+      if (!patch || typeof patch !== 'object') return prev
+      if (patch.modelSelection !== undefined && normalizePlotCompassModel(patch.modelSelection)) {
+        hasExplicitGlobalModel = true
+        modelChanged = true
       }
+      const updated = normalizeGlobalDefaults({ ...prev, ...patch })
+      globalCache = updated
+      try {
+        if (typeof tavern.savePluginData === 'function') await tavern.savePluginData({ data: updated })
+      } catch {}
+      return updated
+    })
+    if (modelChanged || broadcastAll) {
+      broadcastAllKnown(broadcastExcept)
     }
     return next
+  }
+
+  async function saveDefaults(patch = {}, { broadcastExcept = '' } = {}) {
+    return await updateDefaults(patch, { broadcastExcept })
   }
 
   async function saveGlobalModel(model, gameId) {
@@ -145,6 +168,47 @@ export function apply(ctx, options = {}) {
     if (id) knownGameIds.add(id)
     const saved = await saveDefaults({ modelSelection: model })
     return saved.modelSelection
+  }
+
+  const blueprintStore = {
+    async list() {
+      return structuredClone((await readDefaults()).novelBlueprints || [])
+    },
+    async get(blueprintId) {
+      const id = str(blueprintId).trim()
+      if (!id) return null
+      const list = (await readDefaults()).novelBlueprints || []
+      const found = list.find(item => item.id === id)
+      return found ? structuredClone(found) : null
+    },
+    async upsert(blueprint) {
+      let savedBlueprint = blueprint
+      const saved = await updateDefaults(prev => {
+        const list = normalizeNovelBlueprints([
+          blueprint,
+          ...(prev.novelBlueprints || []).filter(item => item.id !== blueprint.id)
+        ])
+        savedBlueprint = list.find(item => item.id === blueprint.id) || blueprint
+        return { novelBlueprints: list }
+      })
+      return structuredClone(saved.novelBlueprints.find(item => item.id === blueprint.id) || savedBlueprint)
+    },
+    async remove(blueprintId) {
+      const id = str(blueprintId).trim()
+      if (!id) return false
+      let removed = false
+      await updateDefaults(prev => {
+        const nextList = (prev.novelBlueprints || []).filter(item => {
+          if (item.id === id) {
+            removed = true
+            return false
+          }
+          return true
+        })
+        return removed ? { novelBlueprints: nextList } : null
+      })
+      return removed
+    }
   }
 
   async function readGameView(gameId) {
@@ -214,9 +278,27 @@ export function apply(ctx, options = {}) {
       await tavern.publishState({
         gameId: id,
         name: 'compass',
-        data: service.viewState(record, id, turn, defaults.modelSelection)
+        data: service.viewState(record, id, turn, defaults.modelSelection, {
+          novelBlueprints: defaults.novelBlueprints
+        })
       })
     } catch {}
+  }
+
+  const hasScriptRead = typeof tavern.listScriptSources === 'function'
+    && typeof tavern.getScriptSourceInfo === 'function'
+    && typeof tavern.readScriptRange === 'function'
+
+  const scriptLibrary = {
+    available: hasScriptRead,
+    listSources: async () => hasScriptRead ? await tavern.listScriptSources() : [],
+    getInfo: async path => hasScriptRead ? await tavern.getScriptSourceInfo({ path }) : null,
+    readRange: async ({ path, start = 0, count = 8 } = {}) =>
+      hasScriptRead ? await tavern.readScriptRange({ path, start, count }) : null,
+    search: async ({ path, query = '', limit = 6, selection = 'candidates' } = {}) =>
+      typeof tavern.searchScriptSource === 'function'
+        ? await tavern.searchScriptSource({ path, query, limit, selection })
+        : null
   }
 
   async function resolveModel(gameId, record) {
@@ -399,6 +481,9 @@ export function apply(ctx, options = {}) {
     resolveModel,
     runAgent,
     callModel,
+    blueprintStore,
+    scriptLibrary,
+    onGlobalChange: () => { broadcastAllKnown() },
     onStatus: gameId => { void publishCompassState(gameId) }
   })
 
@@ -532,7 +617,12 @@ export function apply(ctx, options = {}) {
     if (!gameId) return { ok: false, error: '缺少 gameId' }
     const [record, turn] = await Promise.all([readGame(gameId), latestTurnOf(gameId)])
     const defaults = await readDefaults()
-    return { ok: true, ...service.viewState(record, gameId, turn, defaults.modelSelection) }
+    return {
+      ok: true,
+      ...service.viewState(record, gameId, turn, defaults.modelSelection, {
+        novelBlueprints: defaults.novelBlueprints
+      })
+    }
   })
 
   handle('plot-compass:set-enabled', async ({ gameId, enabled } = {}) => {
@@ -587,6 +677,58 @@ export function apply(ctx, options = {}) {
 
   handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal } = {}) => {
     const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal })
+    return { ok: true, plotCompass }
+  })
+
+  handle('plot-compass:list-script-sources', async () => {
+    const res = await service.listScriptSources()
+    return { ok: true, ...res }
+  })
+
+  handle('plot-compass:analyze-novel', async ({ gameId, sourceKind, sourcePath, title, text, force, wait, bindToGame } = {}) => {
+    const res = await service.analyzeNovel({
+      gameId,
+      sourceKind,
+      sourcePath,
+      title,
+      text,
+      force: force === true,
+      wait: wait === true,
+      bindToGame: bindToGame === true
+    })
+    return { ok: true, ...res }
+  })
+
+  handle('plot-compass:continue-novel', async ({ gameId, blueprintId, batchChunks, wait } = {}) => {
+    const res = await service.continueNovel({
+      gameId,
+      blueprintId,
+      batchChunks,
+      wait: wait === true
+    })
+    return { ok: true, ...res }
+  })
+
+  handle('plot-compass:cancel-novel', async () => {
+    const res = await service.cancelNovel()
+    return { ok: true, ...res }
+  })
+
+  handle('plot-compass:delete-novel', async ({ blueprintId } = {}) => {
+    const res = await service.deleteNovel({ blueprintId })
+    return { ok: true, ...res }
+  })
+
+  handle('plot-compass:set-novel-ref', async ({ gameId, enabled, blueprintId, mode, weight, cursorUnit, resetProgress } = {}) => {
+    const plotCompass = await service.setNovelRef({
+      gameId,
+      enabled,
+      blueprintId,
+      mode,
+      weight,
+      cursorUnit,
+      resetProgress: resetProgress === true
+    })
     return { ok: true, plotCompass }
   })
 

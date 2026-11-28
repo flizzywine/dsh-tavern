@@ -100,6 +100,94 @@ test('剧本库单段检索在最高分并列时随机抽取，零分时覆盖�
   assert.deepEqual(candidates.chunks.map(chunk => chunk.id), ['chunk-2'])
 })
 
+test('剧本库顺序读取接口（scriptLibraryRead）：支持元信息哈希、分页读取与全局插件作用域隔离', { skip: !cordis }, async t => {
+  const source = 'materials/长街.txt'
+  let book = {
+    path: source,
+    title: '长街.txt',
+    sourceChars: 120,
+    chunkSize: 500,
+    chunks: Array.from({ length: 12 }, (_, order) => ({
+      id: 'chunk-' + String(order + 1).padStart(5, '0'),
+      order,
+      text: `第 ${order + 1} 段正文内容。`
+    }))
+  }
+  const scriptLibrary = createScriptLibrary({
+    fileResources: { list: async () => book ? [source] : [] },
+    readScript: async path => path === source ? book : undefined
+  })
+
+  const h = await harness(t, {
+    scriptLibrary,
+    data: createPluginData({ store: memoryStore() }),
+    resolveGame: async () => ({ chatId: 'chat-1', sessionId: 'game-1', cardPath: 'cards/a.json' }),
+    cardScope: async () => new Map([['card-plugin', { cards: ['cards/a.json'] }]])
+  })
+
+  let globalPlugin
+  let cardPlugin
+  await h.root.plugin({ name: 'global-plugin', inject: ['tavern'], apply(ctx) { globalPlugin = ctx.tavern } })
+  await h.root.plugin({ name: 'card-plugin', inject: ['tavern'], apply(ctx) { cardPlugin = ctx.tavern } })
+
+  assert.equal(globalPlugin.capabilities.scriptLibrary, 1)
+  assert.equal(globalPlugin.capabilities.scriptLibraryRead, 1)
+
+  const info1 = await globalPlugin.getScriptSourceInfo({ path: source })
+  assert.deepEqual(info1, {
+    path: source,
+    title: '长街.txt',
+    sourceChars: 120,
+    chunkCount: 12,
+    chunkSize: 500,
+    contentHash: info1.contentHash
+  })
+  assert.match(info1.contentHash, /^[0-9a-f]{16}$/)
+
+  // 文本修改后 contentHash 随之改变
+  book = {
+    ...book,
+    chunks: book.chunks.map((c, idx) => idx === 0 ? { ...c, text: '修改后的第 1 段内容。' } : c)
+  }
+  const info2 = await globalPlugin.getScriptSourceInfo({ path: source })
+  assert.notEqual(info2.contentHash, info1.contentHash)
+  assert.equal(await globalPlugin.getScriptSourceInfo({ path: 'materials/不存在.txt' }), null)
+
+  // 分页读取
+  const page1 = await globalPlugin.readScriptRange({ path: source, start: 0, count: 5 })
+  assert.equal(page1.totalChunks, 12)
+  assert.equal(page1.start, 0)
+  assert.equal(page1.nextStart, 5)
+  assert.equal(page1.hasMore, true)
+  assert.equal(page1.chunks.length, 5)
+  assert.equal(page1.chunks[0].order, 0)
+  assert.equal(page1.chunks[4].order, 4)
+
+  const page3 = await globalPlugin.readScriptRange({ path: source, start: 10, count: 5 })
+  assert.equal(page3.start, 10)
+  assert.equal(page3.nextStart, 12)
+  assert.equal(page3.hasMore, false)
+  assert.equal(page3.chunks.length, 2)
+
+  // 越界 start 返回空数组
+  const beyond = await globalPlugin.readScriptRange({ path: source, start: 99, count: 4 })
+  assert.equal(beyond.start, 12)
+  assert.equal(beyond.nextStart, 12)
+  assert.equal(beyond.hasMore, false)
+  assert.deepEqual(beyond.chunks, [])
+
+  // 参数校验
+  await assert.rejects(globalPlugin.getScriptSourceInfo({ path: '' }), TypeError)
+  await assert.rejects(globalPlugin.readScriptRange({ path: '', start: 0, count: 4 }), TypeError)
+  await assert.rejects(globalPlugin.readScriptRange({ path: source, start: -1, count: 4 }), RangeError)
+  await assert.rejects(globalPlugin.readScriptRange({ path: source, start: 0, count: 0 }), RangeError)
+  await assert.rejects(globalPlugin.readScriptRange({ path: source, start: 0, count: 21 }), RangeError)
+
+  // 卡内插件越权调用被拒绝
+  await assert.rejects(cardPlugin.getScriptSourceInfo({ path: source }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  await assert.rejects(cardPlugin.readScriptRange({ path: source, start: 0, count: 4 }), { code: 'TAVERN_PLUGIN_SCOPE' })
+})
+
 test('文风联想从全局小说直接选段，或用后台模型为本轮生成范文', { skip: !cordis }, async t => {
   const cards = { one: 'cards/a.json', another: 'cards/a.json', other: 'cards/b.json' }
   const source = 'materials/夜雨.txt'

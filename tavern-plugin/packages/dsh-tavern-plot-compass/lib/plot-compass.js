@@ -1,4 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import {
+  NOVEL_REF_MODES,
+  NOVEL_REF_WEIGHTS,
+  applyNovelCursorUpdate,
+  buildNovelReferenceSection,
+  emptyNovelRef,
+  normalizeNovelRef
+} from './novel-reference.js'
 
 export const PLOT_COMPASS_SUBMIT_TOOL_NAME = 'plot_compass_submit'
 export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'longTerm'])
@@ -147,6 +155,7 @@ function normalizeShortRoute(raw, index, options = {}) {
   const finalTitle = title || (beats[0]?.text ? beats[0].text.slice(0, 18) : `近期方向 ${index + 1}`)
   const id = cleanText(item.id, { maxLength: 40 }) || `st-${index + 1}-${randomUUID().slice(0, 6)}`
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
+  const novelTechnique = cleanText(item.novelTechnique || item.referenceTechnique, { ...options, maxLength: 48 })
   const direction = cleanText(item.direction || item.angle, { ...options, maxLength: 32 })
   const causalBasis = normalizeCausalBasis(item, options)
   const sceneTrigger = cleanText(item.sceneTrigger || item.entryTrigger || item.catalyst, { ...options, maxLength: 90 })
@@ -159,6 +168,7 @@ function normalizeShortRoute(raw, index, options = {}) {
     ...(causalBasis ? { causalBasis } : {}),
     ...(sceneTrigger ? { sceneTrigger } : {}),
     beats: beats.length > 0 ? beats : [{ text: summary || finalTitle, done: false }],
+    ...(novelTechnique ? { novelTechnique } : {}),
     ...(sourceHook ? { sourceHook } : {})
   }
 }
@@ -175,6 +185,7 @@ function normalizeMidRoute(raw, index, options = {}) {
   const finalTitle = title || `中期篇章 ${index + 1}`
   const id = cleanText(item.id, { maxLength: 40 }) || `mt-${index + 1}-${randomUUID().slice(0, 6)}`
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
+  const novelTechnique = cleanText(item.novelTechnique || item.referenceTechnique, { ...options, maxLength: 48 })
   const direction = cleanText(item.direction || item.angle, { ...options, maxLength: 32 })
   const causalBasis = normalizeCausalBasis(item, options)
   const diegeticOmen = normalizeDiegeticOmen(item, options)
@@ -189,6 +200,7 @@ function normalizeMidRoute(raw, index, options = {}) {
     milestones: milestones.length > 0 ? milestones : [{ text: summary || finalTitle, done: false }],
     ...(stakes ? { stakes } : {}),
     ...(diegeticOmen ? { diegeticOmen } : {}),
+    ...(novelTechnique ? { novelTechnique } : {}),
     ...(sourceHook ? { sourceHook } : {})
   }
 }
@@ -209,6 +221,7 @@ function normalizeLongRoute(raw, index, options = {}) {
   const finalTitle = title || `远期终局 ${index + 1}`
   const id = cleanText(item.id, { maxLength: 40 }) || `lt-${index + 1}-${randomUUID().slice(0, 6)}`
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
+  const novelTechnique = cleanText(item.novelTechnique || item.referenceTechnique, { ...options, maxLength: 48 })
   return {
     id,
     tag: normalizeTag(item.tag || item.routeTag, finalTitle, options),
@@ -218,6 +231,7 @@ function normalizeLongRoute(raw, index, options = {}) {
     prerequisites,
     toneGuidance: toneGuidance || (tone ? `维持「${tone}」的长线叙事伏脉，渐进蓄力，不提前挑明终局结果` : ''),
     ...(diegeticOmen ? { diegeticOmen } : {}),
+    ...(novelTechnique ? { novelTechnique } : {}),
     ...(sourceHook ? { sourceHook } : {})
   }
 }
@@ -271,6 +285,7 @@ export function emptyPlotCompass() {
     blindBox: false,
     customDirective: '',
     goal: { enabled: false, horizon: 'shortTerm', text: '' },
+    novelRef: emptyNovelRef(),
     playArchetypes: [],
     customArchetypes: [],
     situationDigest: '',
@@ -349,6 +364,7 @@ export function readPlotCompass(value) {
     blindBox: src.blindBox === true,
     customDirective: cleanText(src.customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH }),
     goal: normalizePlotCompassGoal(src.goal),
+    novelRef: normalizeNovelRef(src.novelRef),
     playArchetypes: normalizeArchetypeList(src.playArchetypes),
     customArchetypes: normalizeArchetypeList(src.customArchetypes),
     situationDigest: cleanText(src.situationDigest, { maxLength: 240 }),
@@ -436,10 +452,29 @@ const SHORT_STAGE_SCHEMA = Object.freeze({
   required: ['text', 'turns', 'friction', 'doneWhen']
 })
 
-export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES) {
+export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES, { includeNovelCursorUpdate = false } = {}) {
   const limit = normalizePlotCompassMaxRoutes(maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
   const minItems = Math.min(2, limit)
   const countDesc = limit === 1 ? '1 条' : (limit === 2 ? '2 条' : `最多 ${limit} 条（建议 ${Math.max(2, limit - 1)}-${limit} 条）`)
+  const novelTechProp = {
+    type: 'string',
+    description: '可选：若本路线化用了参考小说骨架，用10-35字简述借用的叙事手法或冲突结构（不含剧透与原著专有名词）'
+  }
+  const cursorProp = includeNovelCursorUpdate
+    ? {
+        novelCursorUpdate: {
+          type: 'object',
+          additionalProperties: false,
+          description: '仅在顺轨改编模式（track_arc）需要推进、跳过或重新嫁接小说游标时填写',
+          properties: {
+            nextCursorUnit: { type: 'integer', minimum: 0, description: '更新后的当前游标单元下标（0-based）' },
+            markAdaptedUnits: { type: 'array', items: { type: 'integer', minimum: 0 }, description: '本轮起已演完或正在消化的单元下标列表' },
+            markSkippedUnits: { type: 'array', items: { type: 'integer', minimum: 0 }, description: '因玩家偏离而跳过的单元下标列表' },
+            graftNote: { type: 'string', description: '15-80字简述本次游标推进或偏离嫁接理由' }
+          }
+        }
+      }
+    : {}
   return Object.freeze({
     name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
     description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。若上下文包含 <player_goal> 目标导向，整棵剧情树的所有分支路线必须殊途同归导向达成玩家设定的目标结果。',
@@ -476,7 +511,8 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
               causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
               sceneTrigger: { type: 'string', description: '备选破冰参考（12-35字）：仅当玩家连续被动空转时可供参考的一种现场引子示例，不限制正常临场发挥' },
               beats: { type: 'array', minItems: 1, maxItems: 3, description: '2-3 个多轮推进阶段：每个阶段是一轮演不完的交锋周期，不是单个动作', items: SHORT_STAGE_SCHEMA },
-              sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
+              novelTechnique: novelTechProp,
+              sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离、小说化用、顺轨改编）' }
             },
             required: ['tag', 'title', 'summary', 'beats']
           }
@@ -500,6 +536,7 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
               milestones: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
               stakes: { type: 'string', description: '潜在收获与代价风险' },
               diegeticOmen: { type: 'string', description: '无剧透的世界内可闻风声/环境异象（如茶馆议论、街角告示、远处钟声），供正文自然渗透线索' },
+              novelTechnique: novelTechProp,
               sourceHook: { type: 'string' }
             },
             required: ['tag', 'title', 'summary', 'milestones']
@@ -522,6 +559,7 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
               prerequisites: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1 } },
               toneGuidance: { type: 'string', description: '无剧透的前台氛围指引（仅供正文模型把握长线暗流，不暴露终局结果）' },
               diegeticOmen: { type: 'string', description: '无剧透的远期命运征象或微弱世界涟漪，不提前剧透结局' },
+              novelTechnique: novelTechProp,
               sourceHook: { type: 'string' }
             },
             required: ['tag', 'title', 'vision']
@@ -530,7 +568,8 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
         divergedNote: {
           type: 'string',
           description: '若此前点亮的路线因玩家实际行动已偏离分流，简述分流原因（无则留空）'
-        }
+        },
+        ...cursorProp
       },
       required: ['playArchetypes', 'situationDigest', 'shortTerm', 'midTerm', 'longTerm']
     })
@@ -539,8 +578,8 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
 
 export const PLOT_COMPASS_SUBMIT_TOOL = buildPlotCompassSubmitTool(PLOT_COMPASS_DEFAULT_MAX_ROUTES)
 
-export function buildPlotCompassChatSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES) {
-  const baseTool = buildPlotCompassSubmitTool(maxRoutes)
+export function buildPlotCompassChatSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES, options = {}) {
+  const baseTool = buildPlotCompassSubmitTool(maxRoutes, options)
   return Object.freeze({
     name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
     description: '仅当玩家明确要求生成、修改、重推或替换剧情路线时调用此工具；支持通过 targetScope 指定只刷新某一个时间层级（如 shortTerm / midTerm / longTerm）或 all。',
@@ -602,11 +641,12 @@ export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat,
     shortTerm,
     midTerm,
     longTerm,
-    divergedNote: cleanText(payload.divergedNote, { ...opts, maxLength: 140 })
+    divergedNote: cleanText(payload.divergedNote, { ...opts, maxLength: 140 }),
+    novelCursorUpdate: object(payload.novelCursorUpdate) || null
   }
 }
 
-export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', turn = 0, now = Date.now(), fresh = false } = {}) {
+export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', turn = 0, now = Date.now(), fresh = false, novelTotalUnits = 0 } = {}) {
   const prev = readPlotCompass(previousRaw)
   const next = copy(prev)
   next.updatedAt = now
@@ -668,6 +708,10 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
     updateHorizon('longTerm')
   } else if (PLOT_COMPASS_HORIZONS.includes(scope)) {
     updateHorizon(scope)
+  }
+
+  if (submitted.novelCursorUpdate && next.novelRef?.enabled && next.novelRef?.mode === 'track_arc') {
+    next.novelRef = applyNovelCursorUpdate(next.novelRef, submitted.novelCursorUpdate, novelTotalUnits)
   }
 
   return readPlotCompass(next)
@@ -809,6 +853,76 @@ export function applyPlotCompassPreferences(previousRaw, { strength, pace, blind
     const goalPatch = typeof goal === 'string' ? { text: goal } : (object(goal) || { text: '', enabled: false })
     next = applyPlotCompassGoal(next, { ...goalPatch, now })
   }
+  next.updatedAt = now
+  return next
+}
+
+/**
+ * 更新本局剧情罗盘的小说参考绑定配置（启用状态、全局骨架 ID、结构化用/顺轨改编模式、参考比重与顺轨游标）。
+ */
+export function applyPlotCompassNovelRef(previousRaw, patch = {}, { totalUnits = 0, now = Date.now() } = {}) {
+  const next = readPlotCompass(previousRaw)
+  const prevRef = next.novelRef || emptyNovelRef()
+  const src = object(patch) || {}
+
+  let mode = prevRef.mode
+  if (src.mode !== undefined) {
+    if (!NOVEL_REF_MODES.includes(src.mode)) throw new Error('无效的小说参考模式：' + str(src.mode))
+    mode = src.mode
+  }
+
+  let weight = prevRef.weight
+  if (src.weight !== undefined) {
+    if (!NOVEL_REF_WEIGHTS.includes(src.weight)) throw new Error('无效的小说参考比重：' + str(src.weight))
+    weight = src.weight
+  }
+
+  const blueprintId = src.blueprintId !== undefined
+    ? cleanText(src.blueprintId, { maxLength: 64 })
+    : prevRef.blueprintId
+  const switchedBook = src.blueprintId !== undefined && blueprintId !== prevRef.blueprintId
+  const shouldReset = switchedBook || src.resetProgress === true
+
+  let cursorUnit = shouldReset ? 0 : prevRef.cursorUnit
+  let adaptedUnits = shouldReset ? [] : [...prevRef.adaptedUnits]
+  let skippedUnits = shouldReset ? [] : [...prevRef.skippedUnits]
+  let graftNote = shouldReset ? '' : prevRef.graftNote
+
+  if (src.cursorUnit !== undefined) {
+    if (typeof src.cursorUnit === 'boolean' || src.cursorUnit === null || (typeof src.cursorUnit === 'string' && !src.cursorUnit.trim())) {
+      throw new Error('参考游标单元序号须为非负整数')
+    }
+    const parsed = Number(src.cursorUnit)
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      throw new Error('参考游标单元序号须为非负整数')
+    }
+    cursorUnit = parsed
+  }
+
+  if (totalUnits > 0) {
+    cursorUnit = Math.max(0, Math.min(totalUnits - 1, cursorUnit))
+  }
+
+  let enabled
+  if (!blueprintId) {
+    if (src.enabled === true) throw new Error('请先从全局骨架库选择一本参考小说后再开启')
+    enabled = false
+  } else if (src.enabled !== undefined) {
+    enabled = Boolean(src.enabled)
+  } else {
+    enabled = prevRef.enabled
+  }
+
+  next.novelRef = normalizeNovelRef({
+    enabled,
+    blueprintId,
+    mode,
+    weight,
+    cursorUnit,
+    adaptedUnits,
+    skippedUnits,
+    graftNote
+  })
   next.updatedAt = now
   return next
 }
@@ -1372,6 +1486,7 @@ export function buildPlotCompassMaterial({
   constantWorldbookText = '',
   activatedWorldbookTitles = [],
   scriptWindow = null,
+  novelContext = null,
   scope = 'all',
   guidance = '',
   includeRequest = true,
@@ -1466,6 +1581,20 @@ export function buildPlotCompassMaterial({
     blocks.push(promptSection('player_goal', buildGoalOrientationText(activeGoal)))
   }
 
+  const novelRefNow = novelContext?.novelRef ?? compass.novelRef
+  const novelSection = novelContext?.blueprint
+    ? buildNovelReferenceSection({
+        blueprint: novelContext.blueprint,
+        novelRef: novelRefNow,
+        maxRoutes: compass.maxRoutes,
+        hasActiveGoal: Boolean(activeGoal),
+        hasScriptWindow: Boolean(scriptWindow?.chunks?.length)
+      })
+    : ''
+  if (novelSection) {
+    blocks.push(novelSection)
+  }
+
   if (!fresh && (compass.shortTerm.length || compass.midTerm.length || compass.longTerm.length || compass.customArchetypes.length)) {
     blocks.push(promptSection('existing_plot_compass', JSON.stringify({
       refreshScope: scope,
@@ -1501,6 +1630,9 @@ export function buildPlotCompassMaterial({
       activeGoal
         ? `MANDATORY GOAL ORIENTATION [${goalHorizonLabel} · ${activeGoal.horizon}]: The entire generated plot tree MUST steer toward and achieve the player's target outcome — "${activeGoal.text}". Branch across different tactics/approaches/costs, NEVER across opposing outcomes that fail or abandon this goal!`
         : '',
+      novelSection
+        ? `Novel Reference Active (${novelRefNow?.mode === 'track_arc' ? 'TRACK_ARC' : 'ADAPT_STRUCTURE'}): weave <novel_reference_blueprint>'s conflict engines and frictionDesign into routes (especially \`shortTerm.beats[].friction\`) while strictly obeying <latest_scene_snapshot>${activeGoal ? ' and <player_goal>' : ''} and NEVER leaking source proper nouns.`
+        : '',
       compass.customArchetypes.length > 0
         ? `Player-specified Play Archetypes (MUST honor and build routes around these): ${compass.customArchetypes.join('、')}`
         : 'Infer 1–3 accurate Play Archetypes from the card, worldbook, variables, and story tone.',
@@ -1521,7 +1653,8 @@ export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
   '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and respect the configured per-horizon route count limit (default up to 4). Write each `shortTerm` beat as a multi-turn stage (`text` = the state shift it reaches, `turns` 1–3, `friction` = the live resistance that keeps it from resolving in one turn, `doneWhen` = the verifiable sign it is complete) and `milestones` as concise chapter turns, never as rigid micro-actions, so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
   '4) GOAL-ORIENTED CONVERGENCE: Whenever `<player_goal>` is active, both your brainstorming angles and any routes submitted via `plot_compass_submit` MUST steer toward and achieve the player\'s locked target outcome (differentiating by tactics and paths rather than opposing endings), unless the player explicitly asks to change the goal.',
-  '5) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
+  '5) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.',
+  '6) NOVEL REFERENCE ADAPTATION (When `<novel_reference_blueprint>` is present): Borrow the blueprint\'s conflict craft and `frictionDesign` to enrich this game\'s characters and worldbook hooks while strictly obeying `<latest_scene_snapshot>` and `<player_goal>`, NEVER leaking source proper nouns. You may call `novel_blueprint_inspect` to examine units before replying or calling `plot_compass_submit`.'
 ].join('\n')
 
 export function buildPlotCompassBrainstormPrompt(params) {

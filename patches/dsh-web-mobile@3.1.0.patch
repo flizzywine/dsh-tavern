@@ -32,18 +32,15 @@ diff --git a/lib/client.js b/lib/client.js
    }
  
    /* Expanded state (frame without data-sidebar-collapsed) slides the drawer in.
-@@ -1031,7 +1042,9 @@
+@@ -1031,7 +1042,6 @@
       overflow:hidden drawer to scrollLeft=102, and every static child (plus the
       fixed overlay) shifts 102px off-screen. With transform:none the overlay is
       viewport-anchored: it dims the full screen and the sheet sits at left:8. */
 -  [data-mobile-nav="frame"]:not([data-sidebar-collapsed]) > :first-child {
-+  :root:not([data-dsh-app-layout="drawer"]) [data-mobile-nav="frame"]:not([data-sidebar-collapsed]) > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])),
-+  :root[data-dsh-app-layout="drawer"] [data-mobile-nav="frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])),
-+  :root[data-dsh-app-layout="drawer"] [data-mobile-nav="frame"][data-dsh-app-drawer] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) {
      transform: none !important;
    }
  
-@@ -1121,7 +1134,7 @@
+@@ -1121,7 +1131,7 @@
       (audit S2 2026-08-27 — the old reduce block only covered the settings
       sheet and its mask). Same idiom as the animation:none blocks below. */
    @media (prefers-reduced-motion: reduce) {
@@ -52,7 +49,7 @@ diff --git a/lib/client.js b/lib/client.js
        transition: none !important;
      }
    }
-@@ -1525,7 +1538,8 @@
+@@ -1525,7 +1535,8 @@
       「min-width: 0 !important」 is load-bearing: without it the host's own
       min-width 240px keeps the pane at 240 no matter what width is set. */
    @media (max-width: 767px) and (pointer: coarse) {
@@ -62,7 +59,7 @@ diff --git a/lib/client.js b/lib/client.js
        width: min(208px, calc(100vw - 32px)) !important;
        min-width: 0 !important;
        max-width: calc(100vw - 32px) !important;
-@@ -2356,7 +2370,8 @@
+@@ -2356,7 +2367,8 @@
      height: 30px !important;
      min-height: 0 !important;
    }
@@ -72,7 +69,7 @@ diff --git a/lib/client.js b/lib/client.js
      display: none !important;
    }
    [data-mobile-nav="frame"] [data-phase] header [data-mobile-nav="files"] {
-@@ -3444,7 +3459,7 @@
+@@ -3444,7 +3456,7 @@
    }
    /* The export dialog (not the settings sheet) must never overflow the
       viewport: the official centered card can be wider than 390px. */
@@ -81,7 +78,7 @@ diff --git a/lib/client.js b/lib/client.js
      max-width: calc(100vw - 32px);
    }
    /* Nav bar: hide the "Settings" caption (redundant on a full-width sheet)
-@@ -5683,7 +5698,7 @@
+@@ -5683,7 +5695,7 @@
       max rAF gap 167 -> 33ms; the benefit scales with conversation length.
       Desktop untouched (this block lives inside the max-width: 1023px
       media query). */
@@ -90,7 +87,7 @@ diff --git a/lib/client.js b/lib/client.js
      content-visibility: auto;
      contain-intrinsic-size: auto 600px;
    }
-@@ -5721,7 +5736,7 @@
+@@ -5721,7 +5733,7 @@
       ([data-composer-card], host marker since 0.1.2) and the plugin stats
       row - the dock above the card (todo card, approval / ask-question
       panels) is reply content and stays copyable. */
@@ -99,7 +96,7 @@ diff --git a/lib/client.js b/lib/client.js
    [data-mobile-nav="frame"] [data-phase] header,
    [data-mobile-nav="frame"] [data-composer-card],
    [data-mobile-nav="stats"],
-@@ -5732,9 +5747,9 @@
+@@ -5732,9 +5744,9 @@
    }
    [data-mobile-nav="frame"] [data-composer-input],
    [data-mobile-nav="frame"] [data-composer-card] textarea,
@@ -112,7 +109,7 @@ diff --git a/lib/client.js b/lib/client.js
    [data-mobile-nav="frame"] [data-phase] header input {
      -webkit-user-select: text !important;
      user-select: text !important;
-@@ -5757,7 +5772,7 @@
+@@ -5757,7 +5769,7 @@
       selector here to win; the generic export/other-modal rule is covered by
       the second selector. */
    [aria-modal="true"]:has(> :first-child > :last-child > button):not(:has([role="navigation"])):not(:has([class*="ZuhsRW"])),
@@ -121,22 +118,7 @@ diff --git a/lib/client.js b/lib/client.js
      left: 0 !important;
      right: 0 !important;
      margin-left: auto !important;
-@@ -7129,12 +7144,8 @@
-         const frame = (0, frame_ts_1.getFrame)();
-         if (frame === null)
-             return false;
--        // The user's call (2026-09-13): our drawer is the one users get, even on
--        // hosts that ship their own overlay drawer. The host's version measures
--        // 321px wide with z-index:1100 and, notably, NO full-screen backdrop at all
--        // (measured: the conversation stays hit-testable beside it), which is the
--        // behaviour the phone owner rejected as unusable. So the legacy column
--        // rules stay armed and this backdrop keeps being created.
-+        if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-dsh-app-layout') === 'drawer' && !frame.hasAttribute('data-sidebar-drawer'))
-+            return frame.hasAttribute('data-dsh-app-drawer');
-         return !frame.hasAttribute('data-sidebar-collapsed');
-     };
-     const heroPhase = () => document.querySelector('[data-phase="active"]') === null;
-@@ -7572,6 +7583,7 @@
+@@ -7572,6 +7584,7 @@
  exports.findHorizontalScroller = findHorizontalScroller;
  exports.selectionOwnsStroke = selectionOwnsStroke;
  exports.closeDrawerAnimated = closeDrawerAnimated;
@@ -144,7 +126,7 @@ diff --git a/lib/client.js b/lib/client.js
  exports.installSidebarSwipe = installSidebarSwipe;
  const frame_ts_1 = require("./platform/frame.js");
  const breakpoints_ts_1 = require("./platform/breakpoints.js");
-@@ -8022,17 +8034,25 @@
+@@ -8022,12 +8035,16 @@
      }
      return null;
  }
@@ -163,20 +145,9 @@ diff --git a/lib/client.js b/lib/client.js
 +    }
 +    return null;
  }
--/** True when the drawer is currently open (per the collapsed marker). */
-+/** True when the drawer is currently open (per the collapsed marker, or dsh-go's data-dsh-app-drawer above 768px). */
+ /** True when the drawer is currently open (per the collapsed marker). */
  function drawerOpen() {
-     const frame = (0, frame_ts_1.getFrame)();
--    return frame !== null && !frame.hasAttribute('data-sidebar-collapsed');
-+    if (frame === null)
-+        return false;
-+    if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-dsh-app-layout') === 'drawer' && !frame.hasAttribute('data-sidebar-drawer'))
-+        return frame.hasAttribute('data-dsh-app-drawer');
-+    return !frame.hasAttribute('data-sidebar-collapsed');
- }
- /**
-  * True when the host's right sidebar files panel is currently VISIBLE (any
-@@ -8048,6 +8068,22 @@
+@@ -8048,6 +8065,22 @@
      const panel = document.querySelector('[data-sidebar-right-panel]');
      if (panel === null)
          return false;
@@ -199,7 +170,7 @@ diff --git a/lib/client.js b/lib/client.js
      const cs = getComputedStyle(panel);
      if (cs.visibility === 'hidden' || cs.display === 'none')
          return false;
-@@ -8075,7 +8111,7 @@
+@@ -8075,7 +8108,7 @@
  }
  /** Whether a modal dialog owns the screen (gestures must yield to it). */
  function modalOpen() {
@@ -208,7 +179,7 @@ diff --git a/lib/client.js b/lib/client.js
  }
  /** True when a full-screen takeover (taskboard / ssh) owns the frame, or any
   *  host conversation.view overlay (trajectory tab, dsh-file-viewer, or a
-@@ -8538,6 +8574,80 @@
+@@ -8538,6 +8571,80 @@
      commitWithAnimation(ctx, drawer, target);
      return true;
  }
@@ -289,7 +260,7 @@ diff --git a/lib/client.js b/lib/client.js
  /** Cancel paths: styles back to the host, pointer state to idle. An armed
   * open follow has already flipped the host state, so a cancel must also
   * toggle it back — release the inline pair first so the host transition
-@@ -9139,8 +9249,11 @@
+@@ -9139,8 +9246,11 @@
   * the band to cover it.
   */
  function toggleDrawer(ctx) {
@@ -303,7 +274,7 @@ diff --git a/lib/client.js b/lib/client.js
  }
  function installOverlayInteractions(ctx) {
      (0, breakpoints_ts_1.installMobileEffect)(ctx, 'dsh-web-mobile: drawer close (Escape + navigate)', () => {
-@@ -9159,20 +9272,20 @@
+@@ -9159,20 +9269,20 @@
          const onKeyDown = (event) => {
              if (event.key !== 'Escape')
                  return;
@@ -327,7 +298,7 @@ diff --git a/lib/client.js b/lib/client.js
                  return false;
              if (!drawerOpen())
                  return false;
-@@ -14832,7 +14945,9 @@
+@@ -14832,7 +14942,9 @@
      (0, panel_exit_ts_1.installPanelRowExit)(ctx, panelExit.exit);
      // Session deletion, injected into each session row's ⋯ menu (beside
      // rename / fork / archive) with a confirm dialog. Mobile-only.
@@ -338,7 +309,7 @@ diff --git a/lib/client.js b/lib/client.js
      // Sidebar swipe gestures: edge swipe-in opens the drawer, content swipe-out
      // closes it (release-classified, zero inline transforms — A 档). Since
      // 2026-09-13 the layer also owns the right-edge files gesture (leftward
-@@ -14904,7 +15019,7 @@
+@@ -14904,7 +15016,7 @@
          order: 10,
          locale: locales_ts_1.NS,
          inject: () => ({

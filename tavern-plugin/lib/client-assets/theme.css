@@ -2969,9 +2969,9 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-prompt-row-head > .ap-prompt-owner { grid-area: scope; justify-self: end; max-width: 240px; overflow: hidden; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .ap-prompt-stage-title { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 8px; min-width: 0; }
 /* the stage heads (正文模型 / 导演 / 判断模型) are second-level headings under
-   the 提示词 section title — ui-design §2.6 二级 (heading size, 500, ink-2), never bigger or bolder than their parent; rows
-   are plain body text like 开场设置's. More room above a group than below it. */
-.ap-prompt-stage-head { margin: 22px 0 2px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); font-weight: 500; }
+   the 提示词 section title — ui-design §2.6 二级 (body size, 600, ink, hairline below): bolder than the rows under them, never bigger than the parent; rows
+   are plain body text (400) like 开场设置's. More room above a group than below it. */
+.ap-prompt-stage-head { margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--ap-border); color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 600; }
 .ap-prompt-stage:first-child .ap-prompt-stage-head { margin-top: 14px; }
 .ap-prompt-stage-head .ap-help-anchor, .ap-prompt-stage-head .fork-help-tip { margin-left: 0; }
 .ap-prompt-rows { margin: 0; padding: 0; list-style: none; }
@@ -2987,7 +2987,7 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-prompt-row-head:has(.ap-prompt-toggle:focus-visible) { outline: var(--fork-focus); outline-offset: 0; }
 .ap-prompt-toggle .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-3); transition: transform .15s; }
 .ap-prompt-toggle[aria-expanded=true] .ap-glyph { transform: rotate(90deg); }
-.ap-prompt-name { min-width: 0; overflow-wrap: anywhere; }
+.ap-ui .ap-prompt-row-head .ap-prompt-name { min-width: 0; overflow-wrap: anywhere; font-weight: 400; }
 .ap-prompt-note { min-width: 0; margin-left: 6px; overflow: hidden; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .ap-prompt-owner { color: var(--fork-ink-2); }
 /* the actions are quiet icons only (pencil, reset), right after the row name. */
@@ -6608,7 +6608,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
     .dsh-tavern-gallery-row,
     .dsh-tavern-panel-tabs,
     body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_tabs"],
-    :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav,
+    body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav,
     .fork-cg-gallery-strip,
     .fork-gal-config[data-layout="compact"] .fork-gal-config-tabs
   ) {
