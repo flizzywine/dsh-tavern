@@ -414,7 +414,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
       // accessories) before its four views, so a channel of one picture gets the four views; the outfit's own two sheets
       // outlast the identity board, as its first sheet always did.
-      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.identityOutfit, roles.settei, roles.emotionSprite]) {
+      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identityParts, roles.identity, roles.setteiParts, roles.identityOutfit, roles.settei, roles.emotionSprite]) {
         const at = refs.findIndex(ref => ref.role === role)
         if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
       }
