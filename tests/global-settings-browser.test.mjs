@@ -50,7 +50,10 @@ test('人物设计交由插件管理，旧的全局显示设置不会恢复入�
   await appearance.getByRole('switch', { name: '调试视图', exact: true }).waitFor()
   assert.equal(await appearance.getByRole('switch', { name: '显示人物设计', exact: true }).count(), 0)
 
-  let characters = [{ name: '守灯人', identity: '渡口向导', aliases: [], sections: [] }]
+  let characters = [{
+    name: '守灯人', identity: '渡口向导', aliases: ['老李'],
+    sections: [{ key: 'history', label: '人物经历', text: '他守着渡口的灯。\n'.repeat(120) + 'A'.repeat(200) }],
+  }]
   let guidance
   await page.exposeFunction('characterDesignHost', (name, args) => {
     if (name.endsWith('/read')) return { characters, task: { status: 'idle' }, foregroundRunning: false }
@@ -61,9 +64,13 @@ test('人物设计交由插件管理，旧的全局显示设置不会恢复入�
   await page.evaluate(() => {
     window.__ModuleLoader__.load = definition => { window.characterDesign = definition.factory(() => modules.react) }
   })
+  for (const path of ['../tavern-plugin/lib/client-assets/tavern.css', '../tavern-plugin/packages/dsh-tavern-character-design/assets/style.css']) {
+    await page.addStyleTag({ content: await readFile(new URL(path, import.meta.url), 'utf8') })
+  }
   await page.addScriptTag({ content: await readFile(new URL('../tavern-plugin/packages/dsh-tavern-character-design/client.js', import.meta.url), 'utf8') })
   await page.evaluate(() => {
     const target = document.body.appendChild(document.createElement('aside'))
+    target.style.cssText = 'position:fixed; inset:0 0 auto auto; width:280px; height:480px; overflow:hidden; z-index:10000'
     window.characterDesign.apply({ effect() {}, tavernUi: {
       callHost: window.characterDesignHost,
       watchState() { return () => {} },
@@ -72,12 +79,38 @@ test('人物设计交由插件管理，旧的全局显示设置不会恢复入�
       },
     } })
   })
-  await page.getByRole('textbox', { name: '设计意见（选填）' }).fill('完善出场人物')
+  const guidanceInput = page.getByRole('textbox', { name: '设计意见（选填）' })
+  await guidanceInput.fill('给主要人物补充经历。\n'.repeat(60))
+  await guidanceInput.press('Control+Home')
+  await guidanceInput.hover()
+  await page.mouse.wheel(0, 300)
+  await page.waitForFunction(() => document.querySelector('.character-design-editor textarea').scrollTop > 0)
+  await guidanceInput.fill('完善出场人物')
   await page.getByRole('button', { name: '开始设计', exact: true }).click()
   await page.getByRole('button', { name: '开始设计', exact: true }).and(page.locator(':enabled')).waitFor()
   assert.equal(guidance, '完善出场人物')
-  await page.locator('summary').filter({ hasText: '守灯人' }).click()
-  await page.getByRole('button', { name: '删除人物档案', exact: true }).click()
+  const summary = page.locator('summary').filter({ hasText: '守灯人' })
+  const body = page.getByRole('region', { name: '人物设计内容', exact: true })
+  const heading = page.getByRole('heading', { name: '人物设计', exact: true })
+  const remove = page.getByRole('button', { name: '删除人物档案', exact: true })
+  await summary.click()
+  assert.equal(await body.evaluate(node => node.scrollWidth), await body.evaluate(node => node.clientWidth))
+  const headingTop = (await heading.boundingBox()).y
+  await summary.hover()
+  await page.mouse.wheel(0, 900)
+  await page.waitForFunction(() => document.querySelector('.character-design-body').scrollTop > 0)
+  await body.press('End')
+  await page.waitForFunction(() => {
+    const body = document.querySelector('.character-design-body')
+    return body.scrollTop >= body.scrollHeight - body.clientHeight - 1
+  })
+  assert.equal((await heading.boundingBox()).y, headingTop)
+  const removeBox = await remove.boundingBox()
+  const bodyBox = await body.boundingBox()
+  assert.ok(removeBox.y >= bodyBox.y && removeBox.y + removeBox.height <= bodyBox.y + bodyBox.height)
+  await body.press('Home')
+  await page.waitForFunction(() => document.querySelector('.character-design-body').scrollTop === 0)
+  await remove.click()
   await page.getByRole('button', { name: '确认删除', exact: true }).click()
   await page.getByText('档案已删除。手动编辑过的世界书条目已保留。', { exact: true }).waitFor()
   await page.getByText('本局还没有人物档案。', { exact: true }).waitFor()
