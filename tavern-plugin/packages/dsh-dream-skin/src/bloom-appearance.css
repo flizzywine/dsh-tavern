@@ -1,0 +1,18 @@
+/* Paint the theme on the conversation surface, above the shell's stacked fills. */
+body[data-dsh-bloom-backdrop] :is([data-slot="main.conversation"], [data-slot="conversation"]) > [data-phase] {
+    background-image: linear-gradient(var(--dsw-alias-bg-base), var(--dsw-alias-bg-base)), var(--dsh-bloom-backdrop);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
+/* The existing composer pseudo-element receives the sheen, keeping its controls above it. */
+html[data-dsh-material="none"] body[data-dsh-bloom-backdrop] :is(.uV2eYG_card, [data-dsh-dream-skin-composer])::before {
+    --dsh-bloom-composer-fill: var(--dsh-dream-skin-composer-fill, 100%);
+    background-color: color-mix(in oklch, var(--dsw-specific-input-major) calc(var(--dsh-bloom-composer-fill) * .76), transparent);
+    background-image: linear-gradient(155deg,
+        color-mix(in oklch, var(--dsw-alias-label-primary-foreground) calc(var(--dsh-bloom-composer-fill) * .24), transparent),
+        transparent 64%,
+        color-mix(in oklch, var(--dsw-alias-brand-primary) calc(var(--dsh-bloom-composer-fill) * .13), transparent));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white calc(var(--dsh-bloom-composer-fill) * .23), transparent);
+}

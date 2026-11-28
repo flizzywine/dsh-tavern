@@ -26,8 +26,11 @@ export async function integrateInterfaceSkin(client) {
   client = lf(client)
   const source = (await Promise.all(['interface-skin.js', 'font-library.js', 'font-picker.js'].map(async name => lf(await readFile(new URL('src/' + name, root), 'utf8'))))).join('\n')
   const css = lf(await readFile(new URL('src/font-picker.css', root), 'utf8'))
+  const bloomCss = lf(await readFile(new URL('src/bloom-appearance.css', root), 'utf8'))
   checkCssSyntax(css, 'dsh-dream-skin/src/font-picker.css')
-  const block = start + 'const SKIN_FONT_PICKER_CSS = ' + JSON.stringify(css) + ';\n' + source + '\n' + end
+  checkCssSyntax(bloomCss, 'dsh-dream-skin/src/bloom-appearance.css')
+  const block = start + 'const SKIN_FONT_PICKER_CSS = ' + JSON.stringify(css) + ';\n'
+    + 'const BLOOM_APPEARANCE_CSS = ' + JSON.stringify(bloomCss) + ';\n' + source + '\n' + end
   if (client.includes(start)) {
     const a = client.indexOf(start), b = client.indexOf(end, a)
     if (b < 0) throw Error('Incomplete interface skin client block')

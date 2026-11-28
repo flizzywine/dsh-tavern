@@ -19,6 +19,7 @@ test('interface skin bundle is identical for LF and CRLF client, source, and CSS
     'font-library.js': "const fontLibraryFixture = new RegExp('font$');\n",
     'font-picker.js': 'const fontPickerFixture = 3;\n',
     'font-picker.css': '.font-picker {\n  color: black;\n}\n',
+    'bloom-appearance.css': '.conversation {\n  color: blue;\n}\n',
   }
   const entries = Object.entries(sourceFiles)
   for (const [name, content] of entries) await writeFile(path.join(packageRoot, 'src', name), content)
@@ -33,4 +34,5 @@ test('interface skin bundle is identical for LF and CRLF client, source, and CSS
   const crlfBundle = await integrateInterfaceSkin(client.replace(/\n/g, '\r\n'))
   assert.equal(crlfBundle, lfBundle)
   assert.ok(lfBundle.includes(JSON.stringify(sourceFiles['font-picker.css'])))
+  assert.ok(lfBundle.includes(JSON.stringify(sourceFiles['bloom-appearance.css'])))
 })

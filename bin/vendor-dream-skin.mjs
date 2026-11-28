@@ -97,6 +97,13 @@ replace(/(wallpaperReshadeTimer = null;\n\s*)applyWallpaper2\(ctx, ctx\.theme\.g
 						}`)
 // Effects may run after materialization; never let the next module claim skin CSS.
 replace(/el\.id = MATERIAL_CSS_SOURCE;/, 'el.dataset.plugin = "dsh-dream-skin";\n\t\t\tel.id = MATERIAL_CSS_SOURCE;')
+replace(/el\.textContent = parts\.join\("\\n"\);/, 'el.textContent = [...parts, BLOOM_APPEARANCE_CSS].join("\\n");')
+replace(/function teardownWallpaper\(ctx = null\) \{/, 'function teardownWallpaper(ctx = null) {\n\t\t\tsetBloomBackdrop(null);')
+replace(/wallpaperEl\.style\.backgroundImage = bg;/, `const current = snapshot || ctx.theme.getTheme();
+				const bloomBackdrop = bloomBackdropFor(current, bg);
+				setBloomBackdrop(bloomBackdrop);
+				wallpaperEl.style.backgroundImage = bloomBackdrop || bg;`)
+replace(/shadeTokens2\(ctx, wash, snapshot\);/, 'shadeTokens2(ctx, wash, current);')
 // No 主题包 row: packs only held colors, and Tavern's 界面皮肤 row takes custom looks.
 // Packs imported earlier still load and stay selectable in the 皮肤 row.
 replace(/\t*ctx\.slots\.inject\("settings\.dreamSkin\.item", \(\) => ctx\.slots\.register\(\{\n\t*name: "settings\.dreamSkin\.item",\n\t*id: "dream-skin-packs",[\s\S]*?\}, PacksRow\)\);\n/, '\t\t\t// Tavern: no 主题包 row. Packs only held colors (the 皮肤 row covers that) and\n\t\t\t// the Tavern 界面皮肤 row takes custom looks; packs imported earlier still load.\n')

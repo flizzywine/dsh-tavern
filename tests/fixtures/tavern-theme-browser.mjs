@@ -8,7 +8,7 @@ try {
  const page = await browser.newPage({ reducedMotion: 'reduce' })
  await page.setContent('<style id="theme"></style><style>'+css+'</style><main class="dsh-tavern-status"><button class="dsh-card-primary">添加 Guide</button><button class="dsh-tavern-btn">重新加载</button></main>')
  for (const theme of [...themes, { tokens: { '--dsw-alias-brand-primary': '#2196f3', '--dsw-alias-label-primary': '#102030', '--dsw-alias-bg-base': '#fff', '--dsw-alias-bg-layer-1': '#eee', '--dsw-alias-border-l2': '#ddd' }}]) {
-  const result = await page.evaluate(({ tokens, colorScheme, wallpaperGradient }) => {
+  const result = await page.evaluate(({ tokens, colorScheme, wallpaperGradient, bloomBackdrop }) => {
    document.body.toggleAttribute('data-ds-dark-theme', colorScheme === 'dark')
    document.querySelector('#theme').textContent = `body { ${Object.entries(tokens).map(([key, value]) => `${key}: ${value}`).join('; ')} }`
    const primary = getComputedStyle(document.querySelector('.dsh-card-primary'))
@@ -35,13 +35,17 @@ try {
    return {
     accent, ink, primary: primary.backgroundColor, secondary: secondary.color,
     buttonContrast: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
-    validGradient: CSS.supports('background-image', wallpaperGradient)
+    validGradient: CSS.supports('background-image', wallpaperGradient),
+    validBloomBackdrop: CSS.supports('background-image', bloomBackdrop)
    }
   }, theme)
   assert.equal(result.primary, result.accent, theme.id)
   assert.equal(result.secondary, result.ink, theme.id)
   if (theme.wallpaperGradient) assert.equal(result.validGradient, true, theme.id)
-  if (theme.id?.startsWith('tavern-bloom-')) assert.ok(result.buttonContrast >= 4.5, `${theme.id}: ${result.buttonContrast}`)
+  if (theme.id?.startsWith('tavern-bloom-')) {
+   assert.equal(result.validBloomBackdrop, true, theme.id)
+   assert.ok(result.buttonContrast >= 4.5, `${theme.id}: ${result.buttonContrast}`)
+  }
  }
  await page.setViewportSize({width:390,height:844})
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)

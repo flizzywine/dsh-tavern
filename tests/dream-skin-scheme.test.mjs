@@ -52,3 +52,16 @@ test('each shipped Bloom palette can switch to its light and dark variants', () 
     assert.equal(resolveSchemeSkin(dark, 'light'), light)
   }
 })
+
+test('Bloom renders the active palette backdrop over its saved stock wallpaper', () => {
+  const backdropFor = new Function('SKINS', 'rawActiveTheme', 'followsSkin',
+    `${extract('bloomBackdropFor', 'setBloomBackdrop')}\nreturn bloomBackdropFor`)(themes, snapshot => snapshot, () => true)
+  const light = themes.find(theme => theme.id === 'tavern-bloom-mist')
+  const dark = themes.find(theme => theme.id === 'tavern-bloom-mist-dark')
+  assert.ok(light.bloomBackdrop && dark.bloomBackdrop)
+  assert.equal(backdropFor(light, light.wallpaperGradient), light.bloomBackdrop)
+  assert.equal(backdropFor(dark, light.wallpaperGradient), dark.bloomBackdrop)
+  assert.equal(backdropFor(dark, 'linear-gradient(#123, #567)'), null)
+  assert.equal(backdropFor(light, 'url("custom.jpg")'), null)
+  assert.equal(backdropFor(themes[0], light.wallpaperGradient), null)
+})

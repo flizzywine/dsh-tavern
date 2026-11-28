@@ -362,7 +362,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92% 0.005 25)"
   },
   "label": "朱砂",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.005 25), oklch(95% 0.005 25))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.005 25), oklch(95% 0.005 25))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(215, 75, 75) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(215, 75, 75) 52%, white) 0%, color-mix(in oklch, oklch(55% 0.15 350) 27%, white) 24%, color-mix(in oklch, oklch(55% 0.16 65) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-cinnabar-dark",
@@ -401,7 +402,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(40% 0.02 25)"
   },
   "label": "朱砂 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 25), oklch(34% 0.02 25))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 25), oklch(34% 0.02 25))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(72% 0.12 25) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(73% 0.13 350) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(34% 0.02 25) 0%, oklch(28% 0.02 25) 76%)"
 },
 {
   "id": "tavern-bloom-osmanthus",
@@ -440,7 +442,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(93% 0.01 95)"
   },
   "label": "轻黄",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.006 95), oklch(95.8% 0.008 95))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.006 95), oklch(95.8% 0.008 95))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(214, 186, 92) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(214, 186, 92) 52%, white) 0%, color-mix(in oklch, oklch(51% 0.10 120) 27%, white) 24%, color-mix(in oklch, oklch(52% 0.11 80) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-osmanthus-dark",
@@ -479,7 +482,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36% 0.015 95)"
   },
   "label": "轻黄 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.008 95), oklch(30% 0.012 95))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.008 95), oklch(30% 0.012 95))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(86% 0.14 98) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(84% 0.12 120) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30% 0.012 95) 0%, oklch(24% 0.008 95) 76%)"
 },
 {
   "id": "tavern-bloom-sage",
@@ -518,7 +522,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(91.9% 0.009 113)"
   },
   "label": "竹青",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.011 112), oklch(94.9% 0.009 113))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.011 112), oklch(94.9% 0.009 113))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(138, 154, 91) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(138, 154, 91) 52%, white) 0%, color-mix(in oklch, oklch(53.1% 0.10 152) 27%, white) 24%, color-mix(in oklch, oklch(54.1% 0.12 83) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-sage-dark",
@@ -557,7 +562,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(34% 0.03 116)"
   },
   "label": "竹青 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.019 113), oklch(27.9% 0.02 116))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.019 113), oklch(27.9% 0.02 116))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(71.9% 0.120 115) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(71.9% 0.11 152) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(27.9% 0.02 116) 0%, oklch(20% 0.019 113) 76%)"
 },
 {
   "id": "tavern-bloom-ripple",
@@ -596,7 +602,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92% 0.01 195)"
   },
   "label": "天青",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 195), oklch(94% 0.01 195))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 195), oklch(94% 0.01 195))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(95, 168, 178) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(95, 168, 178) 52%, white) 0%, color-mix(in oklch, oklch(51% 0.11 165) 27%, white) 24%, color-mix(in oklch, oklch(51% 0.13 225) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-ripple-dark",
@@ -635,7 +642,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(38% 0.02 195)"
   },
   "label": "天青 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.02 195), oklch(28% 0.02 195))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.02 195), oklch(28% 0.02 195))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(75% 0.12 195) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(77% 0.12 165) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(28% 0.02 195) 0%, oklch(20% 0.02 195) 76%)"
 },
 {
   "id": "tavern-bloom-mist",
@@ -674,7 +682,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(91% 0.01 240)"
   },
   "label": "黛蓝",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 240), oklch(94% 0.01 240))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 240), oklch(94% 0.01 240))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(146, 168, 179) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(146, 168, 179) 52%, white) 0%, color-mix(in oklch, oklch(50% 0.09 275) 27%, white) 24%, color-mix(in oklch, oklch(50% 0.10 210) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-mist-dark",
@@ -713,7 +722,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(40% 0.02 240)"
   },
   "label": "黛蓝 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 240), oklch(34% 0.02 240))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 240), oklch(34% 0.02 240))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(72% 0.12 240) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(74% 0.11 275) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(34% 0.02 240) 0%, oklch(28% 0.02 240) 76%)"
 },
 {
   "id": "tavern-bloom-lavender",
@@ -752,7 +762,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92.5% 0.016 295)"
   },
   "label": "青莲",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.012 295), oklch(95% 0.014 295))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.012 295), oklch(95% 0.014 295))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(164, 148, 190) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(164, 148, 190) 52%, white) 0%, color-mix(in oklch, oklch(53% 0.12 325) 27%, white) 24%, color-mix(in oklch, oklch(52% 0.10 265) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-lavender-dark",
@@ -791,7 +802,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(38% 0.024 295)"
   },
   "label": "青莲 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.02 295), oklch(32% 0.022 295))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.02 295), oklch(32% 0.022 295))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(75% 0.11 295) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(76% 0.12 325) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(32% 0.022 295) 0%, oklch(26% 0.02 295) 76%)"
 },
 {
   "id": "tavern-bloom-dawn",
@@ -830,7 +842,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(93% 0.011 8)"
   },
   "label": "粉霞",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(219, 147, 151, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.006 8), oklch(95.8% 0.009 8))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(219, 147, 151, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.006 8), oklch(95.8% 0.009 8))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(219, 147, 151) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(219, 147, 151) 52%, white) 0%, color-mix(in oklch, oklch(52% 0.11 50) 27%, white) 24%, color-mix(in oklch, oklch(52% 0.12 8) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-dawn-dark",
@@ -869,7 +882,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36% 0.021 8)"
   },
   "label": "粉霞 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(219, 147, 151, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.012 8), oklch(30% 0.017 8))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(219, 147, 151, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.012 8), oklch(30% 0.017 8))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(78% 0.13 8) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(79% 0.11 50) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30% 0.017 8) 0%, oklch(24% 0.012 8) 76%)"
 },
 {
   "id": "tavern-bloom-tangerine",
@@ -908,7 +922,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(93% 0.008 58)"
   },
   "label": "橙黄",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(226, 128, 64, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.005 60), oklch(95.8% 0.006 60))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(226, 128, 64, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.005 60), oklch(95.8% 0.006 60))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(226, 128, 64) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(226, 128, 64) 52%, white) 0%, color-mix(in oklch, oklch(57% 0.13 65) 27%, white) 24%, color-mix(in oklch, oklch(56% 0.15 30) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-tangerine-dark",
@@ -947,7 +962,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36% 0.015 50)"
   },
   "label": "橙黄 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(226, 128, 64, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.01 50), oklch(30% 0.012 50))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(226, 128, 64, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.01 50), oklch(30% 0.012 50))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(73% 0.17 50) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(78% 0.14 66) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30% 0.012 50) 0%, oklch(24% 0.01 50) 76%)"
 },
 {
   "id": "tavern-bloom-aurora",
@@ -986,7 +1002,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(93.4% 0.007 72)"
   },
   "label": "落霞",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(218, 158, 72, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.004 72), oklch(96.2% 0.005 72))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(218, 158, 72, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.004 72), oklch(96.2% 0.005 72))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(218, 158, 72) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(218, 158, 72) 52%, white) 0%, color-mix(in oklch, oklch(56% 0.13 32) 27%, white) 24%, color-mix(in oklch, oklch(56% 0.15 50) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-aurora-dark",
@@ -1025,7 +1042,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36.5% 0.012 70)"
   },
   "label": "落霞 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(218, 158, 72, .20), transparent 65%), linear-gradient(160deg, oklch(24.5% 0.008 70), oklch(30.5% 0.01 70))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(218, 158, 72, .20), transparent 65%), linear-gradient(160deg, oklch(24.5% 0.008 70), oklch(30.5% 0.01 70))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(80% 0.13 72) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(80% 0.12 32) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30.5% 0.01 70) 0%, oklch(24.5% 0.008 70) 76%)"
 },
 {
   "id": "tavern-bloom-stone",
@@ -1064,7 +1082,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(91% 0.01 33)"
   },
   "label": "赭石",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(180, 160, 155, .18), transparent 65%), linear-gradient(160deg, oklch(95.9% 0.01 25), oklch(94.1% 0.01 33))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(180, 160, 155, .18), transparent 65%), linear-gradient(160deg, oklch(95.9% 0.01 25), oklch(94.1% 0.01 33))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(180, 160, 155) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(180, 160, 155) 52%, white) 0%, color-mix(in oklch, oklch(49.9% 0.07 60) 27%, white) 24%, color-mix(in oklch, oklch(49.9% 0.075 0) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-stone-dark",
@@ -1103,7 +1122,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(33.9% 0.03 28)"
   },
   "label": "赭石 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(180, 160, 155, .20), transparent 65%), linear-gradient(160deg, oklch(20.1% 0.019 30), oklch(27.9% 0.02 28))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(180, 160, 155, .20), transparent 65%), linear-gradient(160deg, oklch(20.1% 0.019 30), oklch(27.9% 0.02 28))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(75% 0.12 30) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(75% 0.11 62) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(27.9% 0.02 28) 0%, oklch(20.1% 0.019 30) 76%)"
 },
 {
   "id": "tavern-bloom-amber",
@@ -1142,7 +1162,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(93% 0.014 78)"
   },
   "label": "琥珀",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(159, 100, 1, .18), transparent 65%), linear-gradient(160deg, oklch(97.5% 0.008 74), oklch(95.6% 0.01 82))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(159, 100, 1, .18), transparent 65%), linear-gradient(160deg, oklch(97.5% 0.008 74), oklch(95.6% 0.01 82))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(159, 100, 1) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(159, 100, 1) 52%, white) 0%, color-mix(in oklch, oklch(54.1% 0.12 100) 27%, white) 24%, color-mix(in oklch, oklch(55.5% 0.11 38) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-amber-dark",
@@ -1181,7 +1202,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(38% 0.022 60)"
   },
   "label": "琥珀 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(159, 100, 1, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.018 60), oklch(32% 0.020 60))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(159, 100, 1, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.018 60), oklch(32% 0.020 60))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(78% 0.11 70) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(78% 0.11 100) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(32% 0.020 60) 0%, oklch(26% 0.018 60) 76%)"
 },
 {
   "id": "tavern-bloom-mint",
@@ -1220,7 +1242,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92.8% 0.01 160)"
   },
   "label": "草色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(128, 196, 166, .18), transparent 65%), linear-gradient(160deg, oklch(97.6% 0.006 160), oklch(95.6% 0.008 160))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(128, 196, 166, .18), transparent 65%), linear-gradient(160deg, oklch(97.6% 0.006 160), oklch(95.6% 0.008 160))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(128, 196, 166) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(128, 196, 166) 52%, white) 0%, color-mix(in oklch, oklch(51% 0.09 185) 27%, white) 24%, color-mix(in oklch, oklch(52% 0.10 135) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-mint-dark",
@@ -1259,7 +1282,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36% 0.018 165)"
   },
   "label": "草色 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(128, 196, 166, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.012 165), oklch(30% 0.015 165))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(128, 196, 166, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.012 165), oklch(30% 0.015 165))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(82% 0.12 160) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(80% 0.10 185) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30% 0.015 165) 0%, oklch(24% 0.012 165) 76%)"
 },
 {
   "id": "tavern-bloom-lapis",
@@ -1298,7 +1322,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92.4% 0.013 244)"
   },
   "label": "青金",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(47, 98, 172, .18), transparent 65%), linear-gradient(160deg, oklch(97.4% 0.006 240), oklch(95.6% 0.008 242))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(47, 98, 172, .18), transparent 65%), linear-gradient(160deg, oklch(97.4% 0.006 240), oklch(95.6% 0.008 242))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(47, 98, 172) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(47, 98, 172) 52%, white) 0%, color-mix(in oklch, oklch(50% 0.11 295) 27%, white) 24%, color-mix(in oklch, oklch(50% 0.12 226) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-lapis-dark",
@@ -1337,7 +1362,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(35.9% 0.025 251)"
   },
   "label": "青金 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(47, 98, 172, .20), transparent 65%), linear-gradient(160deg, oklch(23.1% 0.019 249), oklch(30.1% 0.022 251))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(47, 98, 172, .20), transparent 65%), linear-gradient(160deg, oklch(23.1% 0.019 249), oklch(30.1% 0.022 251))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(74% 0.10 255) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(74% 0.10 292) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30.1% 0.022 251) 0%, oklch(23.1% 0.019 249) 76%)"
 },
 {
   "id": "tavern-bloom-silverrose",
@@ -1376,7 +1402,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(92% 0.008 320)"
   },
   "label": "银红",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(168, 145, 170, .18), transparent 65%), linear-gradient(160deg, oklch(97.5% 0.004 320), oklch(95.3% 0.006 320))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(168, 145, 170, .18), transparent 65%), linear-gradient(160deg, oklch(97.5% 0.004 320), oklch(95.3% 0.006 320))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(168, 145, 170) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(168, 145, 170) 52%, white) 0%, color-mix(in oklch, oklch(50% 0.07 24) 27%, white) 24%, color-mix(in oklch, oklch(51% 0.07 340) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-silverrose-dark",
@@ -1415,7 +1442,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(36% 0.018 320)"
   },
   "label": "银红 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(168, 145, 170, .20), transparent 65%), linear-gradient(160deg, oklch(23% 0.010 320), oklch(30% 0.015 320))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(168, 145, 170, .20), transparent 65%), linear-gradient(160deg, oklch(23% 0.010 320), oklch(30% 0.015 320))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(78% 0.10 320) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(78% 0.08 24) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(30% 0.015 320) 0%, oklch(23% 0.010 320) 76%)"
 },
 {
   "id": "tavern-bloom-petal",
@@ -1454,7 +1482,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(94% 0.015 350)"
   },
   "label": "桃夭",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(232, 133, 155, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.01 350), oklch(96% 0.015 350))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(232, 133, 155, .18), transparent 65%), linear-gradient(160deg, oklch(98% 0.01 350), oklch(96% 0.015 350))",
+  "bloomBackdrop": "radial-gradient(86% 59% at 15% -10%, color-mix(in oklch, rgb(232, 133, 155) 31%, transparent), transparent 76%), linear-gradient(180deg, color-mix(in oklch, rgb(232, 133, 155) 52%, white) 0%, color-mix(in oklch, oklch(56.7% 0.17 20) 27%, white) 24%, color-mix(in oklch, oklch(56.7% 0.17 310) 13%, white) 52%, white 91%)"
 },
 {
   "id": "tavern-bloom-petal-dark",
@@ -1493,7 +1522,8 @@ window.__ModuleLoader__.load({
     "--dsw-specific-menu": "oklch(40% 0.02 350)"
   },
   "label": "桃夭 · 深色",
-  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(232, 133, 155, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 350), oklch(34% 0.02 350))"
+  "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(232, 133, 155, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 350), oklch(34% 0.02 350))",
+  "bloomBackdrop": "radial-gradient(90% 80% at 12% -9%, color-mix(in oklch, oklch(75% 0.18 350) 44%, transparent), transparent 76%), radial-gradient(88% 75% at 96% 13%, color-mix(in oklch, oklch(76% 0.14 20) 30%, transparent), transparent 79%), linear-gradient(180deg, oklch(34% 0.02 350) 0%, oklch(28% 0.02 350) 76%)"
 },
 // END TAVERN COLOR THEMES
 			{
@@ -3061,6 +3091,7 @@ window.__ModuleLoader__.load({
 
 		/** Remove the wallpaper layer and its token contribution. */
 		function teardownWallpaper(ctx = null) {
+			setBloomBackdrop(null);
 			wallpaperEl?.remove();
 			wallpaperEl = null;
 			wallpaperTokenOverrides = {};
@@ -3533,7 +3564,7 @@ window.__ModuleLoader__.load({
 			const el = document.createElement("style");
 			el.dataset.plugin = "dsh-dream-skin";
 			el.id = MATERIAL_CSS_SOURCE;
-			el.textContent = parts.join("\n");
+			el.textContent = [...parts, BLOOM_APPEARANCE_CSS].join("\n");
 			(document.head || document.body).appendChild(el);
 			materialStyleEl = el;
 			warnOnMaterialSelectorDrift();
@@ -5603,12 +5634,15 @@ window.__ModuleLoader__.load({
 					document.body.prepend(wallpaperEl);
 				}
 				const blur = readWallpaperBlur();
-				wallpaperEl.style.backgroundImage = bg;
+				const current = snapshot || ctx.theme.getTheme();
+				const bloomBackdrop = bloomBackdropFor(current, bg);
+				setBloomBackdrop(bloomBackdrop);
+				wallpaperEl.style.backgroundImage = bloomBackdrop || bg;
 				wallpaperEl.style.filter = blur > 0 ? `blur(${blur}px)` : "none";
 				// Auto-dim lowers the wash opacity when enabled.
 				const baseFill = readWallpaperOpacity();
 				const wash = readWallpaperAutodim() ? Math.min(baseFill, 0.45) : baseFill;
-				shadeTokens2(ctx, wash, snapshot);
+				shadeTokens2(ctx, wash, current);
 			} finally {
 				_applyingWallpaper = false;
 			}
@@ -6361,11 +6395,28 @@ window.__ModuleLoader__.load({
 		 */
 // BEGIN TAVERN INTERFACE SKIN
 const SKIN_FONT_PICKER_CSS = "/* ==== font picker (font-picker.js: CONFIG 文字 → 舞台字体 / 字幕字体, 外观 → 正文字体) ==== */\n/* Options are drawn in their own face (inline font-family); everything else here is chrome. Both lists are opaque.\n   Stage variant: the trigger lives in the CONFIG sheet, the list is portaled to <body> as a .fork-gal-theme-scope\n   of the stage's theme, so it uses only --gal-ui-* tokens (no theme selectors). */\n.fork-font-pick { position: relative; min-width: 0; }\n.fork-font-trigger .fork-icon { flex: none; transition: transform .15s; }\n.fork-font-pick.is-open .fork-font-trigger .fork-icon { transform: rotate(180deg); }\n.fork-font-trigger-name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-list { display: grid; gap: 10px; }\n/* The popover itself is the opaque layer; the inner listbox must not get the generic floating-layer Canvas fill. */\n.fork-font-pop .fork-font-list[role=\"listbox\"] { background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }\n.fork-font-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }\n.fork-font-group-label { grid-column: 1 / -1; padding: 4px 4px 0; }\n.fork-font-pop .fork-font-option { position: relative; display: grid; gap: 3px; box-sizing: border-box; min-width: 0; margin: 0; padding: 10px 34px 10px 14px; border: 0; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }\n.fork-font-pop .fork-font-option.is-follow { grid-column: 1 / -1; }\n.fork-font-option-sample { overflow: hidden; font-size: 19px; line-height: 1.45; letter-spacing: .04em; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-option-name { overflow: hidden; font-size: var(--fork-fs-body); line-height: 1.3; letter-spacing: .06em; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-option-check { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; }\n/* Stage: the CONFIG row trigger and the themed list. */\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger { display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; width: min(100%, 420px); height: 52px; margin: 0; padding: 0 16px 0 20px; border: 0;\n  border-radius: calc(var(--gal-ui-radius) * .8 + 4px); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 19px/1.2 var(--gal-ui-font); letter-spacing: .06em; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:hover { background: var(--gal-ui-hover); }\n.fork-gal-stage .fork-font-pick.is-stage.is-open .fork-font-trigger { box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }\n.fork-font-pick.is-stage .fork-font-trigger .fork-icon { color: var(--gal-ui-accent); }\n.fork-font-pick.is-stage .fork-font-trigger-tag { flex: none; padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 12px/1 var(--gal-ui-font); letter-spacing: .12em; }\n[data-fork-gal-stage] .fork-popover.fork-font-pop { z-index: 2147483002; }\n.fork-popover.fork-font-pop.is-stage { width: min(620px, calc(100vw - 16px)); max-width: none; padding: 12px; border-radius: min(var(--gal-ui-radius), 18px); background: var(--gal-ui-surface-2);\n  box-shadow: var(--gal-ui-shadow), inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 14px/1.4 var(--gal-ui-font); animation: fork-gal-mixer-in .16s ease-out; }\n.fork-font-pop.is-stage .fork-font-group-label { color: var(--gal-ui-accent); font: 600 12.5px/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }\n.fork-font-pop.is-stage .fork-font-option { border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); }\n.fork-font-pop.is-stage .fork-font-option:hover { background: var(--gal-ui-hover); }\n.fork-font-pop.is-stage .fork-font-option.is-on { background: var(--gal-ui-active); box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }\n.fork-font-pop.is-stage .fork-font-option:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }\n.fork-font-pop.is-stage .fork-font-option-check { color: var(--gal-ui-accent); }\n/* CONFIG preview: the typed line is in the stage font; the subtitle line in the film font on a letterbox strip. */\n.fork-gal-config-preview-text { font-family: var(--gal-ui-font); }\n.fork-gal-config-preview-film { display: grid; gap: 6px; justify-items: center; margin: 12px 0 0; padding: 10px 16px 12px; border-radius: max(4px, calc(var(--gal-ui-radius) * .6)); background: var(--film-bar-color); }\n.fork-gal-config-preview-film .fork-gal-config-preview-name { justify-self: start; }\n/* Text look: the film subtitle tokens (Stage direction v2), the same ones the in-stage subtitle reads. */\n.fork-gal-config-preview-film > p { margin: 0; text-align: center; color: var(--film-text-ink); font: var(--film-text); letter-spacing: var(--film-text-spacing); text-shadow: var(--film-text-shadow); }\n/* Settings (外观 → 正文字体): the regular settings row, an inline opaque list (Canvas under the skin's menu colour). */\n.fork-font-pick.is-settings .fork-font-trigger { display: inline-flex; align-items: center; gap: 10px; box-sizing: border-box; width: min(100%, 420px); min-height: 44px; margin: 0; padding: 6px 12px 6px 14px; border: 1px solid var(--fork-hairline); border-radius: 10px;\n  background: transparent; color: var(--fork-ink); font: 400 16px/1.3 var(--fork-font-ui); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }\n.fork-font-pick.is-settings .fork-font-trigger:hover { background: var(--fork-hover); }\n.fork-font-pick.is-settings.is-open .fork-font-trigger { border-color: var(--fork-accent); }\n.fork-font-pick.is-settings .fork-font-trigger:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }\n.fork-font-pick.is-settings .fork-font-trigger-tag { flex: none; padding: 3px 8px; border-radius: 999px; background: var(--fork-accent-soft); color: var(--fork-accent); font: 500 12px/1.2 var(--fork-font-ui); }\n.fork-font-pick.is-settings .fork-font-trigger .fork-icon { color: var(--fork-ink); }\n.fork-font-pop.is-inline { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; box-sizing: border-box; width: min(560px, calc(100vw - 48px)); max-height: min(62vh, 480px); overflow: auto; overscroll-behavior: contain; padding: 8px;\n  border: 1px solid var(--fork-hairline); border-radius: 12px; background: linear-gradient(var(--dsw-specific-menu, var(--fork-surface-2)), var(--dsw-specific-menu, var(--fork-surface-2))), Canvas;\n  box-shadow: 0 12px 32px rgb(0 0 0 / .18), 0 2px 6px rgb(0 0 0 / .06); color: var(--fork-ink); font: 400 13px/1.4 var(--fork-font-ui); animation: fork-voice-menu-in .14s ease-out; }\n.fork-font-pop.is-inline .fork-font-group-label { color: var(--fork-accent); font: 600 12px/1.2 var(--fork-font-ui); letter-spacing: .08em; }\n.fork-font-pop.is-inline .fork-font-option { border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--fork-hairline); color: var(--fork-ink); }\n.fork-font-pop.is-inline .fork-font-option:hover { background: var(--fork-hover); }\n.fork-font-pop.is-inline .fork-font-option.is-on { background: var(--fork-accent-soft); box-shadow: inset 0 0 0 2px var(--fork-accent); }\n.fork-font-pop.is-inline .fork-font-option:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }\n.fork-font-pop.is-inline .fork-font-option-check { color: var(--fork-accent); }\n@media (max-width: 560px) { .fork-font-group { grid-template-columns: minmax(0, 1fr); } }\n@media (prefers-reduced-motion: reduce) and (update: none) { .fork-popover.fork-font-pop.is-stage, .fork-font-pop.is-inline { animation: none; } }\n/* ==== end font picker ==== */\n";
+const BLOOM_APPEARANCE_CSS = "/* Paint the theme on the conversation surface, above the shell's stacked fills. */\nbody[data-dsh-bloom-backdrop] :is([data-slot=\"main.conversation\"], [data-slot=\"conversation\"]) > [data-phase] {\n    background-image: linear-gradient(var(--dsw-alias-bg-base), var(--dsw-alias-bg-base)), var(--dsh-bloom-backdrop);\n    background-position: center;\n    background-repeat: no-repeat;\n    background-size: cover;\n}\n\n/* The existing composer pseudo-element receives the sheen, keeping its controls above it. */\nhtml[data-dsh-material=\"none\"] body[data-dsh-bloom-backdrop] :is(.uV2eYG_card, [data-dsh-dream-skin-composer])::before {\n    --dsh-bloom-composer-fill: var(--dsh-dream-skin-composer-fill, 100%);\n    background-color: color-mix(in oklch, var(--dsw-specific-input-major) calc(var(--dsh-bloom-composer-fill) * .76), transparent);\n    background-image: linear-gradient(155deg,\n        color-mix(in oklch, var(--dsw-alias-label-primary-foreground) calc(var(--dsh-bloom-composer-fill) * .24), transparent),\n        transparent 64%,\n        color-mix(in oklch, var(--dsw-alias-brand-primary) calc(var(--dsh-bloom-composer-fill) * .13), transparent));\n    box-shadow: inset 0 1px 0 color-mix(in srgb, white calc(var(--dsh-bloom-composer-fill) * .23), transparent);\n}\n";
 // 界面皮肤: the active imported skin is one <style> appended after Tavern's own
 // stylesheet, so its rules win at equal specificity. Every browser of this profile
 // reads it on load; a change in settings re-applies it here at once.
 const TAVERN_INTERFACE_SKIN_ID = "dsh-dream-skin/interface-skin";
 const TAVERN_INTERFACE_SKIN_EVENT = "dsh-tavern-interface-skin-changed";
+
+function bloomBackdropFor(snapshot, wallpaper) {
+    const activeId = rawActiveTheme(snapshot)?.id;
+    const backdrop = SKINS.find(skin => skin.id === activeId)?.bloomBackdrop;
+    if (!backdrop || !followsSkin()) return null;
+    return SKINS.some(skin => skin.wallpaperGradient === wallpaper) ? backdrop : null;
+}
+
+function setBloomBackdrop(gradient) {
+    const body = document.body;
+    if (!body) return;
+    body.toggleAttribute("data-dsh-bloom-backdrop", Boolean(gradient));
+    if (gradient) body.style.setProperty("--dsh-bloom-backdrop", gradient);
+    else body.style.removeProperty("--dsh-bloom-backdrop");
+}
+
 function installTavernInterfaceSkin(doc, css) {
     let style = doc.querySelector('style[data-plugin-css="' + TAVERN_INTERFACE_SKIN_ID + '"]');
     if (!css) { if (style) style.remove(); return; }

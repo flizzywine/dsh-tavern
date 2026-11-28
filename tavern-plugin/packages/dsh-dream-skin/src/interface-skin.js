@@ -3,6 +3,22 @@
 // reads it on load; a change in settings re-applies it here at once.
 const TAVERN_INTERFACE_SKIN_ID = "dsh-dream-skin/interface-skin";
 const TAVERN_INTERFACE_SKIN_EVENT = "dsh-tavern-interface-skin-changed";
+
+function bloomBackdropFor(snapshot, wallpaper) {
+    const activeId = rawActiveTheme(snapshot)?.id;
+    const backdrop = SKINS.find(skin => skin.id === activeId)?.bloomBackdrop;
+    if (!backdrop || !followsSkin()) return null;
+    return SKINS.some(skin => skin.wallpaperGradient === wallpaper) ? backdrop : null;
+}
+
+function setBloomBackdrop(gradient) {
+    const body = document.body;
+    if (!body) return;
+    body.toggleAttribute("data-dsh-bloom-backdrop", Boolean(gradient));
+    if (gradient) body.style.setProperty("--dsh-bloom-backdrop", gradient);
+    else body.style.removeProperty("--dsh-bloom-backdrop");
+}
+
 function installTavernInterfaceSkin(doc, css) {
     let style = doc.querySelector('style[data-plugin-css="' + TAVERN_INTERFACE_SKIN_ID + '"]');
     if (!css) { if (style) style.remove(); return; }
