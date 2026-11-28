@@ -91,29 +91,6 @@
 			}, React.createElement("span", null, label));
 		}
 
-        function TavernConversationWritingSkills(props) {
-            const h = React.createElement;
-            const [skills, setSkills] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState(""), [notice, setNotice] = React.useState("");
-            async function load() { try { const result = await rpc(props.globalDefaults ? "getDefaultWritingSkills" : "getConversationWritingSkills", { sessionId: props.sessionId }, props.sessionId); setSkills(result.skills); setError(""); } catch (err) { setError(String(err.message || err)); } }
-            React.useEffect(() => { void load(); }, []);
-            async function change(name, enabled) {
-                if (busy) return;
-                setBusy(true); setError(""); setNotice("");
-                try { await rpc(props.globalDefaults ? "setDefaultWritingSkill" : "setConversationWritingSkill", { sessionId: props.sessionId, name, enabled }, props.sessionId); setSkills(skills.map(skill => skill.name === name ? { ...skill, enabled } : skill)); setNotice(props.globalDefaults ? "已保存，下次新游戏生效" : "已生效，后续请求采用新设置"); }
-                catch (err) { setError(String(err.message || err)); } finally { setBusy(false); }
-            }
-            // on 设置 › DSH Tavern the defaults are a card of switch rows, each skill's
-            // description behind its 「?」. 本局设置 draws its own section (conversation-settings.js SessionWritingSkills).
-            return h("section", { className: "dsh-local-section dsh-tavern-default-skills", "aria-label": "默认写作 Skill" },
-                h("h3", null, "默认写作 Skill", typeof HelpTip === "function" ? h(HelpTip, { label: "默认写作 Skill 说明" }, "新游戏默认启用哪些写作 Skill；已有游戏不变，可在本局设置里逐项调整。") : null),
-                (skills || []).map(skill => h(TavernSettingRow, { key: skill.name, title: skill.name, help: skill.description, className: "dsh-tavern-writing-skill" },
-                    h(Switch, { label: skill.name, checked: skill.enabled, disabled: busy, onChange: enabled => change(skill.name, enabled) }))),
-                skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
-                !skills && !error ? h("div", { className: "dsh-tavern-settings-loading" }, h(Spinner)) : null,
-                error ? h("p", { role: "alert", className: "dsh-tavern-settings-alert" }, "⚠ " + error, " ", h("button", { type: "button", className: "dsh-tavern-text-btn", onClick: load }, "重新加载")) : null,
-                !error && (busy || notice) ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, busy ? "保存中…" : "已保存") : null);
-        }
-
         function TavernDefaultModelSetting(props) {
             const h = React.createElement;
             const selection = props.selection;
@@ -566,7 +543,7 @@
         // @include modules/global-settings.js
         const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
-            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, HeaderItemsSettings,
+            TavernDefaultModelSetting, TavernModelSlotGroups, HeaderItemsSettings,
             PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),

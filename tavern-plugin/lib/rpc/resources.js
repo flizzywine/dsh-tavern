@@ -18,6 +18,13 @@ export function createResourceHandlers(deps) {
     previewPreset, readScript, readTavernSettings, renameResource, runtimePresets,
     scriptContinuity, scriptNavigation, sessionActivity, skillImportFiles, str, tavernSkills, updateChat,
     updateTavernSettings, worldBooks } = deps
+  async function skillsWithWritingDefaults() {
+    const [skills, settings] = await Promise.all([tavernSkills.list(), readTavernSettings()])
+    const disabled = new Set(settings.defaultDisabledWritingSkills)
+    return skills.map(skill => skill.agents.includes('foreground')
+      ? { ...skill, defaultEnabled: !disabled.has(skill.name) }
+      : skill)
+  }
   return {
     async getResourceWorkspace(args) {
       const workspaceId = args?.workspaceId
@@ -185,8 +192,8 @@ export function createResourceHandlers(deps) {
       return await deletePreset(args && args.path)
     },
     async getDefaultWritingSkills(args) {
-      const settings = await readTavernSettings()
-      return { skills: (await tavernSkills.list()).filter(skill => skill.agents.includes('foreground')).map(skill => ({ name: skill.name, description: skill.description, enabled: !settings.defaultDisabledWritingSkills.includes(skill.name) })) }
+      return { skills: (await skillsWithWritingDefaults()).filter(skill => typeof skill.defaultEnabled === 'boolean')
+        .map(({ name, description, defaultEnabled }) => ({ name, description, enabled: defaultEnabled })) }
     },
     async setDefaultWritingSkill(args) {
       const skill = await tavernSkills.read(args?.name)
@@ -209,7 +216,7 @@ export function createResourceHandlers(deps) {
       return { saved: true }
     },
     async listSkills(args) {
-      return { skills: (await tavernSkills.list()).map(({ content, path, ...summary }) => summary) }
+      return { skills: (await skillsWithWritingDefaults()).map(({ content, path, ...summary }) => summary) }
     },
     async editSkill(args) {
       return { skill: await tavernSkills.edit(args) }

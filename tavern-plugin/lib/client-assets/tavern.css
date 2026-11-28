@@ -1509,6 +1509,8 @@ button.dsh-tavern-worldbook-add-row:disabled { cursor: default; }
 .dsh-tavern-skill-row .dsh-tavern-resource-open:hover { color: var(--dsh-tavern-accent); text-decoration: underline; }
 .dsh-tavern-skill-row .dsh-tavern-resource-open:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 4px; border-radius: 3px; }
 .dsh-tavern-skill-row > p { font-size: 12px; line-height: 1.6; margin: 7px 0 10px; opacity: .8; }
+.dsh-tavern-skill-default { display: flex; align-items: center; gap: 10px; width: fit-content; margin: 6px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-skill-default > label:first-child { cursor: pointer; }
 .dsh-tavern-skill-options > summary { cursor: pointer; font-size: 12px; opacity: .65; }
 .dsh-tavern-skill-options .dsh-tavern-skill-assignments { padding: 10px 0 0; gap: 10px 16px; font-size: 12px; }
 .dsh-tavern-skill-empty { padding: 16px; font-size: 12px; opacity: .55; }
@@ -2962,11 +2964,6 @@ body[data-ds-dark-theme] .dsh-ctx-tile.is-selected,
 }
 
 /* Shared by global defaults and conversation writing-skill controls. */
-.dsh-tavern-writing-skill,
-.dsh-local-settings .dsh-tavern-writing-skill { display: block; padding: 12px 0; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-writing-skill > .dsh-tavern-writing-skill-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0; cursor: pointer; }
-.dsh-tavern-writing-skill-heading > span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
-.dsh-tavern-writing-skill > .dsh-tavern-settings-desc { margin: 6px 0 0; }
 .dsh-ejs-editor { box-sizing:border-box; width:min(1100px,calc(100vw - 32px)); height:min(800px,90vh); padding:0; border:1px solid var(--dsw-alias-border-l2); border-radius:14px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 18px 54px #0005; }
 .dsh-ejs-editor[open] { display:flex; flex-direction:column; }
 .dsh-ejs-editor::backdrop { background:#0007; }
@@ -3443,11 +3440,6 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
    正在跑的那一轮还没有分页锚点，进度照常可见。 */
 html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-chat-paging-anchor]) { display: none !important; }
 
-.dsh-tavern-default-skills { display: block; }
-.dsh-tavern-default-skills > summary { cursor: pointer; font-size: 15px; font-weight: 700; line-height: 1.5; }
-.dsh-tavern-default-skills > summary::marker { color: var(--dsw-alias-label-secondary); }
-.dsh-tavern-default-skills > summary:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 4px; border-radius: 3px; }
-.dsh-tavern-default-skills > .dsh-local-help { margin: 16px 0; }
 
 .dsh-tavern-guide-actions { display: flex; gap: 10px; margin: 16px 0; }
 .dsh-tavern-guide-actions > button { flex: 1; min-width: 0; min-height: 36px; padding: 8px 12px; }
@@ -3626,11 +3618,6 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 .dsh-tavern-global-settings .dsh-tavern-compaction-settings > .dsh-tavern-settings-title { padding: 14px 0 0; font-weight: 650; }
 
 /* Default writing skills: collapsible card. */
-.dsh-tavern-global-settings details.dsh-tavern-default-skills { padding: 0 18px; }
-.dsh-tavern-global-settings details.dsh-tavern-default-skills > summary { padding: 14px 0; font-size: 13px; font-weight: 650; list-style-position: inside; }
-.dsh-tavern-global-settings details.dsh-tavern-default-skills > .dsh-local-help { margin: 0 0 6px; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-global-settings .dsh-tavern-writing-skill { flex-direction: column; align-items: stretch; gap: 2px; }
-.dsh-tavern-global-settings .dsh-tavern-writing-skill-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 500; }
 
 /* 自定义顶栏设置（设置页默认折叠；顶栏设置弹窗里始终展开） */
 .dsh-tavern-header-settings-group > summary.dsh-tavern-header-summary {

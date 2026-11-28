@@ -366,7 +366,7 @@ function createConversationSettingsModule({
         }
         const meta = skills && skills.length ? skills.filter(skill => skill.enabled).length + " / " + skills.length : undefined;
         return h(packUi.StageSection, { title: "写作 Skill", meta, foldKey: FOLD("写作 Skill"), defaultFolded: true,
-                help: "开局沿用全局默认，可以逐项调整这一局，前台按场景选用。开关从后续请求生效，已发出的请求不受影响；关闭后历史内容保留。" },
+                help: "开局沿用 Skill 库里的默认开关，可以逐项调整这一局，前台按场景选用。开关从后续请求生效，历史内容保留。" },
             !skills && !error ? h(PanelLoading, { shape: "fields", count: 3 }) : null,
             skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
             skills && skills.length ? rows(...skills.map(skill => h(packUi.SwitchRow, { key: skill.name, label: skill.name, help: skill.description || undefined,

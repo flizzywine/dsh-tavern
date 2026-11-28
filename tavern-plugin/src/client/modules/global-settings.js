@@ -1,5 +1,5 @@
 // Settings owns its initial snapshot; each editor saves only its own resource.
-function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
     // 单文件存档（实验）：手动把现有存档转成 Format 3，或全部转回 Format 2。每个存档逐字节核对后才切换；失败的保持原样。
@@ -146,8 +146,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.owner === 'core'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
             group("开局默认", "新对局继承开局设置。精修适用于所有对局。",
                 state.settings ? h(GlobalPlayDefaults, { settings: state.settings },
-                    sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false)) : null,
-                h(TavernConversationWritingSkills, { globalDefaults: true })),
+                    sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false)) : null),
             group("候选项", { status: state.noticeGroup === "候选项" ? settingsStatus : null },
                 card(
                     sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项。关闭后可手动生成。适用于所有对局之后的新回复。", false, saveCandidate),

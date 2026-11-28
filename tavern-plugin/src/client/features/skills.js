@@ -13,11 +13,14 @@
 			const [busy, setBusy] = React.useState(false);
 			const [notice, setNotice] = React.useState("");
 			const importInput = React.useRef(null);
+			const refreshVersion = React.useRef(0);
+			const defaultSwitchId = React.useId();
 			const [error, setError] = usePersistentError("Skill 库");
 			const roles = [["card", "卡片 Agent"], ["foreground", "前台"], ["background", "后台"]];
 			async function refresh() {
+				const version = ++refreshVersion.current;
 				const result = await rpc("listSkills", {}, props.sessionId);
-				setSkills(result.skills || []);
+				if (version === refreshVersion.current) setSkills(result.skills || []);
 			}
 			// A single SKILL.md, or a .zip of the skill folder (SKILL.md plus references/*.md).
 			async function importSkill(file) {
@@ -41,11 +44,19 @@
 				try { await action(); } catch (err) { setError(String(err.message || err)); }
 				finally { setBusy(false); }
 			}
+			function setWritingDefault(name, enabled) {
+				return run(async () => {
+					await rpc("setDefaultWritingSkill", { name, enabled }, props.sessionId);
+					++refreshVersion.current;
+					setSkills(items => items.map(skill => skill.name === name ? { ...skill, defaultEnabled: enabled } : skill));
+					setNotice("已保存，新游戏生效");
+				});
+			}
 			React.useEffect(function () {
 				run(refresh);
 				function update() { refresh().catch(err => setError(String(err.message || err))); }
 				window.addEventListener("focus", update);
-				return function () { window.removeEventListener("focus", update); };
+				return function () { ++refreshVersion.current; window.removeEventListener("focus", update); };
 			}, [props.sessionId]);
             if (opened) {
                 const document = skillDraft || opened;
@@ -75,7 +86,7 @@
 					h("button", { className: "dsh-tavern-btn", disabled: busy, title: "导入 SKILL.md，或包含 SKILL.md 与 references/ 的文件夹压缩包", onClick: () => importInput.current && importInput.current.click() }, "导入 Skill"),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: () => run(refresh) }, "刷新")),
 				h("p", { className: "dsh-tavern-question-sub" }, "拖动 Skill 调整用途，不需要的 Skill 可直接删除。"),
-				error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
+				error ? h("div", { role: "alert", className: "dsh-tavern-dock-error" }, error) : null,
 				notice ? h("p", { role: "status", className: "dsh-tavern-question-sub" }, notice) : null,
 				h("div", { className: "dsh-tavern-resource-body" }, roles.map(([group, title]) => {
                     const items = skills.filter(skill => skill.agents.includes(group) || (!skill.agents.length && group === (skill.purpose === "writing" ? "foreground" : skill.purpose === "background" || skill.purpose === "image" ? "background" : "card")));
@@ -96,6 +107,10 @@
                             onDragEnd: () => { setDragging(null); setDropGroup(null); } },
 					h("div", { className: "dsh-tavern-resource-group-title" }, h("span", { className: "dsh-tavern-skill-grip", "aria-hidden": true }, "⠿"), h("button", { className: "dsh-tavern-resource-name dsh-tavern-resource-open", disabled: busy, onClick: () => run(async () => setOpened(await rpc("getSkill", { name: skill.name }, props.sessionId))) }, skill.name), h("span", { className: "dsh-tavern-resource-meta" }, skill.source === "builtin" ? "内置" : skill.source === "plugin" ? "插件" : "自建"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: async () => { if (await askConfirm("Skill 和它的参考文件都会删除。", { title: "删除 Skill “" + skill.name + "”？", confirmText: "删除", danger: true, hide: "skill" })) run(async () => { await rpc("deleteSkill", { name: skill.name }, props.sessionId); await refresh(); }); } }, "删除")),
 					h("button", { type: "button", className: "dsh-tavern-question-sub dsh-tavern-skill-description", disabled: busy, onClick: () => run(async () => setOpened(await rpc("getSkill", { name: skill.name }, props.sessionId))) }, skill.description),
+					group === "foreground" && typeof skill.defaultEnabled === "boolean" ? h("div", { className: "dsh-tavern-skill-default" },
+						h("label", { htmlFor: defaultSwitchId + skill.name }, "新游戏默认开启"),
+						h(Switch, { id: defaultSwitchId + skill.name, label: skill.name + "：新游戏默认开启", checked: skill.defaultEnabled,
+							disabled: busy, onChange: enabled => setWritingDefault(skill.name, enabled) })) : null,
 					h("details", { className: "dsh-tavern-skill-options" }, h("summary", null, "调整用途"), h("div", { className: "dsh-tavern-skill-assignments" }, roles.map(([role, label]) => h("label", { key: role }, h("input", { type: "checkbox", checked: skill.agents.includes(role), disabled: busy || skill.agents.length === 1 && skill.agents.includes(role), onChange: event => { const agents = event.target.checked ? skill.agents.concat(role) : skill.agents.filter(value => value !== role); run(async () => { await rpc("assignSkill", { name: skill.name, agents }, props.sessionId); await refresh(); }); } }), label))))
                     )) : h("div", { className: "dsh-tavern-skill-empty" }, "拖动 Skill 到这里"));
                 }), !skills.length ? (busy ? h(PanelLoading, { label: "正在读取 Skill…" }) : h(EmptyState, { noun: "Skill" })) : null));

@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { createResourceHandlers } from '../tavern-plugin/lib/rpc/resources.js'
 
 function fixture() {
   let fail = false
@@ -24,6 +25,44 @@ function fixture() {
     }
   }
 }
+
+test('前台写作 Skill 的默认开关在 Skill 库，沿用已保存的设置', async t => {
+  let settingsDocument = { defaultDisabledWritingSkills: ['scene-writing'] }
+  const skills = [
+    { name: 'scene-writing', agents: ['foreground', 'card'], purpose: 'writing', description: '场景写作' },
+    { name: 'rhythm', agents: ['foreground'], purpose: 'writing', description: '节奏' },
+    { name: 'summarize', agents: ['background'], purpose: 'background', description: '后台摘要' },
+  ]
+  const handlers = createResourceHandlers({
+    tavernSkills: { list: async () => skills, read: async name => skills.find(skill => skill.name === name) },
+    readTavernSettings: async () => presentTavernSettings(settingsDocument, {}),
+    updateTavernSettings: async patch => { settingsDocument = applyTavernSettingsPatch(settingsDocument, patch) },
+  })
+  const methods = new Set(['listSkills', 'getDefaultWritingSkills', 'setDefaultWritingSkill'])
+  const respond = (method, args) => methods.has(method) ? handlers[method](args) : undefined
+  const settings = await openTavernSettings(t, { respond })
+  await settings.page.getByRole('region', { name: '开局默认', exact: true }).waitFor()
+  assert.equal(await settings.page.getByText('默认写作 Skill', { exact: true }).count(), 0)
+  assert.ok(!settings.calls.some(({ method }) => method === 'getDefaultWritingSkills'))
+  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: Skill library', respond })
+  const toggle = (name, checked) => page.getByRole('switch', { name: name + '：新游戏默认开启', exact: true, checked }).and(page.locator(':enabled'))
+  await toggle('scene-writing', false).waitFor()
+  await toggle('rhythm', true).waitFor()
+  assert.equal(await page.getByRole('switch').count(), 2, '多用途前台 Skill 只出现一个开关，后台没有开关')
+  await toggle('scene-writing', false).press('Space')
+  await toggle('scene-writing', true).waitFor()
+  await toggle('rhythm', true).press('Space')
+  await toggle('rhythm', false).waitFor()
+  assert.deepEqual(settingsDocument.defaultDisabledWritingSkills, ['rhythm'])
+  assert.deepEqual(calls.filter(({ method }) => method === 'setDefaultWritingSkill').map(({ args: { name, enabled } }) => ({ name, enabled })), [
+    { name: 'scene-writing', enabled: true }, { name: 'rhythm', enabled: false },
+  ])
+  const refreshed = page.waitForResponse(response => response.url().endsWith('/listSkills'))
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await refreshed
+  await toggle('scene-writing', true).waitFor()
+  await toggle('rhythm', false).waitFor()
+})
 
 test('状态栏位置是全局显示偏好，保存后通知现有对局刷新', async t => {
   const backend = fixture()
