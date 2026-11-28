@@ -1498,6 +1498,7 @@ function clipReplayCore() {
                 name: "conversation.view", id: "dsh-tavern:gallery", order: 12,
                 label: "画廊", inject: sessionId => ({ gallerySessionId: sessionId })
             }, SceneImageGallery)), "dsh-tavern: picture gallery");
+            registerTavernCardImageMenu(ctx);
             ctx.effect(() => slots.inject("conversation.view", () => slots.register({
                 name: "conversation.view", id: "dsh-tavern:polish", order: 13,
                 label: "精修", inject: sessionId => ({ polishSessionId: sessionId })

@@ -66,6 +66,7 @@ function componentHarness(functionSource, { rpc, extras = {} }) {
     rpc,
     URLSearchParams,
     useTavernConfirm: () => async () => true,
+    useTavernSessionMode: () => 'story',
     tavernPluginMediaIndex: { subscribe: () => () => {} },
     openSceneImagePreview() {},
     DshUi: { IconTrashOutlineRegular: 'trash-icon' },

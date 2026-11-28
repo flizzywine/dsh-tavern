@@ -1,14 +1,71 @@
+		function tavernGeneratedCardImagePath(src) {
+			try {
+				const url = new URL(src, window.location.href);
+				const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
+				if (url.origin !== window.location.origin
+					&& !(loopback.has(url.hostname) && loopback.has(window.location.hostname) && /^https?:$/.test(url.protocol))) return "";
+				return /^\/dsh-tavern-gen\/img\/[\w-]+\.(?:png|jpe?g|webp|gif)$/i.test(url.pathname) ? url.pathname : "";
+			} catch (_) { return ""; }
+		}
+
+		async function addTavernCardImageToDraft(sessionId, url, name, opener) {
+			const scopeSelector = "[data-conversation-session]";
+			const owner = opener ? opener.closest(scopeSelector) : null;
+			const scopes = owner ? [owner] : document.querySelectorAll(scopeSelector);
+			const fileInput = Array.from(scopes)
+				.filter(scope => scope.getAttribute("data-conversation-session") === sessionId && !scope.closest("[hidden], [inert]"))
+				.flatMap(scope => Array.from(scope.querySelectorAll('[data-composer-card] input[type="file"]:not(:disabled)')))
+				.find(input => input.closest(scopeSelector)?.getAttribute("data-conversation-session") === sessionId);
+			if (!fileInput) throw new Error("当前对话暂时无法添加图片");
+			const response = await fetch(url, { redirect: "error" }).catch(() => null);
+			if (!response?.ok) throw new Error("读取这张图片失败，请刷新后重试");
+			const image = await response.blob();
+			const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[image.type];
+			if (!image.size || !extension) throw new Error("这张图片的格式不受支持");
+			if (!fileInput.isConnected || fileInput.disabled || fileInput.closest("[hidden]:not(input), [inert]")
+				|| fileInput.closest(scopeSelector)?.getAttribute("data-conversation-session") !== sessionId) {
+				throw new Error("原对话暂时无法添加图片");
+			}
+			// Use the host's file picker intake so its draft, upload limits and attachment previews stay in sync.
+			const transfer = new DataTransfer();
+			transfer.items.add(new File([image], name || ("工作台生图." + extension), { type: image.type }));
+			fileInput.files = transfer.files;
+			try { fileInput.dispatchEvent(new Event("change", { bubbles: true })); }
+			finally { fileInput.value = ""; }
+		}
+
+		function registerTavernCardImageMenu(ctx) {
+			return ctx.inject(["contextMenus"], child => {
+				child.effect(() => child.contextMenus.register({
+					id: "dsh-tavern:reference-card-image", target: "image", order: 10,
+					resolve(target) {
+						const sessionId = target.sessionId;
+						if (!sessionId) return [];
+						const mode = liveTavernView.getSnapshot(sessionId)?.view?.mode || tavernSessionModes.values[sessionId];
+						const path = mode === "card" && tavernGeneratedCardImagePath(target.url);
+						return path ? [{
+							id: "reference", label: "引用这张图", failureLabel: "无法引用图片，请检查图片和当前输入框",
+							run: () => addTavernCardImageToDraft(sessionId, path, path.split("/").pop()),
+						}] : [];
+					},
+				}), "dsh-tavern: card image reference menu");
+			});
+		}
+
 		// Gallery tab beside 对话/轨迹/完整上下文: the pictures plugins attached to this game, one
 		// row per turn from the first turn on. Delete one from its corner, or pick several;
 		// deleting removes the picture only, the story text and saves are untouched.
 		function SceneImageGallery(props) {
 			const h = React.createElement;
 			const askConfirm = useTavernConfirm();
+			const cardMode = useTavernSessionMode(props.gallerySessionId) === "card";
 			const [items, setItems] = React.useState(null);
 			const [picking, setPicking] = React.useState(false);
 			const [picked, setPicked] = React.useState({});
 			const [busy, setBusy] = React.useState(false);
 			const [notice, setNotice] = React.useState("");
+			const referencePending = React.useRef(null);
+			const [referencing, setReferencing] = React.useState(null);
 			const loadRevision = React.useRef(0);
 			const galleryRevision = React.useRef(0);
 			const load = React.useCallback(async function () {
@@ -48,6 +105,21 @@
 			const urls = shots.map(function (shot) { return shot.url; });
 			const chosen = shots.filter(function (shot) { return picked[shot.id]; });
 			function toggle(shot, on) { setPicked(function (value) { const next = Object.assign({}, value); if (on) next[shot.id] = true; else delete next[shot.id]; return next; }); }
+			async function reference(shot, opener) {
+				const sessionId = props.gallerySessionId;
+				if (referencePending.current?.sessionId === sessionId) return;
+				const revision = galleryRevision.current, request = { sessionId, id: shot.id };
+				referencePending.current = request;
+				setReferencing(request); setNotice("");
+				try { await addTavernCardImageToDraft(sessionId, shot.url, "", opener); }
+				catch (error) { if (revision === galleryRevision.current) setNotice(String(error.message || error)); }
+				finally {
+					if (referencePending.current === request) {
+						referencePending.current = null;
+						setReferencing(null);
+					}
+				}
+			}
 			async function remove(list) {
 				const revision = galleryRevision.current;
 				const sessionId = props.gallerySessionId;
@@ -96,7 +168,12 @@
 									else openSceneImagePreview(shot.url, event.currentTarget, null, { urls: urls, index: urls.indexOf(shot.url) });
 								} }, h("img", { src: shot.url, alt: shot.version.description || "插图", loading: "lazy" })),
 								picking ? h("label", { className: "dsh-tavern-gallery-pick" }, h("input", { type: "checkbox", "aria-label": "选择第 " + shot.item.turn + " 轮插图", checked: Boolean(picked[shot.id]), disabled: busy, onChange: function (event) { toggle(shot, event.target.checked); } }))
-									: h("button", { type: "button", className: "dsh-tavern-gallery-delete", "aria-label": "删除这张图片", title: "删除这张图片", disabled: busy, onClick: function () { void remove([shot]); } }, h(DshUi.IconTrashOutlineRegular, null)));
+									: h("button", { type: "button", className: "dsh-tavern-gallery-delete", "aria-label": "删除这张图片", title: "删除这张图片", disabled: busy, onClick: function () { void remove([shot]); } }, h(DshUi.IconTrashOutlineRegular, null)),
+								!picking && cardMode && shot.item.provider ? h("button", {
+									type: "button", className: "dsh-tavern-btn",
+									disabled: referencing?.sessionId === props.gallerySessionId,
+									onClick: function (event) { void reference(shot, event.currentTarget); },
+								}, referencing?.sessionId === props.gallerySessionId && referencing.id === shot.id ? "正在添加…" : "引用这张图") : null);
 						})));
 				}));
 		}
