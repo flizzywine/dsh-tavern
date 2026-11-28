@@ -103,7 +103,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(97% 0.005 25)",
       "--dsw-specific-menu": "oklch(92% 0.005 25)"
     },
-    "label": "Bloom · 朱砂",
+    "label": "朱砂",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.005 25), oklch(95% 0.005 25))"
   },
   {
@@ -142,7 +142,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(28% 0.02 25)",
       "--dsw-specific-menu": "oklch(40% 0.02 25)"
     },
-    "label": "Bloom · 朱砂 深色",
+    "label": "朱砂 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(215, 75, 75, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 25), oklch(34% 0.02 25))"
   },
   {
@@ -181,7 +181,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(97.8% 0.006 95)",
       "--dsw-specific-menu": "oklch(93% 0.01 95)"
     },
-    "label": "Bloom · 轻黄",
+    "label": "轻黄",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .18), transparent 65%), linear-gradient(160deg, oklch(97.8% 0.006 95), oklch(95.8% 0.008 95))"
   },
   {
@@ -220,7 +220,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(24% 0.008 95)",
       "--dsw-specific-menu": "oklch(36% 0.015 95)"
     },
-    "label": "Bloom · 轻黄 深色",
+    "label": "轻黄 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(214, 186, 92, .20), transparent 65%), linear-gradient(160deg, oklch(24% 0.008 95), oklch(30% 0.012 95))"
   },
   {
@@ -259,7 +259,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(97% 0.011 112)",
       "--dsw-specific-menu": "oklch(91.9% 0.009 113)"
     },
-    "label": "Bloom · 竹青",
+    "label": "竹青",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.011 112), oklch(94.9% 0.009 113))"
   },
   {
@@ -298,7 +298,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(20% 0.019 113)",
       "--dsw-specific-menu": "oklch(34% 0.03 116)"
     },
-    "label": "Bloom · 竹青 深色",
+    "label": "竹青 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(138, 154, 91, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.019 113), oklch(27.9% 0.02 116))"
   },
   {
@@ -337,7 +337,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(96% 0.01 195)",
       "--dsw-specific-menu": "oklch(92% 0.01 195)"
     },
-    "label": "Bloom · 天青",
+    "label": "天青",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 195), oklch(94% 0.01 195))"
   },
   {
@@ -376,7 +376,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(20% 0.02 195)",
       "--dsw-specific-menu": "oklch(38% 0.02 195)"
     },
-    "label": "Bloom · 天青 深色",
+    "label": "天青 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(95, 168, 178, .20), transparent 65%), linear-gradient(160deg, oklch(20% 0.02 195), oklch(28% 0.02 195))"
   },
   {
@@ -415,7 +415,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(96% 0.01 240)",
       "--dsw-specific-menu": "oklch(91% 0.01 240)"
     },
-    "label": "Bloom · 黛蓝",
+    "label": "黛蓝",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .18), transparent 65%), linear-gradient(160deg, oklch(96% 0.01 240), oklch(94% 0.01 240))"
   },
   {
@@ -454,7 +454,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(28% 0.02 240)",
       "--dsw-specific-menu": "oklch(40% 0.02 240)"
     },
-    "label": "Bloom · 黛蓝 深色",
+    "label": "黛蓝 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(146, 168, 179, .20), transparent 65%), linear-gradient(160deg, oklch(28% 0.02 240), oklch(34% 0.02 240))"
   },
   {
@@ -493,7 +493,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(97% 0.012 295)",
       "--dsw-specific-menu": "oklch(92.5% 0.016 295)"
     },
-    "label": "Bloom · 青莲",
+    "label": "青莲",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .18), transparent 65%), linear-gradient(160deg, oklch(97% 0.012 295), oklch(95% 0.014 295))"
   },
   {
@@ -532,7 +532,7 @@
       "--dsw-alias-label-primary-foreground": "oklch(26% 0.02 295)",
       "--dsw-specific-menu": "oklch(38% 0.024 295)"
     },
-    "label": "Bloom · 青莲 深色",
+    "label": "青莲 · 深色",
     "wallpaperGradient": "radial-gradient(ellipse at top right, rgba(164, 148, 190, .20), transparent 65%), linear-gradient(160deg, oklch(26% 0.02 295), oklch(32% 0.022 295))"
   }
 ]
