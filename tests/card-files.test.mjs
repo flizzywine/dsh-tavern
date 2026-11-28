@@ -1,5 +1,7 @@
 import { png as fixturePng, syntheticPack } from './fixtures/asset-packs/pack.mjs'
 import { createAssetPackService, openPackZip, StoredFile } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
+import * as assetLibraryPlugin from '../tavern-plugin/packages/dsh-asset-library/lib/index.js'
+import { Context } from '@deepseek-ai/cordis'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
@@ -33,8 +35,8 @@ async function exportedEntries(exported) {
 }
 
 async function library(t, extra = {}, { onLegacyBlobWrite, withAssetLibrary = false } = {}) {
-  let service
-  t.after(() => service?.dispose())
+  let service, ctx
+  t.after(() => ctx?.fiber.dispose())
   const root = syntheticFixture(t, 'card-files-')
   const profileData = createProfileDataStore({ dataRoot: root })
   const fileResources = createFileResourceStore({ dataRoot: root })
@@ -53,7 +55,11 @@ async function library(t, extra = {}, { onLegacyBlobWrite, withAssetLibrary = fa
   if (withAssetLibrary) {
     const cardTransactions = createCardBundleAdapter({cardPreparation, authorizeTarget:async path => ({cardId:path}),
       readWorkspace:readCardWorkspace, withCardLock:async (_path, task) => task()})
-    service = createAssetPackService({assetRoot:join(root, 'library'), cardTransactions})
+    ctx = new Context()
+    ctx.provide('tavernAssetCards', {apiVersion:2, ...cardTransactions})
+    ctx.provide('tavernMediaStore', mediaStore)
+    await ctx.plugin(assetLibraryPlugin, {assetRoot:join(root, 'library')}).await()
+    service = ctx.get('assetLibrary')
   }
   const files = createCardFiles({
     ...(service ? {assetLibrary:() => service} : {}),
@@ -64,7 +70,7 @@ async function library(t, extra = {}, { onLegacyBlobWrite, withAssetLibrary = fa
     syncBubbles: async cardPath => { bubbleSyncs.push(cardPath) }
   })
   const bubbleSyncs = []
-  return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace, mediaStore, assetPacks }
+  return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace, mediaStore, assetPacks, service }
 }
 
 // An on-disk 280 MiB asset pack. Ancillary PNG chunks make it cheap to build and remain ZIP-stored.
@@ -96,6 +102,17 @@ async function exportInventory(file) {
   try { return [...zip.entries.values()].map(({path, size}) => [path,size]).sort() } finally { await zip.close() }
 }
 
+async function exportFromSheet(t, handlers, args) {
+  await handlers.exportLibraryCard(args)
+  let progress
+  do {
+    await wait(50, undefined, {signal:t.signal})
+    progress = handlers.cardExportProgress({progressId:args.progressId}).progress
+  } while (!['done','failed'].includes(progress.stage))
+  assert.equal(progress.stage, 'done', progress.error?.message)
+  return progress.result
+}
+
 test('a 280 MiB card takes the same files through direct, plain GUI and encrypted GUI export and native re-import', {timeout:150_000}, async t => {
   const source = await library(t, {}, {withAssetLibrary:true})
   const seed = await largeExportFixture(source.root)
@@ -110,20 +127,14 @@ test('a 280 MiB card takes the same files through direct, plain GUI and encrypte
     assert.ok(direct.size > 256 * 1024 ** 2)
     await direct.dispose()
     for (const [progressId,password] of [['plain-large',undefined], ['locked-large','round-trip-test']]) {
-      await handlers.exportLibraryCard({path:card.path, progressId, password})
-      let progress
-      do {
-        await wait(50, undefined, {signal:t.signal})
-        progress = handlers.cardExportProgress({progressId}).progress
-      } while (!['done','failed'].includes(progress.stage))
-      assert.equal(progress.stage,'done',progress.error?.message)
-      const token = new URL(progress.result.downloadUrl, 'http://fixture').searchParams.get('token')
+      const {downloadUrl, filename} = await exportFromSheet(t, handlers, {path:card.path, progressId, password})
+      const token = new URL(downloadUrl, 'http://fixture').searchParams.get('token')
       const artifact = await transfer.take(token)
       assert.ok(artifact.bytes > 256 * 1024 ** 2)
       assert.deepEqual(await exportInventory(artifact.file), inventory)
       const target = await library(t, {}, {withAssetLibrary:true})
-      await target.files.previewCardArchiveFile(artifact.file, progress.result.filename, {password})
-      const restored = await target.files.importCardArchiveFile(artifact.file, progress.result.filename, {password, previewed:true})
+      await target.files.previewCardArchiveFile(artifact.file, filename, {password})
+      const restored = await target.files.importCardArchiveFile(artifact.file, filename, {password, previewed:true})
       assert.equal(restored.name, card.name)
       assert.equal(restored.libraryNotices, undefined)
       assert.deepEqual(restored.packs.map(({id, contentHash, files}) => [id,contentHash,files]), card.packs.map(({id,contentHash,files}) => [id,contentHash,files]))
@@ -132,6 +143,38 @@ test('a 280 MiB card takes the same files through direct, plain GUI and encrypte
       await transfer.remove(token)
     }
   } finally { transfer.close() }
+})
+
+test('unchecking a bound pack round-trips plain and encrypted GUI exports through the installed asset plugin', {timeout:20_000}, async t => {
+  const source = await library(t, {}, {withAssetLibrary:true})
+  const keep = (await source.service.createPack({name:'Keep', expectedRevision:null})).snapshot.manifest
+  const omit = (await source.service.createPack({name:'Omit', expectedRevision:null})).snapshot.manifest
+  const raw = {spec:'chara_card_v3', spec_version:'3.0', data:{name:'Scoped export', tags:['dsh-agent-test'], extensions:{
+    dsh_tavern:{schemaVersion:1, stage:{enabled:true}, assetBindings:{boundPackIds:[keep.id, omit.id]}}, foreign:{preserved:true}
+  }}}
+  const card = await source.files.importCard({kind:'text', name:'scoped.json', text:JSON.stringify(raw)})
+  const readRaw = async (profile, path) => profile.cardPreparation.present({card:await profile.readCardWorkspace(path), as:'raw'})
+  const before = await readRaw(source, card.path)
+  const expected = structuredClone(before)
+  expected.data.extensions.dsh_tavern.assetBindings.boundPackIds = [keep.id]
+  const transfer = createTransferExportStore({root:join(source.root,'transfer')})
+  t.after(() => transfer.close())
+  const handlers = createCardHandlers({...source.files, str:String, transferExports:transfer})
+  for (const [progressId, password] of [['plain-scoped',undefined], ['locked-scoped','round-trip-test']]) {
+    const {downloadUrl, filename} = await exportFromSheet(t, handlers, {path:card.path, progressId, password, omitPackIds:[omit.id]})
+    const token = new URL(downloadUrl, 'http://fixture').searchParams.get('token')
+    const artifact = await transfer.take(token)
+    try {
+      const target = await library(t, {}, {withAssetLibrary:true})
+      await target.files.previewCardArchiveFile(artifact.file, filename, {password})
+      const restored = await target.files.importCardArchiveFile(artifact.file, filename, {password, previewed:true})
+      assert.equal(restored.libraryNotices, undefined)
+      assert.deepEqual(restored.packs.map(({id, contentHash}) => [id, contentHash]), [[keep.id, keep.contentHash]])
+      assert.equal(await target.service.getPackSnapshot({packId:omit.id}), null)
+      assert.deepEqual(await readRaw(target, restored.path), expected)
+    } finally { await transfer.remove(token) }
+  }
+  assert.deepEqual(await readRaw(source, card.path), before)
 })
 
 test('a world book mislabeled as card.json is rejected before attached packs are written', async t => {
