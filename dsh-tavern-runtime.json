@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "12df274c296cdf61fe05ee11a7ff394ef8dd6a76",
-  "releaseSequence": 2253,
+  "revision": "66b909066aa00274abdfd71d7278f9ecd6fe61f9",
+  "releaseSequence": 2257,
   "version": "3.5.0",
   "files": [
     {
@@ -1996,8 +1996,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-sqlite-store.js",
-      "sha256": "efa4b9f458ed9c4c1189c0ba1dc126b0abeb9661bb0ebe086454bb58f1fa4b85",
-      "size": 15521
+      "sha256": "4815ec72f1015c9b2b3c16eef7a9d89cd4f44fc454331df87b8e8b938656fe6a",
+      "size": 15724
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-state.js",
@@ -2006,8 +2006,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-storage-format.js",
-      "sha256": "3febd091b73d7b9a7ea60b2523bd73ab0c6642530bd6c40c92d9f1b136bd437f",
-      "size": 18954
+      "sha256": "55ddecf916214b01f5cef93b5172386f0fe895729b9fa8bf09605d1217d60aff",
+      "size": 19157
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-text-export.js",
@@ -3476,8 +3476,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/server-template-runtime.js",
-      "sha256": "7e900152c4ee2f266fabbbe97db022f6b760720146c2d7352bbe1f264926e5fe",
-      "size": 13329
+      "sha256": "53438846d3a0173cbdf040cc546530efd9b64434dcb7cfcd4d0336fb398ed58e",
+      "size": 13422
     },
     {
       "path": "tavern-plugin/lib/domain/server-template-sync.js",
@@ -3486,8 +3486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/server-template-worker.js",
-      "sha256": "7452ab04767538e259a68c57798bd6c521e28095636da64991edae3bc3871968",
-      "size": 5137
+      "sha256": "1b59d664d55a86e2a6014173fa23e5827db611a8ae6b3d9f6c73f8ae1315eee2",
+      "size": 5287
     },
     {
       "path": "tavern-plugin/lib/domain/session-diagnostics.js",
@@ -4331,8 +4331,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-title.js",
-      "sha256": "ec5bb4fa40c33323c71373fb386ee215927bc8679f7b7012aeb7a43b9e36bdad",
-      "size": 418
+      "sha256": "950c587ce0fa26e52c0094868b7ce072ff190e70eea2e9e732e7895d499af1e9",
+      "size": 2398
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-file-store.js",
@@ -10425,9 +10425,9 @@
     "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh"
   ],
   "archive": {
-    "commit": "285c48047211a31649207619d4b53bef4fda0f60",
+    "commit": "95b33c4387938793cd0915273b049d7cdf564376",
     "path": "runtime.zip",
-    "sha256": "a30e64b51cd009d95baaf884527a6d250ec7fb6b3be0ffb1faf8383b9c73f5a7",
-    "size": 18355408
+    "sha256": "d00e11a892d2284ce797e3cd62f7e53578973b3166442f47603fab2636fefed5",
+    "size": 18356533
   }
 }
