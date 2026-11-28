@@ -2,6 +2,8 @@ import { normalizeResourcePath } from '../domain/file-resources.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
 import { worldBookViewForWire } from '../domain/worldbook-resource.js'
 
+const SCRIPT_PREVIEW_CHUNKS_PER_PAGE = 10
+
 // Records handed to the client keep only what the panels render: the server-side `rawEntry`
 // and `raw` copies of the source text stay here (they triple a large book's payload).
 function worldBookForClient(record, options) {
@@ -50,6 +52,16 @@ export function createResourceHandlers(deps) {
     },
     async getResource(args) {
       const resourcePath = normalizeResourcePath(args && args.path, 'source')
+      if (args?.page !== undefined) {
+        if (!Number.isSafeInteger(args.page) || args.page < 1) throw new Error('请输入有效的剧本页码')
+        const script = await readScript(resourcePath)
+        if (!script) throw new Error('剧本不存在: ' + resourcePath)
+        const pageCount = Math.max(1, Math.ceil(script.chunks.length / SCRIPT_PREVIEW_CHUNKS_PER_PAGE))
+        const page = Math.min(args.page, pageCount)
+        const start = (page - 1) * SCRIPT_PREVIEW_CHUNKS_PER_PAGE
+        const text = script.chunks.slice(start, start + SCRIPT_PREVIEW_CHUNKS_PER_PAGE).map(chunk => chunk.text).join('')
+        return { path: resourcePath, page, pageCount, text }
+      }
       const text = await fileResources.readText(resourcePath)
       if (text === undefined) throw new Error('剧本不存在: ' + resourcePath)
       return { path: resourcePath, text }

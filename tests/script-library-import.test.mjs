@@ -81,4 +81,16 @@ test('SillyTavern JSONL 导入剧本库后可预览、绑定，原始 JSONL 保�
     const { source: again } = await host.rpc('importSource', { payload: { ...file, name: renameFile } })
     assert.deepEqual(await getTags(again.path), [])
   })
+
+  await t.test('剧本预览按页返回全文，跨页保留段落和字符', async () => {
+    const text = Array.from({ length: 23 }, (_, i) => '第' + (i + 1) + '段' + '雨'.repeat(498) + '🌧️。').join('\n\n')
+    const { source } = await host.rpc('importSource', { payload: { name: '长篇小说.txt', text } })
+    const pageAt = page => host.rpc('getResource', { path: source.path, page })
+    const pages = await Promise.all([1, 2, 3].map(pageAt))
+    assert.deepEqual(pages.map(({ page, pageCount }) => [page, pageCount]), [[1, 3], [2, 3], [3, 3]])
+    assert.equal(pages.map(({ text }) => text).join(''), text)
+    assert.equal((await pageAt(9999)).page, 3)
+    await assert.rejects(pageAt(0), /页码/)
+    await assert.rejects(host.rpc('getResource', { path: 'materials/缺失.txt', page: 1 }), /剧本不存在/)
+  })
 })

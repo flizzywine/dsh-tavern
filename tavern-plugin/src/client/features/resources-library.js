@@ -1,4 +1,52 @@
 		function createResourcesLibraryFeatureModule() {
+			function TavernScriptPreview({ item, sessionId, onBack }) {
+				const h = React.createElement;
+				const [request, setRequest] = React.useState({ page: 1 });
+				const [page, setPage] = React.useState(null);
+				const [jump, setJump] = React.useState("");
+				const [loading, setLoading] = React.useState(true);
+				const [error, setError] = React.useState("");
+				function load(number) {
+					setLoading(true);
+					setError("");
+					setRequest({ page: number });
+				}
+				React.useEffect(function () {
+					const controller = new AbortController();
+					const signal = controller.signal;
+					rpc("getResource", { path: item.path, page: request.page }, sessionId, { signal }).then(result => {
+						if (signal.aborted) return;
+						setPage(result);
+						setJump(String(result.page));
+					}, err => {
+						if (!signal.aborted) setError(String(err?.message || err));
+					}).finally(() => { if (!signal.aborted) setLoading(false); });
+					return () => controller.abort();
+				}, [item.path, request, sessionId]);
+				return h("div", { className: "dsh-tavern-resources dsh-tavern-script-reader" },
+					h("div", { className: "dsh-tavern-status-head" },
+						h("button", { type: "button", className: "dsh-tavern-btn", onClick: onBack }, "← 返回剧本库"),
+						h("div", { className: "dsh-tavern-status-title" }, item.title)),
+					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error, " ",
+						h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => load(request.page) }, "重试")) : null,
+					h("div", { key: page?.page, className: "dsh-tavern-resource-body dsh-tavern-script-reading-area", role: "region",
+						"aria-label": "剧本正文", "aria-busy": loading, tabIndex: 0 },
+						page ? h("pre", { className: "dsh-tavern-script-preview" }, page.text)
+							: loading ? h("p", { role: "status" }, "正在读取剧本…") : null),
+					page?.pageCount > 1 ? h("nav", { className: "dsh-tavern-script-pages", "aria-label": "剧本翻页" },
+						h("button", { type: "button", className: "dsh-tavern-btn", disabled: loading || page.page <= 1, onClick: () => load(page.page - 1) }, "上一页"),
+						h("span", { role: "status" }, "第 " + page.page + " / " + page.pageCount + " 页"),
+						h("button", { type: "button", className: "dsh-tavern-btn", disabled: loading || page.page >= page.pageCount, onClick: () => load(page.page + 1) }, "下一页"),
+						h("form", { className: "dsh-tavern-script-page-jump", onSubmit(event) {
+							event.preventDefault();
+							const target = Number(jump);
+							if (!loading && Number.isSafeInteger(target) && target >= 1 && target <= page.pageCount && target !== page.page) load(target);
+						} },
+							h("input", { type: "number", "aria-label": "剧本页码", min: 1, max: page.pageCount, step: 1, required: true,
+								value: jump, onChange: event => setJump(event.target.value) }),
+							h("button", { type: "submit", className: "dsh-tavern-btn", disabled: loading || Number(jump) === page.page }, "跳转"))) : null);
+			}
+
 			function TavernResourcesTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 				const [resources, setResources] = React.useState([]);
@@ -25,14 +73,6 @@
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-				async function openScript(item) {
-					setBusy(true); setError("");
-					try {
-						const result = await rpc("getResource", { path: item.path }, props.sessionId);
-						setOpenedScript({ path: item.path, title: item.title, text: result.text || "" });
-					} catch (err) { setError(String(err && err.message || err)); }
-					finally { setBusy(false); }
-				}
 			useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["scripts", "cards", "sessions"], "resources"); }, refresh, props.sessionId);
 			const organization = useLibraryOrganization(resources, busy, refresh, setError, undefined, "scripts", props.sessionId);
 			const h = React.createElement;
@@ -79,7 +119,7 @@
 					const boundCard = item.boundCards?.[0];
 					const availableCards = cards.filter(function (card) { return !card.readError && card.script == null; });
 					const meta = (item.chunkCount ? item.chunkCount + " 块 · " : "") + (boundCard ? "已绑定：" + boundCard.name : "未绑定");
-					const name = h("button", { className: "dsh-tavern-resource-name dsh-tavern-resource-open", title: "查看工作版：" + label, onClick: function () { openScript(item); } }, label);
+					const name = h("button", { type: "button", className: "dsh-tavern-resource-name dsh-tavern-resource-open", title: "查看工作版：" + label, onClick: () => setOpenedScript(item) }, label);
 					const bindingOpen = canManage && bindingPath === path && !boundCard;
 					const menu = h("details", {
 						className: "dsh-tavern-resource-menu",
@@ -130,10 +170,7 @@
 						binding
 					);
 				}
-				if (openedScript) return h("div", { className: "dsh-tavern-resources" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setOpenedScript(null); } }, "← 返回剧本库"), h("div", { className: "dsh-tavern-status-title" }, openedScript.title)),
-					error ? h("div", { className: "dsh-tavern-dock-error" }, error) : h("pre", { className: "dsh-tavern-resource-body dsh-tavern-script-preview" }, openedScript.text)
-				);
+				if (openedScript) return h(TavernScriptPreview, { key: openedScript.path, item: openedScript, sessionId: props.sessionId, onBack: () => setOpenedScript(null) });
 				// ST JSONL files may have no registered MIME type, so let the importer check the file.
 				const sourceActions = h("div", { className: "dsh-tavern-resource-actions" }, h("button", { type: "button", className: "dsh-tavern-resource-import", disabled: organization.disabled, onClick: function () { sourceInput.current && sourceInput.current.click(); } }, "导入小说或剧本"), h("input", { ref: sourceInput, type: "file", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importSourceResource(file); event.target.value = ""; } }));
 				return h("div", { className: "dsh-tavern-resources" },

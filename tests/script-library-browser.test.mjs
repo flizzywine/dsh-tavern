@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -9,6 +9,7 @@ import { createScriptLibrary } from '../tavern-plugin/lib/domain/script-library.
 import { createScriptReader } from '../tavern-plugin/lib/domain/script-reader.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+import { createResourceHandlers } from '../tavern-plugin/lib/rpc/resources.js'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
 test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPUB 小说', async t => {
@@ -19,6 +20,7 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
   const readScript = createScriptReader({ resources: fileResources, version: async path => (await fileResources.metadata(path)).updatedAt })
   const library = createScriptLibrary({ fileResources, readScript })
   const organization = createScriptOrganization(createProfileDataStore({ dataRoot }))
+  const { getResource } = createResourceHandlers({ fileResources, readScript })
   const { page, calls } = await openTavernSettings(t, {
     section: 'dsh-tavern: Better Sidebar resources tab', sessionId,
     async respond(method, args) {
@@ -27,7 +29,7 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
       if (method === 'getScriptOrganization') return { tags: (await organization.read()).tags }
       if (method === 'organizeScripts') return { tags: (await organization.update(args, await fileResources.list('source'))).tags }
       if (method === 'importSource') return { source: await library.importSource(args.payload) }
-      if (method === 'getResource') return { path: args.path, text: await fileResources.readText(args.path) }
+      if (method === 'getResource') return getResource(args)
     }
   })
   const epubText = '夜雨落在屋檐。\n\n她关上了窗。'
@@ -89,4 +91,41 @@ test('游玩对话可以导入、预览、检索和分组 TXT、Markdown 与 EPU
   await manager.getByRole('button', { name: '关闭', exact: true }).click()
   await rain.getByRole('button', { name: '添加分组' }).waitFor()
   assert.equal(await page.locator('.dsh-tavern-resource-row').count(), 3)
+
+  await t.test('长篇正文可滚动，页脚可顺序翻页和跳到末页', async () => {
+    const name = '长篇小说.txt'
+    const paragraphs = Array.from({ length: 23 }, (_, i) => '第' + (i + 1) + '段' + '雨'.repeat(498) + '。')
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByRole('button', { name: '导入小说或剧本' }).click(),
+    ])
+    await chooser.setFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(paragraphs.join('\n\n')) })
+    const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+    await page.addStyleTag({ content: css + '\nmain { width: 330px; height: 420px; }' })
+    await page.getByRole('button', { name, exact: true }).click()
+    const reader = page.getByRole('region', { name: '剧本正文' })
+    const nav = page.getByRole('navigation', { name: '剧本翻页' })
+    const next = nav.getByRole('button', { name: '下一页' })
+    const previous = nav.getByRole('button', { name: '上一页' })
+    await nav.getByText('第 1 / 3 页').waitFor()
+    assert.equal(await previous.isDisabled(), true)
+    assert.equal(await reader.locator('pre').textContent(), paragraphs.slice(0, 10).join('\n\n'))
+    assert.ok(await reader.evaluate(node => { node.scrollTop = node.scrollHeight; return node.scrollTop }) > 0)
+    const [readingArea, footer, panel] = await Promise.all([reader.boundingBox(), nav.boundingBox(), page.locator('main').boundingBox()])
+    assert.ok(footer.y >= readingArea.y + readingArea.height - 1)
+    assert.ok(footer.y + footer.height <= panel.y + panel.height + 1)
+    await next.click()
+    await nav.getByText('第 2 / 3 页').waitFor()
+    assert.equal(await reader.evaluate(node => node.scrollTop), 0)
+    assert.match(await reader.locator('pre').textContent(), /第11段/)
+    await nav.getByRole('spinbutton', { name: '剧本页码' }).fill('3')
+    await nav.getByRole('button', { name: '跳转' }).click()
+    await nav.getByText('第 3 / 3 页').waitFor()
+    assert.ok((await reader.locator('pre').textContent()).endsWith(paragraphs.at(-1)))
+    assert.equal(await next.isDisabled(), true)
+    await previous.click()
+    await nav.getByText('第 2 / 3 页').waitFor()
+    assert.deepEqual(calls.filter(({ method, args }) => method === 'getResource' && args.path === 'materials/' + name)
+      .map(({ args }) => args.page), [1, 2, 3, 2])
+  })
 })
