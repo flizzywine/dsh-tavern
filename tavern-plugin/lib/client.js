@@ -29143,9 +29143,7 @@ function tavernModelRefusalNotice(text) {
 		    }},
 		        state==='error'?h('span',{'aria-hidden':true},'⚠'):state==='loading'?h(Spinner,{className:'fork-voice-spinner'}):glyph==='speaker'?h(VoiceSpeaker):h('svg',{width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},h('path',{d:path,fill:'currentColor'})));
 		}
-		// the settings save queue and the 高级 → 「对白提示词」 editor.
-		// The output-format presets are gone: everyone uses the builtin emotions (plus the card's custom ones) and
-		// voiced lines are automatic (the host adds the voice rules when voices are on and a character has one).
+		// the settings save queue and the 对话气泡 page body.
 
 		// One in-flight save per settings view, with latest-pending coalescing. A retired
 		// card generation never publishes old responses into the current view.
@@ -29237,46 +29235,56 @@ function tavernModelRefusalNotice(text) {
 		    const [placement, setPlacement] = React.useState({});
 		    const [livePlacement, setLivePlacement] = React.useState(c.data.placement);
 		    const [full, setFull] = React.useState(false);
+		    const [format, setFormat] = React.useState(() => c.draft.injection && c.draft.injection.format || "");
+		    const [editingFormat, setEditingFormat] = React.useState(() => Boolean(c.draft.injection && c.draft.injection.format));
 		    const [preview, setPreview] = React.useState({ loading: true, text: c.data.instruction || "", sections: c.data.sections || [], segments: c.data.segments || [], error: "" });
 		    const missing = bubbleTemplateMissing(text);
 		    const value = bubbleTemplateIsDefault(text, fallback) ? "" : text;
 		    const base = bubbleOutgoing(c.draft);
-		    const injection = { template: value, extra, ...((base.injection.placement || Object.keys(placement).length) ? { placement: { ...base.injection.placement, ...placement } } : {}) };
+		    const defaultFormat = String(preview.defaultFormat || ""), formatValue = editingFormat && format.trim() && format.trim() !== defaultFormat.trim() ? format : "";
+		    const injection = { template: value, extra, ...(formatValue ? { format: formatValue } : {}), ...((base.injection.placement || Object.keys(placement).length) ? { placement: { ...base.injection.placement, ...placement } } : {}) };
 		    React.useEffect(function () {
 		        let live = true;
 		        setPreview(current => ({ ...current, loading: true, error: "" }));
 		        const timer = setTimeout(() => {
 		            rpc("previewDialogueBubbleInstruction", { config: { ...base, enabled: true, injection: { ...injection, template: missing.length ? "" : value } } }, c.sessionId).then(
-		                result => { if (live) setPreview({ loading: false, text: String(result && result.instruction || ""), sections: result.sections || [], segments: result.segments || [], error: "" }); },
+		                result => { if (live) setPreview({ loading: false, text: String(result && result.instruction || ""), defaultFormat: String(result && result.defaultFormat || ""), sections: result.sections || [], segments: result.segments || [], error: "" }); },
 		                error => { if (live) setPreview({ loading: false, text: "", sections: [], segments: [], error: String(error && error.message || error) }); });
 		        }, 250);
 		        return () => { live = false; clearTimeout(timer); };
-		    }, [value, extra, missing.length, JSON.stringify(base.characters), JSON.stringify(base.voice), JSON.stringify(base.emotions || [])]);
+		    }, [value, extra, formatValue, missing.length, JSON.stringify(base.characters), JSON.stringify(base.voice), JSON.stringify(base.emotions || [])]);
 		    React.useEffect(function () {
 		        let live = true;
 		        rpc("getDialogueBubbles", {}, c.sessionId).then(result => { if (live && result.placement) setLivePlacement(result.placement); }, () => {});
 		        return () => { live = false; };
 		    }, [c.sessionId]);
+		    const stored = c.draft.injection || {}, storedTemplate = bubbleTemplateIsDefault(stored.template, fallback) ? "" : stored.template;
+		    const dirty = value !== storedTemplate || extra !== (stored.extra || "") || formatValue !== (stored.format || "") || Object.keys(placement).length > 0;
 		    function save() {
-		        if (missing.length) return;
+		        if (missing.length || !dirty) return;
 		        c.save({ ...c.draft, injection }, true);
-		        props.onClose();
+		        setPlacement({});
 		    }
-		    function jump(kind) {
+		    async function startFormatEdit() {
+		        const ok = await c.askConfirm("更改此处的台词格式，可能导致气泡、配音和舞台功能失灵。请确定您已了解插件运行的原理和修改风险。\n\n修改后可以随时点击「恢复默认」还原设置。", { title: "要修改对话格式规则吗？", confirmText: "仍要编辑", cancelText: "取消", danger: true });
+		        if (!ok) return;
+		        setFormat(defaultFormat);
+		        setEditingFormat(true);
+		    }
+		    function restoreFormat() { setFormat(""); setEditingFormat(false); }
+		    function jump() {
 		        if (missing.length) return;
 		        save();
-		        if (kind === "characters") c.openModal("packs", "card");
-		        else setTimeout(() => { const row = document.querySelector('[data-row="emotions"]'); if (row) { row.scrollIntoView({ block: "center" }); const button = row.querySelector("button"); if (button) button.focus(); } }, 0);
+		        props.onClose();
+		        setTimeout(() => c.openModal("packs", "card"), 0);
 		    }
 		    const voiceInactive = base.voice?.enabled && (base.characters || []).some(item => item.voice) ? "未启用（无需跨语言翻译）" : "未启用（没有绑定配音的角色）";
 		    const blocks = [
-		        { key: "format", title: "格式规则", source: "固定" },
+		        { key: "format", title: "格式规则", source: formatValue ? "已自定义" : "内置 · 可修改" },
 		        { key: "voice", title: "配音规则", source: "自动 · 来自角色的声音 / 配音语言", link: "角色", target: "characters" },
-		        { key: "emotions", title: "差分", source: "自动 · " + BUBBLE_MOODS.length + " 种内置 + " + (base.emotions || []).length + " 种自定义", link: "差分", target: "emotions" },
 		        { key: "characters", title: "角色表", source: "自动 · " + (base.characters || []).length + " 个角色，来自角色列表", link: "角色", target: "characters" }
 		    ];
-		    return h(LargeModal, { open: true, className: "fork-format-modal fork-prompt-modal", icon: "pencil", title: "对白提示词", subtitle: value ? "自定义" : "分块模式", onClose: props.onClose,
-		        help: h("span", null, "按注入顺序查看各块；补充要求放在最后。跳转配置会先保存当前修改。") },
+		    return h("div", { className: "fork-prompt-page" },
 		        h("div", { className: "fork-prompt-editor" },
 		            value ? h("div", { className: "fork-prompt-custom-notice", role: "status" }, h("b", null, "正在使用自定义模板"),
 		                h(HelpTip, { label: "自定义模式说明" }, "下面各块仍按占位符展示生成内容；最终排列由自定义模板决定。{{bubble_format}} 包含格式和配音规则。"),
@@ -29285,11 +29293,16 @@ function tavernModelRefusalNotice(text) {
 		            blocks.map(block => {
 		                const section = preview.sections.find(item => item.key === block.key);
 		                const generated = section && section.text || "";
+		                const isFormat = block.key === "format";
 		                return h(PromptPart, { key: block.key, block: block.key, foldable: true, title: block.title,
 		                    tags: [h("span", { key: "source", className: "fork-prompt-tag fork-prompt-source", title: block.source }, block.source),
-		                        block.key === "voice" && !generated && !preview.loading ? h("span", { key: "inactive", className: "fork-prompt-tag fork-prompt-inactive" }, voiceInactive) : null],
-		                    actions: block.link ? h("button", { type: "button", className: "fork-bubble-link", disabled: Boolean(missing.length), title: "保存并打开" + block.link, onClick: () => jump(block.target) }, block.link, " ↗") : null },
-		                    h("pre", { className: "fork-prompt-block-text" }, generated || (preview.loading ? "…" : block.key === "voice" ? voiceInactive : "未启用")));
+		                        block.key === "voice" && !generated && !preview.loading ? h("span", { key: "inactive", className: "fork-prompt-tag fork-prompt-inactive" }, voiceInactive) : null,
+		                        isFormat && formatValue ? h("strong", { key: "custom", className: "fork-prompt-tag fork-prompt-manual", role: "status" }, "已自定义") : null],
+		                    actions: isFormat ? (editingFormat
+		                        ? h("button", { type: "button", className: "fork-bubble-link", onClick: restoreFormat }, "恢复默认")
+		                        : h("button", { type: "button", className: "fork-bubble-link", disabled: Boolean(missing.length) || preview.loading || !defaultFormat, onClick: startFormatEdit }, "编辑")) : block.link ? h("button", { type: "button", className: "fork-bubble-link", disabled: Boolean(missing.length), title: "保存并打开" + block.link, onClick: () => jump() }, block.link, " ↗") : null },
+		                    isFormat && editingFormat ? h(TextArea, { className: "fork-prompt-format-input fork-edit", "aria-label": "对话格式要求", value: format, rows: 14, maxLength: 8000, spellCheck: false, onChange: setFormat })
+		                    : h("pre", { className: "fork-prompt-block-text" }, generated || (preview.loading ? "…" : block.key === "voice" ? voiceInactive : "未启用")));
 		            }),
 		            h(PromptPart, { className: "fork-prompt-extra", section: "extra", title: "补充要求", htmlFor: "fork-bubble-extra", help: "最多 2000 字，原样追加到最终提示词末尾；留空不追加" },
 		                h(TextArea, { id: "fork-bubble-extra", className: "fork-prompt-extra-input fork-edit", "aria-label": "补充要求", value: extra, rows: 3, maxLength: 2000, onChange: setExtra })),
@@ -29302,8 +29315,7 @@ function tavernModelRefusalNotice(text) {
 		            h("button", { type: "button", className: "fork-bubble-link fork-prompt-full-toggle", "aria-expanded": full, onClick: () => setFull(current => !current) }, "查看完整注入文本"),
 		            full ? h("pre", { className: "fork-prompt-preview", "aria-label": "实际注入预览", "aria-busy": preview.loading }, preview.segments.length ? preview.segments.map((segment, index) => h("span", { key: index, className: "fork-prompt-segment", "data-block": segment.key, title: segment.title }, segment.text + (index < preview.segments.length - 1 ? "\n" : ""))) : preview.text || (preview.loading ? "…" : "")) : null),
 		        h("div", { className: "fork-bubble-tools" },
-		            h("button", { type: "button", className: "dsh-tavern-btn fork-bubble-primary", disabled: Boolean(missing.length), onClick: save }, "保存"),
-		            h("button", { type: "button", className: "dsh-tavern-btn", onClick: props.onClose }, "取消")));
+		            h("button", { type: "button", className: "dsh-tavern-btn fork-bubble-primary", disabled: Boolean(missing.length) || !dirty, onClick: save }, dirty ? "保存" : "已保存")));
 		}
 		// dialogue bubbles.
 		// The model writes `@bubble:alias|name|mood|[line]` lines (thoughts as `[*...*]`);
@@ -31911,8 +31923,8 @@ function tavernModelRefusalNotice(text) {
 		    if (!length) return "请填写名称";
 		    if (length > EMOTION_LABEL_MAX) return "名称最多 " + EMOTION_LABEL_MAX + " 个字";
 		    if (/[|｜\[\]@\s]/.test(text)) return "名称不能含空格或 | [ ] @";
-		    if ((emotions || []).some(item => item.id !== editingId && item.id === text.toLowerCase())) return "不能和差分编号重名";
-		    if ((emotions || []).some(item => item.id !== editingId && item.label.toLowerCase() === text.toLowerCase())) return "已有同名差分";
+		    if ((emotions || []).some(item => item.id !== editingId && item.id === text.toLowerCase())) return "不能和表情编号重名";
+		    if ((emotions || []).some(item => item.id !== editingId && item.label.toLowerCase() === text.toLowerCase())) return "已有同名表情";
 		    return "";
 		}
 		// Add (no id) or edit one emotion → the new list; throws when the label is invalid or the list is full.
@@ -31923,7 +31935,7 @@ function tavernModelRefusalNotice(text) {
 		    const item = { id: value.id || "", label: String(value.label).trim(), note: Array.from(String(value.note || "").trim()).slice(0, EMOTION_NOTE_MAX).join("") };
 		    const index = item.id ? list.findIndex(entry => entry.id === item.id) : -1;
 		    if (index >= 0) { list[index] = {...list[index], ...item}; return list; }
-		    if (list.length >= CUSTOM_MOOD_MAX) throw new Error("最多 " + CUSTOM_MOOD_MAX + " 个差分");
+		    if (list.length >= CUSTOM_MOOD_MAX) throw new Error("最多 " + CUSTOM_MOOD_MAX + " 个表情");
 		    item.id = newEmotionId(list.map(entry => entry.id), random);
 		    return list.concat([item]);
 		}
@@ -31942,7 +31954,7 @@ function tavernModelRefusalNotice(text) {
 		    if (next.stage) next.stage = stageOutgoing(next.stage);
 		    const template = next.injection && typeof next.injection.template === "string" ? next.injection.template : "";
 		    const injection = next.injection || {};
-		    next.injection = { template, extra: typeof injection.extra === "string" ? injection.extra : "", ...(injection.placement ? { placement: { ...injection.placement } } : {}) };
+		    next.injection = { template, extra: typeof injection.extra === "string" ? injection.extra : "", ...(typeof injection.format === "string" && injection.format.trim() ? { format: injection.format } : {}), ...(injection.placement ? { placement: { ...injection.placement } } : {}) };
 		    if (Array.isArray(next.emotions)) next.emotions = customEmotions(next).map(item => item.note ? item : { id: item.id, label: item.label, ...(item.words ? {words:item.words} : {}) });
 		    return next;
 		}

@@ -37,8 +37,8 @@ function emotionLabelError(label, emotions, editingId) {
     if (!length) return "请填写名称";
     if (length > EMOTION_LABEL_MAX) return "名称最多 " + EMOTION_LABEL_MAX + " 个字";
     if (/[|｜\[\]@\s]/.test(text)) return "名称不能含空格或 | [ ] @";
-    if ((emotions || []).some(item => item.id !== editingId && item.id === text.toLowerCase())) return "不能和差分编号重名";
-    if ((emotions || []).some(item => item.id !== editingId && item.label.toLowerCase() === text.toLowerCase())) return "已有同名差分";
+    if ((emotions || []).some(item => item.id !== editingId && item.id === text.toLowerCase())) return "不能和表情编号重名";
+    if ((emotions || []).some(item => item.id !== editingId && item.label.toLowerCase() === text.toLowerCase())) return "已有同名表情";
     return "";
 }
 // Add (no id) or edit one emotion → the new list; throws when the label is invalid or the list is full.
@@ -49,7 +49,7 @@ function emotionUpsert(emotions, value, random) {
     const item = { id: value.id || "", label: String(value.label).trim(), note: Array.from(String(value.note || "").trim()).slice(0, EMOTION_NOTE_MAX).join("") };
     const index = item.id ? list.findIndex(entry => entry.id === item.id) : -1;
     if (index >= 0) { list[index] = {...list[index], ...item}; return list; }
-    if (list.length >= CUSTOM_MOOD_MAX) throw new Error("最多 " + CUSTOM_MOOD_MAX + " 个差分");
+    if (list.length >= CUSTOM_MOOD_MAX) throw new Error("最多 " + CUSTOM_MOOD_MAX + " 个表情");
     item.id = newEmotionId(list.map(entry => entry.id), random);
     return list.concat([item]);
 }
@@ -68,7 +68,7 @@ function bubbleOutgoing(config) {
     if (next.stage) next.stage = stageOutgoing(next.stage);
     const template = next.injection && typeof next.injection.template === "string" ? next.injection.template : "";
     const injection = next.injection || {};
-    next.injection = { template, extra: typeof injection.extra === "string" ? injection.extra : "", ...(injection.placement ? { placement: { ...injection.placement } } : {}) };
+    next.injection = { template, extra: typeof injection.extra === "string" ? injection.extra : "", ...(typeof injection.format === "string" && injection.format.trim() ? { format: injection.format } : {}), ...(injection.placement ? { placement: { ...injection.placement } } : {}) };
     if (Array.isArray(next.emotions)) next.emotions = customEmotions(next).map(item => item.note ? item : { id: item.id, label: item.label, ...(item.words ? {words:item.words} : {}) });
     return next;
 }
