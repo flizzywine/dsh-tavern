@@ -126,6 +126,13 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
             timers.set(key,timer);
             break;
         }
+        // a voiced page's wait for its coming direction (runtime-kernel.cjs stageVoiceDirectionComing)
+        case 'schedule-voice-wait': {
+            const key = id(intent.token);
+            const timer=clock.setTimeout(() => {if(disposed||timers.get(key)!==timer)return;timers.delete(key);dispatch({type:'VOICE_WAIT_DUE',token:intent.token});},intent.delay);
+            timers.set(key,timer);
+            break;
+        }
         case 'cancel-timer': clock.clearTimeout(timers.get(id(intent.token))); timers.delete(id(intent.token)); break;
         default: onEffect(sessionId,intent,dispatch,getSnapshot);
         }

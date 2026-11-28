@@ -44,7 +44,9 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
                 if (store.getSnapshot().accepted.cg && ['act','emote','focus'].includes(value.kind)) return;
                 if (value.kind === 'voice') {
                     const state=store.getSnapshot();
-                    if(!voice.allowed(state.director,token.anchor.para,state.settings?.config?.stage?.director===true))return;
+                    // the runtime already waited for the page's direction (runtime-kernel.cjs stageVoiceDirectionComing); a phone
+                    // page that direction chose since still never speaks on the stage.
+                    if(!voice.allowed(state.director,token.anchor.para,state.settings?.config?.stage?.director===true,true))return;
                     const handle = voice.handle(sessionId, value, state.settings?.config, token.anchor.paragraphId);
                     return handle?.click({handoff:true,automatic:true});
                 }

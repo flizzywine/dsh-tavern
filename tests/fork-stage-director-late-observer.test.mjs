@@ -46,7 +46,7 @@ test('a reply that stopped before the stage observer was ready is still directed
   assert.equal(round.phase, 'done', JSON.stringify({phase:round.phase, error:round.error}))
   assert.equal(round.complete, true)
   // with the director on, a page's line speaks on its own only once the round's direction reaches it
-  for (const para of [1, 2]) assert.equal(stageAutoVoiceAllowed({phase:round.phase, through:round.through}, para, true, () => null), true)
+  for (const para of [1, 2]) assert.equal(stageAutoVoiceAllowed({phase:round.phase, through:round.through}, para, true, false, () => null), true)
 })
 
 test('a tool-call step that ended before the stage observer was ready leaves the round to be directed', async t => {
