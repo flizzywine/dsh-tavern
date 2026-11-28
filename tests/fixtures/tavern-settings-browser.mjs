@@ -83,10 +83,13 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
       plugin(plugin) { return plugin.apply(stageCtx) },
       get(name) { if (name === 'sidebarRightTabs') return registry },
       sessions: { subagentAddress() {}, list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } },
-      betterSidebar: { registerTab(spec) {
-        tabs.set(spec.id, spec)
-        if (!sidebarStart) Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } })
-      } },
+      betterSidebar: {
+        registerTab(spec) {
+          tabs.set(spec.id, spec)
+          if (!sidebarStart) Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } })
+        },
+        openTab({ type }, scope) { render(tabs.get(type).component, { scope }) }
+      },
       tavernSessionSignals: { subscribe(id, kind, listener) {
         const key = id + ':' + kind
         testSignals.addEventListener(key, listener)
