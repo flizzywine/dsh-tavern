@@ -4196,6 +4196,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     /* 输入法压住的那一截直接垫在输入条下面：外壳不必再缩，工具栏和正文也不会跟着抖。 */
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dsh-keyboard-inset, 0px));
     --dsh-composer-text-max-height: clamp(24px, calc(var(--dsh-vv-height, 100dvh) * .24), 160px);
+    --dsh-composer-expanded-max-height: clamp(92px, calc(var(--dsh-vv-height, 100dvh) * .30), 220px);
     max-height: max(0px, calc(var(--dsh-vv-height, 100dvh) - var(--dsh-header-bottom, 80px)));
   }
   /* 仅在内容确实超出上限时滚动；常态下滚动容器会裁掉从输入区向上弹出的菜单。 */
@@ -4428,6 +4429,66 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     --dsh-composer-model-icon-display: block;
   }
   html.dsh-tavern-coarse-play [data-composer-card] [data-composer-input] { padding: 8px 6px 8px 4px; }
+  /* 文字超出单行（换行或超宽）时自动切换为「全宽编辑区 + 底部单行工具栏」两行结构：
+     彻底释放左右工具列占用的水平宽度（手机上每行字数翻倍），消除侧边大块留白与底部裁切，
+     并以单一滚动容器承载长草稿；仅在内容真实滚动时于工具栏上方展示极细分隔线。 */
+  html.dsh-tavern-coarse-play [data-composer-card][data-composer-card][data-mobile-multiline="true"] {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr); align-items: stretch;
+    gap: 0 !important; padding: 10px 8px 6px 8px !important; border-radius: 16px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > [class*="_accessory"] {
+    grid-column: 1 / -1; grid-row: 1; padding: 0 4px 6px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > [data-slot="conversation.input.attachments"] > * {
+    grid-column: 1 / -1; grid-row: 2; margin-bottom: 6px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > :is([data-input-scroll], [class*="_scroll"]) {
+    grid-column: 1 / -1; grid-row: 3;
+    display: block; width: 100%; min-width: 0; min-height: 44px;
+    max-height: var(--dsh-composer-expanded-max-height, clamp(92px, calc(var(--dsh-vv-height, 100dvh) * .30), 220px));
+    margin: 0; align-self: stretch;
+    overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+    scroll-padding-top: 6px; scroll-padding-bottom: 10px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dsw-alias-label-tertiary, currentColor) 36%, transparent) transparent;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > :is([data-input-scroll], [class*="_scroll"])::-webkit-scrollbar { width: 4px; }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > :is([data-input-scroll], [class*="_scroll"])::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dsw-alias-label-tertiary, currentColor) 32%, transparent);
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] [contenteditable="true"] {
+    display: block; width: 100%; box-sizing: border-box;
+    min-height: 44px; max-height: none; overflow: visible;
+    padding: 2px 8px 8px 8px; line-height: 1.55;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] textarea {
+    display: block; width: 100%; box-sizing: border-box;
+    min-height: 44px;
+    max-height: var(--dsh-composer-expanded-max-height, clamp(92px, calc(var(--dsh-vv-height, 100dvh) * .30), 220px));
+    padding: 2px 8px 8px 8px; line-height: 1.55;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] {
+    display: flex !important; grid-column: 1 / -1; grid-row: 4;
+    align-items: center; justify-content: space-between; flex-wrap: nowrap; gap: 6px;
+    width: 100%; min-width: 0; box-sizing: border-box;
+    padding: 4px 0 0; margin-top: 2px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"][data-mobile-input-scrollable="true"] > [class*="_row"] {
+    border-top: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2, currentColor) 50%, transparent);
+    padding-top: 6px; margin-top: 4px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] > [class*="_tools"] {
+    grid-column: auto; grid-row: auto; flex: 0 0 auto; gap: 4px; align-items: center; min-height: 40px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] > [class*="_trailing"] {
+    grid-column: auto; grid-row: auto; flex: 1 1 auto; justify-content: flex-end; min-width: 0; margin-left: auto; gap: 4px; align-items: center; min-height: 40px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] .fork-chat-jump-latest { top: 8px; right: 10px; }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"]:has(.fork-jump-latest[data-shown]) [contenteditable="true"] { padding-right: 48px; }
   .dsh-tavern-assistant { font-size: var(--dsh-content-font-size, 14px); line-height: 1.7; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
   .dsh-tavern-user-bubble { font-size: var(--dsh-content-font-size, 14px); line-height: 1.6; padding: 8px 12px; border-radius: 16px; }
   .dsh-tavern-user-stack { max-width: 90%; }
@@ -5093,6 +5154,13 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
 @media (max-width: 1023px), (pointer: coarse) {
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat] {
     --dsh-composer-text-max-height: 48px;
+    --dsh-composer-expanded-max-height: 56px;
+  }
+  html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-card][data-mobile-multiline="true"] {
+    padding: 6px 8px 4px 8px !important;
+  }
+  html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-card][data-mobile-multiline="true"] [contenteditable="true"] {
+    min-height: 28px !important; padding: 2px 6px 4px 6px !important;
   }
   html.dsh-tavern-short-viewport [data-composer-seat]:has([data-composer-card] :is(textarea, [contenteditable="true"]):focus) :is(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle-row, .dsh-tavern-candidate-question.collapsed) { display: none; }
   /* 键盘弹出时状态栏也不继续占用正文高度。 */

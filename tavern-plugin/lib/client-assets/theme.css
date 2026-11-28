@@ -6897,6 +6897,33 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] [da
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] { display: contents; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 0; }
+/* Phone play multiline overflow: mirror the stacked full-width editor + bottom bar while keeping 36px primary controls. */
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-composer-card][data-mobile-multiline="true"] {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr); align-items: stretch;
+  gap: 0 !important; padding: 10px 8px 6px 8px !important; border-radius: 16px !important;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"] > :is([data-input-scroll], [class*="_scroll"]) {
+  grid-column: 1 / -1; grid-row: 3; display: block; width: 100%; min-width: 0; margin: 0; align-self: stretch;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"] [data-composer-input] {
+  padding: 2px 6px 6px 6px;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] {
+  display: flex !important; grid-column: 1 / -1; grid-row: 4;
+  align-items: center; justify-content: space-between; width: 100%; min-width: 0; box-sizing: border-box;
+  padding: 4px 0 0; margin-top: 2px;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"][data-mobile-input-scrollable="true"] > [class*="_row"] {
+  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2, currentColor) 50%, transparent);
+  padding-top: 6px; margin-top: 4px;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] > [class*="_tools"] {
+  grid-column: auto; grid-row: auto; flex: 0 0 auto; min-height: 36px; gap: 2px;
+}
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-mobile-multiline="true"] > [class*="_row"] > [class*="_trailing"] {
+  grid-column: auto; grid-row: auto; flex: 1 1 auto; justify-content: flex-end; min-width: 0; margin-left: auto; min-height: 36px; gap: 2px;
+}
 
 /* Story: the portrait spans the name and the first line of text (3.2em, the desktop's 4.2em would cost the narrow column a
    fifth of its width; design 「手机里气泡渲染的头像怎么这么小啊」 about the old 30px), and a slightly smaller ▶ that stays

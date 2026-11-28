@@ -1912,6 +1912,33 @@ button[aria-label*="子智能体"]::before {
       border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle, var(--dsw-alias-border-l2))) !important;
     }
   }
+  /* 移动端输入卡：撤销桌面 66px 最小高度与 14/16 内边距，分别对齐紧凑单行态与全宽多行展开态。 */
+  html.dsh-tavern-coarse-play [data-composer-seat] {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card]:not([data-mobile-multiline="true"]) [contenteditable="true"] {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+    min-height: 36px !important;
+    padding: 8px 6px 8px 4px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card]:not([data-mobile-multiline="true"]) [data-composer-placeholder] {
+    font-size: 16px !important;
+    left: 4px !important;
+    top: 8px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] [contenteditable="true"] {
+    font-size: 16px !important;
+    line-height: 1.55 !important;
+    min-height: 44px !important;
+    padding: 2px 8px 8px 8px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] [data-composer-placeholder] {
+    font-size: 16px !important;
+    left: 8px !important;
+    top: 2px !important;
+  }
 }
 
 
