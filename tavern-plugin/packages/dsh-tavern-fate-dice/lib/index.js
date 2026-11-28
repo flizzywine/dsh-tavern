@@ -1241,7 +1241,9 @@ export function apply(ctx) {
     }
 
     const multiCfg = normalizeMultiCheckSettings(settings)
-    const wantMultiDecompose = Boolean(multiCfg.enabled && multiCfg.mode === 'decompose' && !rerollMode)
+    // 方案 1（发前条件拆解）作为发前底座融入全部三种模式：
+    // decompose 仅发前拆解；agent-tool / hybrid-tape 在发前拆解后把剩余配额留给生成中的突发判定
+    const wantMultiDecompose = Boolean(multiCfg.enabled && !rerollMode)
     let characterMaterialForDecompose = ''
 
     if (!damperUsed && !setupRequiredReason) {
@@ -1837,7 +1839,7 @@ export function apply(ctx) {
             protocol: resolvedProto,
             allowHidden: settings.allowHidden,
             autoProfile: true,
-            multiCheckDecompose: Boolean(multiCfg.enabled && multiCfg.mode === 'decompose')
+            multiCheckDecompose: Boolean(multiCfg.enabled)
           })
         }
       })

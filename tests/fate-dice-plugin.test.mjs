@@ -1993,26 +1993,29 @@ test('单回合多判定 1+2+3：发前条件拆解 / Agent 实时真骰工具 /
   assert.equal(rerollRes.rolls.length, 2)
   assert.equal(rerollRes.rolls[1].rerollMeta?.mode, 'fate')
 
-  // === 方案 2：Agent 实时真骰工具（agent-tool） ===
+  // === 方案 1 + 2：发前条件拆解与 Agent 实时真骰工具共存（agent-tool） ===
   assert.ok(registeredTools.has('fate_dice_roll'), '应注册前台真骰工具 fate_dice_roll')
   const toolEntry = registeredTools.get('fate_dice_roll')
   assert.equal(await toolEntry.opts.when({ agent: { session: { id: gameId } } }), false, '非 agent-tool 模式不应开放工具')
 
-  await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'agent-tool', multiCheckMax: 2 })
+  await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'agent-tool', multiCheckMax: 3 })
   assert.equal(await toolEntry.opts.when({ agent: { session: { id: gameId } } }), true, 'agent-tool 模式应开放工具')
+  const qsAgent = await damperQuestionsHandler({ gameId, protocol: 'gemini' })
+  assert.ok(qsAgent.some(q => q.id === 'fd_multi_check'), 'agent-tool 模式应融入发前条件拆解门控题')
   const wb = await workbench({ gameId })
   assert.equal(wb.agentToolAvailable, true)
   assert.equal(wb.settings.multiCheckEnabled, true)
   assert.equal(wb.settings.multiCheckMode, 'agent-tool')
-  assert.equal(wb.settings.multiCheckMax, 2)
+  assert.equal(wb.settings.multiCheckMax, 3)
 
-  await turnSectionHandler({ gameId, turn: 2, input: '我一脚踹开房门冲进去' })
+  // 发前拆解出 2 项后，剩余 1 次额度可供 Agent 实时调用 fate_dice_roll
+  await turnSectionHandler({ gameId, turn: 2, input: '我一边稳住守卫，一边踹开房门冲进去' })
   const toolOut1 = JSON.parse(await toolEntry.def.execute(
     { attempt: '躲避门后的绊线暗箭', domain: 'general_stealth', difficulty: 'hard' },
     { agent: { session: { id: gameId } } }
   ))
   assert.equal(toolOut1.ok, true)
-  assert.equal(toolOut1.totalUsed, 2)
+  assert.equal(toolOut1.totalUsed, 3)
   const toolOut2 = JSON.parse(await toolEntry.def.execute(
     { attempt: '顺手再观察屋顶', domain: 'general_insight', difficulty: 'moderate' },
     { agent: { session: { id: gameId } } }
@@ -2020,20 +2023,27 @@ test('单回合多判定 1+2+3：发前条件拆解 / Agent 实时真骰工具 /
   assert.equal(toolOut2.ok, false)
   assert.equal(toolOut2.code, 'MAX_CHECKS_REACHED')
   const toolView = await readTurn({ gameId, turn: 2, streaming: true })
-  assert.equal(toolView.rolls.length, 2)
-  assert.equal(toolView.rolls[1].sourceKind, 'agent-tool')
+  assert.equal(toolView.rolls.length, 3)
+  assert.equal(toolView.rolls[0].sourceKind, 'decomposed')
+  assert.equal(toolView.rolls[1].sourceKind, 'decomposed')
+  assert.equal(toolView.rolls[2].sourceKind, 'agent-tool')
 
-  // === 方案 3：主骰 + 备用宿命序列真骰带（hybrid-tape） ===
+  // === 方案 1 + 3：发前条件拆解与备用宿命序列真骰带共存（hybrid-tape） ===
   await saveGlobal({ gameId, multiCheckEnabled: true, multiCheckMode: 'hybrid-tape', multiCheckMax: 3 })
-  const hybridInj = await turnSectionHandler({ gameId, turn: 3, input: '我冲进仓库抢夺账本' })
+  const qsHybrid = await damperQuestionsHandler({ gameId, protocol: 'gemini' })
+  assert.ok(qsHybrid.some(q => q.id === 'fd_multi_check'), 'hybrid-tape 模式应融入发前条件拆解门控题')
+  // 发前拆解出 2 项，剩余 1 项额度顺延生成 ③ 备用骰
+  const hybridInj = await turnSectionHandler({ gameId, turn: 3, input: '我冲进仓库抢夺账本并翻找密信' })
+  assert.match(hybridInj, /共 2 项/)
   assert.match(hybridInj, /备用宿命序列/)
-  assert.match(hybridInj, /②/)
-  latestTurnText = '你翻过货箱避开守卫。\n<!-- fate-dice-tape: ② check=翻越 diff=moderate mod=1 -->'
+  assert.match(hybridInj, /③/)
+  latestTurnText = '你翻过货箱避开守卫。\n<!-- fate-dice-tape: ③ check=翻越 diff=moderate mod=1 -->'
   await settleHandler({ gameId, turn: 3 })
   const hybridView = await readTurn({ gameId, turn: 3 })
-  assert.equal(hybridView.rolls.length, 2)
-  assert.equal(hybridView.rolls[1].sourceKind, 'tape')
-  assert.equal(hybridView.rolls[1].check, '翻越')
+  assert.equal(hybridView.rolls.length, 3)
+  assert.equal(hybridView.rolls[0].sourceKind, 'decomposed')
+  assert.equal(hybridView.rolls[2].sourceKind, 'tape')
+  assert.equal(hybridView.rolls[2].check, '翻越')
 
   // === 前端胶囊汇总 & 设置页三方案详解校验 ===
   const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
@@ -2060,7 +2070,7 @@ test('单回合多判定 1+2+3：发前条件拆解 / Agent 实时真骰工具 /
   assert.match(pillMeta.pillText, /2项检定/)
   assert.match(pillMeta.pillText, /1成\/1败/)
   assert.match(clientCode, /开启单回合多判定/)
-  assert.match(clientCode, /发前条件拆解/)
-  assert.match(clientCode, /Agent 实时真骰工具/)
-  assert.match(clientCode, /主骰 \+ 备用宿命序列/)
+  assert.match(clientCode, /仅发前条件拆解/)
+  assert.match(clientCode, /发前拆解 \+ Agent 实时真骰工具/)
+  assert.match(clientCode, /发前拆解 \+ 备用宿命序列/)
 })
