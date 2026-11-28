@@ -4198,7 +4198,8 @@ export async function apply(ctx) {
     ensureNativeSystemPrefix,
     foregroundHandoff,
     foregroundStrategies,
-    nativeWorldBookTemplateContext: playWorldbooks.projectPrefix,
+    // The story request's system prefix: its book with this turn's foreground capabilities (dialogue format, roster, mod rules).
+    nativeWorldBookTemplateContext: (chat, card, options) => playWorldbooks.projectPrefix(chat, card, { ...options, foreground: true }),
     persistClearedBodyEdits,
     pluginPromptSections: pluginApi.promptSections,
     publishResourceWorkspace,
