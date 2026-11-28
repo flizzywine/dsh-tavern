@@ -95,14 +95,15 @@ function options(argv) {
 const status = message => console.log(`DSH_STATUS ${message}`)
 const result = value => console.log(`RESULT ${JSON.stringify(value)}`)
 
-function endpoints(current) {
+export function endpoints(current) {
   const branch = current.branch || 'main'
   const customCdn = process.env.DSH_TAVERN_CDN_METADATA_URL || ''
   const customGithub = process.env.DSH_TAVERN_GITHUB_METADATA_URL || ''
   return {
-    // 主源与酒馆内置更新器一致：先读 GitHub raw 运行清单（无 jsDelivr 分发分支缓存滞后），
-    // 失败时再回退到 jsDelivr。若调用方只显式覆盖了 CDN 清单（本地冒烟测试），则只用该地址。
-    githubMetadataUrl: customGithub || (customCdn ? '' : `https://raw.githubusercontent.com/flizzywine/dsh-tavern/${branch}/dsh-tavern-runtime.json`),
+    // 主源直接读分发分支 runtime-archive-<branch> 的 GitHub raw 清单：与 runtime.zip 同批原子发布，
+    // 不受源码分支清单回写竞态或 jsDelivr 分支别名缓存滞后的影响；失败时再回退到 jsDelivr。
+    // 若调用方只显式覆盖了 CDN 清单（本地冒烟测试），则只用该地址。
+    githubMetadataUrl: customGithub || (customCdn ? '' : `https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-${branch}/dsh-tavern-runtime.json`),
     metadataUrl: customCdn || `https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-${branch}/dsh-tavern-runtime.json`,
     rootUrl: (process.env.DSH_TAVERN_CDN_ROOT_URL || 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern').replace(/\/+$/, ''),
     exact: Boolean(customCdn),

@@ -1875,6 +1875,19 @@ button[aria-label*="子智能体"]::before {
   text-decoration-thickness: 1px;
 }
 
+@media (max-width: 1023px) and (pointer: coarse) {
+  /* 移动端侧栏底栏已合并为单行，撤销桌面端把「设置」按钮按侧栏宽度 fixed 到 206px 的定位。 */
+  body.dsh-tavern-shell-active [data-slot="sidebar.settings"] > * {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update {
+    padding: 6px 0 0 !important;
+  }
+}
+
 /* 移动端紧凑排列操作行；运行状态收纳进模型菜单末行，桌面继续显示完整状态。 */
 @media (max-width: 1023px), (pointer: coarse) {
   .dsh-tavern-dock-actions { gap: 5px !important; padding: 4px 8px !important; }
@@ -1898,6 +1911,33 @@ button[aria-label*="子智能体"]::before {
       color: var(--accent) !important;
       border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle, var(--dsw-alias-border-l2))) !important;
     }
+  }
+  /* 移动端输入卡：撤销桌面 66px 最小高度与 14/16 内边距，分别对齐紧凑单行态与全宽多行展开态。 */
+  html.dsh-tavern-coarse-play [data-composer-seat] {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card]:not([data-mobile-multiline="true"]) [contenteditable="true"] {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+    min-height: 36px !important;
+    padding: 8px 6px 8px 4px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card]:not([data-mobile-multiline="true"]) [data-composer-placeholder] {
+    font-size: 16px !important;
+    left: 4px !important;
+    top: 8px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] [contenteditable="true"] {
+    font-size: 16px !important;
+    line-height: 1.55 !important;
+    min-height: 44px !important;
+    padding: 2px 8px 8px 8px !important;
+  }
+  html.dsh-tavern-coarse-play [data-composer-card][data-mobile-multiline="true"] [data-composer-placeholder] {
+    font-size: 16px !important;
+    left: 8px !important;
+    top: 2px !important;
   }
 }
 

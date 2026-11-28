@@ -181,9 +181,9 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
   assert.deepEqual(manifestCandidates(url).map(each => new URL(each).hostname),
     ['raw.githubusercontent.com', 'cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net'])
   assert.equal(manifestCandidates(url)[0], 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json')
-  // 分发分支名回溯到源码分支。
+  // raw 保留分发分支名，直接读取随 runtime.zip 同批发布的清单。
   assert.equal(manifestCandidates('https://cdn.jsdelivr.net/gh/o/r@runtime-archive-main/dsh-tavern-runtime.json')[0],
-    'https://raw.githubusercontent.com/o/r/main/dsh-tavern-runtime.json')
+    'https://raw.githubusercontent.com/o/r/runtime-archive-main/dsh-tavern-runtime.json')
   assert.deepEqual(manifestCandidates(url, true), [url])
   assert.deepEqual(manifestCandidates('http://127.0.0.1:1/repo@main/dsh-tavern-runtime.json'), ['http://127.0.0.1:1/repo@main/dsh-tavern-runtime.json'])
 

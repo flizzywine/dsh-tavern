@@ -7,6 +7,322 @@ function narrowLayout() { return typeof window.matchMedia === "function" && wind
 const TAVERN_KEYBOARD_INSET_MIN = 8;
 // 焦点进出后自己刷这么多毫秒的帧：安卓输入法动画约 250ms，留出首尾事件的余量。
 const TAVERN_KEYBOARD_SETTLE_MS = 450;
+// 移动端输入框单行→多行切换的回滞余量（px）：展开变宽后，文字须明显短于单行窄列宽度才收起，避免临界字数来回抖动。
+const TAVERN_MOBILE_COMPOSER_HYSTERESIS_PX = 20;
+const TAVERN_MOBILE_COMPOSER_INPUT_SELECTOR = '[data-composer-input], [contenteditable="true"], textarea';
+const TAVERN_MOBILE_COMPOSER_SCROLL_SELECTOR = '[data-input-scroll], [class*="_scroll"]';
+const TAVERN_MOBILE_COMPOSER_BLOCK_TAGS = new Set(["P", "DIV", "LI", "BLOCKQUOTE", "PRE", "H1", "H2", "H3", "H4", "H5", "H6"]);
+
+function inspectComposerDraft(input) {
+    if (!input) return { isEmpty: true, explicitMulti: false, text: "", isTextarea: false };
+    const tag = String(input.tagName || "").toUpperCase();
+    if (tag === "TEXTAREA") {
+        const raw = String(input.value || "").replace(/\r\n?/g, "\n");
+        const stripped = raw.replace(/[\u200B\uFEFF]/g, "");
+        const explicitMulti = stripped.includes("\n");
+        const isEmpty = !explicitMulti && stripped.trim().length === 0;
+        return { isEmpty, explicitMulti, text: stripped, isTextarea: true };
+    }
+    const raw = String(input.textContent || "").replace(/\r\n?/g, "\n");
+    const stripped = raw.replace(/[\u200B\uFEFF]/g, "");
+    let blockCount = 0;
+    const children = input.children;
+    if (children) {
+        for (let i = 0; i < children.length; i += 1) {
+            if (TAVERN_MOBILE_COMPOSER_BLOCK_TAGS.has(String(children[i].tagName || "").toUpperCase())) blockCount += 1;
+        }
+    }
+    let hasExplicitBreak = false;
+    if (typeof input.querySelectorAll === "function") {
+        const brs = input.querySelectorAll("br");
+        if (brs.length >= 2) {
+            hasExplicitBreak = true;
+        } else if (brs.length === 1) {
+            const br = brs[0];
+            const isTrailingSentinel = br.classList && br.classList.contains("ProseMirror-trailingBreak");
+            const hasNextSibling = Boolean(br.nextSibling && String(br.nextSibling.textContent || "").replace(/[\u200B\uFEFF]/g, "").length > 0);
+            if (!isTrailingSentinel && hasNextSibling) hasExplicitBreak = true;
+        }
+    }
+    const explicitMulti = blockCount >= 2 || hasExplicitBreak || stripped.replace(/\n+$/, "").includes("\n");
+    const isEmpty = !explicitMulti && stripped.replace(/\u00A0/g, " ").trim().length === 0 && blockCount <= 1;
+    return { isEmpty, explicitMulti, text: stripped, isTextarea: false };
+}
+
+function measureContentEditableTextBounds(doc, input) {
+    if (!doc || typeof doc.createTreeWalker !== "function" || typeof doc.createRange !== "function") return null;
+    const showText = (doc.defaultView && doc.defaultView.NodeFilter ? doc.defaultView.NodeFilter.SHOW_TEXT : 4);
+    const walker = doc.createTreeWalker(input, showText);
+    let firstNode = null, lastNode = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (String(node.nodeValue || "").replace(/[\u200B\uFEFF]/g, "").length === 0) continue;
+        if (!firstNode) firstNode = node;
+        lastNode = node;
+    }
+    if (!firstNode || !lastNode) return null;
+    const range = doc.createRange();
+    range.setStart(firstNode, 0);
+    range.setEnd(lastNode, lastNode.nodeValue.length);
+    const rects = typeof range.getClientRects === "function" ? range.getClientRects() : null;
+    if (rects && rects.length > 0) {
+        let minTop = Infinity, maxBottom = -Infinity, minLeft = Infinity, maxRight = -Infinity, count = 0;
+        for (let i = 0; i < rects.length; i += 1) {
+            const r = rects[i];
+            if (!(r.width > 0 || r.height > 0)) continue;
+            if (r.top < minTop) minTop = r.top;
+            if (r.bottom > maxBottom) maxBottom = r.bottom;
+            if (r.left < minLeft) minLeft = r.left;
+            if (r.right > maxRight) maxRight = r.right;
+            count += 1;
+        }
+        if (count > 0) return { width: Math.max(0, maxRight - minLeft), height: Math.max(0, maxBottom - minTop) };
+    }
+    const rect = range.getBoundingClientRect();
+    return rect && (rect.width > 0 || rect.height > 0) ? { width: rect.width, height: rect.height } : null;
+}
+
+function measurePlainTextWidth(doc, text, style, fontSize) {
+    if (!text) return 0;
+    try {
+        const canvas = doc && typeof doc.createElement === "function" ? doc.createElement("canvas") : null;
+        const ctx = canvas && typeof canvas.getContext === "function" ? canvas.getContext("2d") : null;
+        if (ctx) {
+            ctx.font = (style && style.font) || `${(style && style.fontWeight) || "400"} ${fontSize}px ${(style && style.fontFamily) || "sans-serif"}`;
+            return ctx.measureText(text).width;
+        }
+    } catch (_) {}
+    return text.length * fontSize;
+}
+
+function estimateCompactTextWidth(card, padX) {
+    if (!card || typeof card.getBoundingClientRect !== "function" || typeof card.querySelector !== "function") return 0;
+    const cardRect = card.getBoundingClientRect();
+    if (!(cardRect.width > 0)) return 0;
+    const tools = card.querySelector('[class*="_tools"]');
+    const trailing = card.querySelector('[class*="_trailing"]');
+    const toolsW = tools && typeof tools.getBoundingClientRect === "function" ? tools.getBoundingClientRect().width : 0;
+    const trailingW = trailing && typeof trailing.getBoundingClientRect === "function" ? trailing.getBoundingClientRect().width : 0;
+    // 扣除左右工具列、卡片水平内边距（10px）、列间距（4px）及输入内边距。
+    return Math.max(48, cardRect.width - toolsW - trailingW - 14 - padX);
+}
+
+function createComposerMultilineController(doc, view, options) {
+    const onLayoutChange = options && typeof options.onLayoutChange === "function" ? options.onLayoutChange : function () {};
+    let active = false, card = null, input = null, scrollEl = null, disposed = false, evalFrame = 0;
+    let multiline = false, scrollable = false;
+    let compactTextWidth = 0, compactCardWidth = 0;
+
+    function setAttr(el, name, on) {
+        if (!el || typeof el.setAttribute !== "function" || typeof el.removeAttribute !== "function") return false;
+        const had = typeof el.getAttribute === "function" ? el.getAttribute(name) === "true" : false;
+        const next = Boolean(on);
+        if (had === next) return false;
+        if (next) el.setAttribute(name, "true");
+        else el.removeAttribute(name);
+        return true;
+    }
+
+    function clearCardState(targetCard) {
+        const changedA = setAttr(targetCard, "data-mobile-multiline", false);
+        const changedB = setAttr(targetCard, "data-mobile-input-scrollable", false);
+        multiline = false;
+        scrollable = false;
+        return changedA || changedB;
+    }
+
+    function findInput(targetCard) {
+        if (!targetCard || typeof targetCard.querySelector !== "function") return null;
+        return targetCard.querySelector(TAVERN_MOBILE_COMPOSER_INPUT_SELECTOR);
+    }
+
+    function findScroll(targetCard) {
+        if (!targetCard || typeof targetCard.querySelector !== "function") return null;
+        return targetCard.querySelector(TAVERN_MOBILE_COMPOSER_SCROLL_SELECTOR);
+    }
+
+    const inputMutations = typeof view.MutationObserver === "function" ? new view.MutationObserver(function () {
+        scheduleEval();
+    }) : null;
+    const inputResize = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(function () {
+        scheduleEval();
+    }) : null;
+
+    function onInputEvent() {
+        scheduleEval();
+    }
+
+    function detach() {
+        inputMutations?.disconnect();
+        inputResize?.disconnect();
+        if (card && typeof card.removeEventListener === "function") {
+            card.removeEventListener("input", onInputEvent, true);
+            card.removeEventListener("compositionend", onInputEvent, true);
+        }
+        input = null;
+        scrollEl = null;
+    }
+
+    function attach(nextCard) {
+        detach();
+        card = nextCard && typeof nextCard.querySelector === "function" ? nextCard : null;
+        compactTextWidth = 0;
+        compactCardWidth = 0;
+        multiline = Boolean(card && typeof card.getAttribute === "function" && card.getAttribute("data-mobile-multiline") === "true");
+        scrollable = Boolean(card && typeof card.getAttribute === "function" && card.getAttribute("data-mobile-input-scrollable") === "true");
+        if (!card) return;
+        input = findInput(card);
+        scrollEl = findScroll(card);
+        if (typeof card.addEventListener === "function") {
+            card.addEventListener("input", onInputEvent, true);
+            card.addEventListener("compositionend", onInputEvent, true);
+        }
+        if (input) {
+            inputMutations?.observe(input, { childList: true, subtree: true, characterData: true });
+            inputResize?.observe(input);
+        }
+        if (scrollEl && scrollEl !== input) inputResize?.observe(scrollEl);
+        if (active) scheduleEval();
+    }
+
+    function evaluate() {
+        evalFrame = 0;
+        if (disposed || !card) return;
+        if (!active) {
+            if (clearCardState(card)) onLayoutChange();
+            return;
+        }
+        // 宿主重建内部编辑器节点时重新挂载监听。
+        if (!input || !input.isConnected) {
+            const nextInput = findInput(card);
+            const nextScroll = findScroll(card);
+            if (nextInput !== input || nextScroll !== scrollEl) {
+                inputMutations?.disconnect();
+                inputResize?.disconnect();
+                input = nextInput;
+                scrollEl = nextScroll;
+                if (input) {
+                    inputMutations?.observe(input, { childList: true, subtree: true, characterData: true });
+                    inputResize?.observe(input);
+                }
+                if (scrollEl && scrollEl !== input) inputResize?.observe(scrollEl);
+            }
+        }
+        if (!input) {
+            if (clearCardState(card)) onLayoutChange();
+            return;
+        }
+        const draft = inspectComposerDraft(input);
+        if (draft.isEmpty) {
+            if (!multiline && typeof input.clientWidth === "number" && input.clientWidth > 0) {
+                const st = typeof view.getComputedStyle === "function" ? view.getComputedStyle(input) : null;
+                const padX = (parseFloat(st && st.paddingLeft) || 0) + (parseFloat(st && st.paddingRight) || 0);
+                compactTextWidth = Math.max(48, input.clientWidth - padX);
+                compactCardWidth = typeof card.getBoundingClientRect === "function" ? card.getBoundingClientRect().width : 0;
+            }
+            if (clearCardState(card)) onLayoutChange();
+            return;
+        }
+
+        const style = typeof view.getComputedStyle === "function" ? view.getComputedStyle(input) : null;
+        const fontSize = parseFloat(style && style.fontSize) || 16;
+        const parsedLine = parseFloat(style && style.lineHeight);
+        const lineHeight = Number.isFinite(parsedLine) && parsedLine > 0 ? parsedLine : fontSize * 1.5;
+        const padTop = parseFloat(style && style.paddingTop) || 0;
+        const padBottom = parseFloat(style && style.paddingBottom) || 0;
+        const padLeft = parseFloat(style && style.paddingLeft) || 0;
+        const padRight = parseFloat(style && style.paddingRight) || 0;
+        const padX = padLeft + padRight;
+        const singleLineBoxH = lineHeight + padTop + padBottom;
+        const wrapHeightLimit = singleLineBoxH + lineHeight * 0.45;
+        const textBounds = draft.isTextarea ? null : measureContentEditableTextBounds(doc, input);
+        const scrollHeight = Number(input.scrollHeight) || 0;
+        const clientHeight = Number(input.clientHeight) || 0;
+        const scrollWidth = Number(input.scrollWidth) || 0;
+        const clientWidth = Number(input.clientWidth) || 0;
+        const wrappedByBounds = Boolean(textBounds && textBounds.height > lineHeight * 1.45);
+        const wrappedByScroll = scrollHeight > wrapHeightLimit || (draft.isTextarea && clientHeight > 0 && scrollHeight > clientHeight + 2);
+        const overflowedHorizontal = clientWidth > 0 && scrollWidth > clientWidth + 2;
+
+        let nextMultiline = multiline;
+        if (!multiline) {
+            if (clientWidth > 0) {
+                compactTextWidth = Math.max(48, clientWidth - padX);
+                compactCardWidth = typeof card.getBoundingClientRect === "function" ? card.getBoundingClientRect().width : 0;
+            }
+            if (draft.explicitMulti || wrappedByBounds || wrappedByScroll || overflowedHorizontal) {
+                nextMultiline = true;
+            }
+        } else {
+            if (draft.explicitMulti || wrappedByBounds || wrappedByScroll) {
+                nextMultiline = true;
+            } else {
+                const currentCardW = typeof card.getBoundingClientRect === "function" ? card.getBoundingClientRect().width : 0;
+                let refCompactW = compactTextWidth;
+                if (!(refCompactW > 0) || (currentCardW > 0 && compactCardWidth > 0 && Math.abs(currentCardW - compactCardWidth) > 12)) {
+                    refCompactW = estimateCompactTextWidth(card, padX);
+                }
+                const singleLineTextW = textBounds ? textBounds.width : measurePlainTextWidth(doc, draft.text.trim(), style, fontSize);
+                const collapseLimit = Math.max(32, refCompactW - TAVERN_MOBILE_COMPOSER_HYSTERESIS_PX);
+                if (refCompactW > 0 && singleLineTextW > 0 && singleLineTextW <= collapseLimit) {
+                    nextMultiline = false;
+                }
+            }
+        }
+
+        const multilineChanged = setAttr(card, "data-mobile-multiline", nextMultiline);
+        multiline = nextMultiline;
+
+        // 仅在已处于展开态且本帧未刚切态时直接测滚动溢出；刚切态时排下一帧，避免写后立即强同步布局。
+        if (!multiline) {
+            const scrollChanged = setAttr(card, "data-mobile-input-scrollable", false);
+            scrollable = false;
+            if (multilineChanged || scrollChanged) onLayoutChange();
+        } else if (multilineChanged) {
+            onLayoutChange();
+            scheduleEval();
+        } else {
+            const scrollTarget = scrollEl || input;
+            const nextScrollable = Boolean(
+                (scrollTarget && scrollTarget.scrollHeight > scrollTarget.clientHeight + 2) ||
+                (draft.isTextarea && input.scrollHeight > input.clientHeight + 2)
+            );
+            const scrollChanged = setAttr(card, "data-mobile-input-scrollable", nextScrollable);
+            scrollable = nextScrollable;
+            if (scrollChanged) onLayoutChange();
+        }
+    }
+
+    function scheduleEval() {
+        if (disposed || evalFrame) return;
+        evalFrame = view.requestAnimationFrame(evaluate);
+    }
+
+    return {
+        bind(nextCard) {
+            const resolved = nextCard && typeof nextCard.querySelector === "function" ? nextCard : null;
+            if (resolved === card) return;
+            if (card) clearCardState(card);
+            attach(resolved);
+        },
+        setActive(nextActive) {
+            const on = Boolean(nextActive);
+            if (active === on) return;
+            active = on;
+            if (!active) {
+                if (card && clearCardState(card)) onLayoutChange();
+            } else if (card) {
+                scheduleEval();
+            }
+        },
+        dispose() {
+            disposed = true;
+            if (evalFrame) view.cancelAnimationFrame(evalFrame);
+            if (card) clearCardState(card);
+            detach();
+            card = null;
+        }
+    };
+}
 
 // 键盘和页面必须同一帧动。安卓上 visualViewport 的 resize 要等输入法动画收尾才来，
 // 只按它锁像素就会出现「输入法先弹，页面过一会才上移」，事件漏一次还会彻底不动。
@@ -65,6 +381,12 @@ function installVisualViewportPin(doc) {
     function removeClasses(...names) { const present = names.filter(name => html.classList.contains(name)); if (present.length) html.classList.remove(...present); }
     function toggleClass(name, on) { const next = Boolean(on); if (html.classList.contains(name) !== next) html.classList.toggle(name, next); }
     const observer = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(function () { boxDirty = true; schedule(); }) : null;
+    const composerMultiline = createComposerMultilineController(doc, view, {
+        onLayoutChange: function () {
+            boxDirty = true;
+            schedule();
+        }
+    });
     function setPx(name, value) {
         const next = Math.max(0, Math.round(value)) + "px";
         // 上游移动插件也观察 style，避免每次流式更新触发无意义的全树协调。
@@ -90,6 +412,7 @@ function installVisualViewportPin(doc) {
         for (const element of [seat, card, header]) if (element) observer?.observe(element);
         // A capped seat keeps its own box size while content grows, so watch its children too.
         if (seat && seat.children) for (const child of seat.children) observer?.observe(child);
+        composerMultiline.bind(card);
     }
     function snapshotChanged() {
         const innerH = Number(view.innerHeight) || 0;
@@ -117,6 +440,7 @@ function installVisualViewportPin(doc) {
         if (disposed) return;
         toggleClass("dsh-tavern-coarse-play", narrow.matches);
         if (!narrow.matches && !touch.matches) {
+            composerMultiline.setActive(false);
             removeClasses("dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
             restore();
             holdScale(false);
@@ -127,6 +451,7 @@ function installVisualViewportPin(doc) {
         // 双指缩放时保留原布局供用户平移查看；不能把缩放误判成软键盘。
         if (vv && Math.abs(vv.scale - 1) > 0.02) return;
         rebind();
+        composerMultiline.setActive(narrow.matches);
         const height = vv ? vv.height : view.innerHeight;
         const top = vv ? vv.offsetTop : 0;
         if (!(height > 0)) return;
@@ -289,6 +614,7 @@ function installVisualViewportPin(doc) {
         disposed = true;
         if (frame) view.cancelAnimationFrame(frame);
         if (chaseFrame) view.cancelAnimationFrame(chaseFrame);
+        composerMultiline.dispose();
         observer?.disconnect();
         mutations?.disconnect();
         view.removeEventListener("resize", onViewportChange);

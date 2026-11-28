@@ -26,6 +26,10 @@ test('桌面安装脚本和更新检查使用 main 发布清单，下载跟随�
   for (const file of ['android/setup.sh', 'tavern-plugin/lib/application-updater.js']) {
     assert.ok(readFileSync(new URL(file, root), 'utf8').includes('@runtime-archive-main/dsh-tavern-runtime.json'), file)
   }
+  assert.ok(readFileSync(new URL('tavern-plugin/lib/application-updater.js', root), 'utf8')
+    .includes('https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/dsh-tavern-runtime.json'))
+  assert.ok(readFileSync(new URL('android/native/shims/source-update.mjs', root), 'utf8')
+    .includes('https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-${branch}/dsh-tavern-runtime.json'))
   const workflow = readFileSync(new URL('.github/workflows/publish-runtime-manifest.yml', root), 'utf8')
   assert.match(workflow, /branches: \[main, stable\]/)
   assert.doesNotMatch(workflow, /@main\/|@0\.2\.1/, 'CDN 刷新按推送的分支')
