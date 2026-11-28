@@ -410,6 +410,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     return release
   }
   const releaseView = ({ id, version, exportedAt, compressed, size, source }) => ({ id, version, exportedAt, compressed, size, source })
+  // 清空记录: forget every release of the card (no update package can then be made on top of an earlier version).
+  async function clearCardReleases(input) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    await exportWorkspace(cardPath)
+    const removed = (await readReleases(cardPath)).length
+    await rm(releasesFile(cardPath), { force: true })
+    return { removed }
+  }
   // The export sheet's 更新包 choices: the card's current version and its releases, newest first.
   async function listCardReleases(input) {
     const cardPath = normalizeResourcePath(input, 'card')
@@ -689,5 +697,5 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       return { path: record.cardPath, reverted: true }
     })
   }
-  return { discardCardArchivePreview, replaceCard, revertCardUpdate, recoverCardUpdates, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, addCardReleaseFromFile, estimateCardUpdate }
+  return { discardCardArchivePreview, replaceCard, revertCardUpdate, recoverCardUpdates, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, clearCardReleases, addCardReleaseFromFile, estimateCardUpdate }
 }
