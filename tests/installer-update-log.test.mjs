@@ -12,7 +12,7 @@ test('独立安装的 Git 失败在回退前落盘，记录步骤、退出码和
  try{
   await mkdir(path.join(root,'bin'))
   await writeFile(path.join(root,'bin/git'),'#!/bin/sh\nprintf "fatal: https://user:secret@example.com/repo?token=secret password=secret\\n" >&2\nexit 42\n',{mode:0o755})
-  const block=source.slice(source.indexOf('# Standalone bootstrap'),source.indexOf('echo "正在增量同步'))
+  const block=source.slice(source.indexOf('# Standalone bootstrap'),source.indexOf('# Shared download module'))
   await writeFile(path.join(root,'probe.sh'),'set -eu\n'+block+'\nrun_git git.archive archive || true\n')
   execFileSync('sh',[path.join(root,'probe.sh')],{env:{...process.env,DSH_ROOT:root,TEMP_DIR:root,DSH_TAVERN_UPDATE_LOG_ROOT:path.join(root,'logs'),PATH:path.join(root,'bin')+':'+process.env.PATH},stdio:'pipe'})
   const logs=readUpdateDiagnostics(path.join(root,'logs')).records
@@ -69,6 +69,31 @@ test('PowerShell 引导日志使用同样的脱敏与持久格式',async()=>{
   const [record]=readUpdateDiagnostics(root).records
   assert.equal(record.exitCode,128);assert.equal(record.step,'git.fetch');assert.doesNotMatch(record.output,/secret/)
  }finally{await rm(root,{recursive:true,force:true})}
+})
+
+test('安装输出乱码时，更新失败状态使用本次安装记录里的错误', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-structured-error-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const node = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
+  const fixture = path.join(root, 'fail.cjs')
+  const error = '运行清单不再提供目标提交 abcdef123456，请重新检查更新。'
+  await writeFile(fixture, `
+const { appendFileSync } = require('node:fs');
+const path = require('node:path');
+const attemptId = process.env.DSH_TAVERN_UPDATE_ATTEMPT;
+appendFileSync(path.join(process.env.DSH_TAVERN_UPDATE_LOG_ROOT, 'update-diagnostics.jsonl'), JSON.stringify({
+  attemptId, event: 'installer.finished', step: 'bootstrap', exitCode: 1, output: ${JSON.stringify(`System.Management.Automation.RuntimeException: ${error}`)}
+}) + '\\n');
+process.stderr.write(Buffer.from([0xff, 0xff]));
+process.exitCode = 1;
+`)
+  await writeFile(path.join(root, 'install.sh'), `#!/bin/sh\nexec "${node}" "${fixture}"\n`)
+  await writeFile(path.join(root, 'install.ps1'), `& '${node.replaceAll("'", "''")}' '${fixture.replaceAll("'", "''")}'\nexit $LASTEXITCODE\n`)
+  const statusFile = path.join(root, 'status.json')
+  await assert.rejects(updateApplication({ host: 'cli', sourceRoot: root, dshHome: root, statusFile, keepCwd: true, log() {} }), /运行清单不再提供目标提交/)
+  const status = JSON.parse(await readFile(statusFile, 'utf8'))
+  assert.ok(status.error.includes(error))
+  assert.doesNotMatch(status.error, /RuntimeException|\uFFFD/)
 })
 
 test('独立安装清理临时目录时不会吞掉未定义变量的失败退出码', { skip: process.platform === 'win32' }, async () => {

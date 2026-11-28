@@ -143,6 +143,26 @@ test('startup configuration and cold playback use point reads, management still 
   assert.equal((await cache.stats()).count,0)
 })
 
+test('a cold cache stores and plays a new line without waiting for its index; the limits apply once it is read', async t => {
+  // bug:drama3-voice-slow: the host's first synthesized line waited ~80 s in the provider lane while put read every
+  // manifest of a 3.5k-entry cache, and every playback lookup queued behind it.
+  const dataDir = await directory(t), root = join(dataDir,'cache','audio-v2')
+  let now = 0; t.mock.method(Date,'now',() => now)
+  const seed = createCache({dataDir})
+  await seed.put(key,audio,['old'])
+  const manifest = await readFile(join(root,key + '.json'),'utf8')
+  for (let i = 0; i < 400; i++) await writeFile(join(root,i.toString(16).padStart(64,'0') + '.json'),manifest)
+  now = 31 * day
+  const phases = [], cache = createCache({dataDir,onBoot:row => phases.push(row.phase)})
+  await cache.put(other,audio,['new'])
+  assert.deepEqual(await cache.get(other,'new'),audio)
+  assert.ok(!phases.includes('voice-cache.end'),'the write and its playback finished before the index')
+  await cache.flush()
+  assert.deepEqual(phases,['voice-cache.begin','voice-cache.end'])
+  assert.equal(await cache.get(key),null,'the expired entry is evicted once the index is read')
+  assert.equal(cache.snapshot().count,1)
+})
+
 test('cold point reads still reject expired, oversized and malformed metadata', async t => {
   const dataDir = await directory(t), root = join(dataDir,'cache','audio-v2')
   let now = 0; t.mock.method(Date,'now',() => now)

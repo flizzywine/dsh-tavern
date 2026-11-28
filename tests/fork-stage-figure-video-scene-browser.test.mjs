@@ -15,7 +15,7 @@ const ANATOMY = { figureTop: 0.02, headTop: 0.02, chin: 0.164, feet: 0.99, visib
 // makes a figure descriptor whose still is a plain canvas.
 async function scenePage(t) {
   const { chromium } = await import('playwright')
-  const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required'] }); t.after(() => browser.close())
+  const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }); t.after(() => browser.close())
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } }), errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
@@ -56,6 +56,30 @@ async function scenePage(t) {
   return { page, errors }
 }
 
+test('a static figure paints visible pixels on the stage canvas', { timeout: 120000 }, async t => {
+  const { page, errors } = await scenePage(t)
+  await page.evaluate(() => show(figure('static', '#00ff00', {})))
+  await page.waitForFunction(() => scene.debug.stats().figures[0]?.ready, null, { timeout: 30000 })
+  const png = await page.locator('body canvas').screenshot({ timeout: 10000 })
+  const greenPixels = await page.evaluate(async base64 => {
+    const image = new Image()
+    image.src = `data:image/png;base64,${base64}`
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width; canvas.height = image.height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(image, 0, 0)
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    let count = 0
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] < 64 && pixels[i + 1] > 128 && pixels[i + 2] < 64) count++
+    }
+    return count
+  }, png.toString('base64'))
+  assert.ok(greenPixels > 100, `expected the green figure on the stage canvas; found ${greenPixels} green pixels`)
+  assert.deepEqual(errors.filter(text => !/favicon/.test(text)), [])
+})
+
 test('a speaking figure with idle and talking loops keeps the scene frame running and plays its idle loop', { timeout: 120000 }, async t => {
   const { page, errors } = await scenePage(t)
   await page.evaluate(() => show(figure('iroha', '#3b3550', { speaking: true, video: { source: clip('idle'), talk: clip('talk'), rect: [0, 0, 600, 1800] } })))
@@ -71,12 +95,13 @@ test('changing to an image the shown one has a transition into plays the transit
   const { page, errors } = await scenePage(t)
   await page.evaluate(() => show(figure('calm', '#3b3550', { video: { outfit: 'school', image: 'calm', source: clip('idle-calm'), rect: [0, 0, 600, 1800], into: { joy: { source: clip('calm-joy'), rect: [0, 0, 600, 1800] } } } })))
   await page.waitForFunction(() => figureVideos[0] && !figureVideos[0].paused && figureVideos[0].currentTime > 0, null, { timeout: 30000 })
+  assert.deepEqual(await page.evaluate(() => figureVideos.map(video => [video.loop, video.paused])), [[true, false], [false, true]], 'the transition is preloaded with the old picture')
   await page.waitForTimeout(400)
   await page.evaluate(() => show(figure('joy', '#50353b', { video: { outfit: 'school', image: 'joy', source: clip('idle-joy'), rect: [0, 0, 600, 1800], into: {} } })))
   // The new picture's idle loop and its transition: the transition plays to its end, then the idle loop plays.
-  await page.waitForFunction(() => figureVideos.length === 3 && !figureVideos[2].loop && figureVideos[2].currentTime > 0, null, { timeout: 30000 })
-  assert.equal(await page.evaluate(() => figureVideos[1].paused), true, 'the new idle loop waits for the transition')
-  await page.waitForFunction(() => figureVideos[2].ended && !figureVideos[1].paused && figureVideos[1].currentTime > 0, null, { timeout: 30000 })
+  await page.waitForFunction(() => figureVideos.length === 3 && figureVideos[1].currentTime > 0, null, { timeout: 30000 })
+  assert.equal(await page.evaluate(() => figureVideos[2].paused), true, 'the new idle loop waits for the transition')
+  await page.waitForFunction(() => figureVideos[1].ended && !figureVideos[2].paused && figureVideos[2].currentTime > 0, null, { timeout: 30000 })
   // The old picture's loop went with its fade-out.
   await page.waitForFunction(() => !figureVideos[0].getAttribute('src'), null, { timeout: 10000 })
   assert.equal(await page.evaluate(() => scene.debug.stats().figures.length), 1)

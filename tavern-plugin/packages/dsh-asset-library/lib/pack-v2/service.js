@@ -57,7 +57,7 @@ import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigure
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
 import { openZip, writeZip, zipPath } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
-import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson, spoolFileStamp } from '../asset-packs/common.js'
+import { shape, check, unique, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson, spoolFileStamp } from '../asset-packs/common.js'
 
 import { channel } from 'node:diagnostics_channel'
 const readTiming = channel('dsh.asset.read')
@@ -358,6 +358,32 @@ export function createAssetPackService(options) {
     return retained
   }
   async function all() { const packs = []; for (const id of await storage.listIds()) packs.push(await metadata(id)); return packs }
+  // Pack and figure UUIDs are unique across the library. A write bringing new ones checks them against the ids the other
+  // installed packs hold: their manifests' figure lists, read again only when a pack's stamp changes - never their
+  // documents (hydrating every installed pack took seconds per new figure on a large library).
+  const identityIndex = new Map()
+  async function installedIdentities() {
+    const ids = await storage.listIds(), rows = []
+    for (const id of identityIndex.keys()) if (!ids.includes(id)) identityIndex.delete(id)
+    for (const id of ids) {
+      const stamp = await storage.stamp(id)
+      if (stamp === null) { identityIndex.delete(id); continue }
+      let row = identityIndex.get(id)
+      if (row?.stamp !== stamp) {
+        row = {stamp, id, figures:storedDocument(await storage.read(`packs/${id}/manifest.json`, limits.entrySize)).figures}
+        identityIndex.set(id, row)
+      }
+      rows.push(row)
+    }
+    return rows
+  }
+  // manifests: the packs being written (already validated); replaced: installed packs this write replaces or removes.
+  async function checkIdentities(manifests, replaced) {
+    const others = (await installedIdentities()).filter(row => !replaced.includes(row.id)), all = [...others, ...manifests]
+    unique(all.map(row => row.id), '$.packIds')
+    unique(all.flatMap(row => row.figures), '$.figureIds')
+    unique(all.flatMap(row => [row.id, ...row.figures]), '$.uuids')
+  }
   async function prepareMerge(source, before, input) {
     const merged = mergePackContents(source,before,input)
     trimAuthoringImages(merged.manifest,merged.files,{...source.figures,...before.figures})
@@ -412,10 +438,7 @@ export function createAssetPackService(options) {
     // Removing or reordering existing identities cannot introduce a library-wide collision.
     // Do not hydrate every installed pack while holding the publication fence for a deletion.
     const previousFigureIds = new Set(before?.manifest.figures || [])
-    if (!before || pack.manifest.figures.some(id => !previousFigureIds.has(id))) {
-      const installed = await all()
-      validatePackIdentities([...installed.filter(p => p.manifest.id !== pack.manifest.id && p.manifest.id !== moved?.from).map(p => p.manifest), pack.manifest])
-    }
+    if (!before || pack.manifest.figures.some(id => !previousFigureIds.has(id))) await checkIdentities([pack.manifest], [pack.manifest.id, moved?.from])
     let prior = before?.local || await storage.local(pack.manifest.id)
     if (copiedDebt) prior = {...prior,mouthDebt:{...prior?.mouthDebt,...copiedDebt}}
     const retired = new Set(prior?.retired || [])
@@ -627,8 +650,8 @@ export function createAssetPackService(options) {
       }
       distribution = {sourceId:remote.source?.sourceId || null,catalogueUrl:remote.source?.catalogueUrl || null,version:remote.source?.version || null,archiveSha256:remote.archiveSha256,upstreamContentHash,baseMetadata:base}
     }
-    const conflictFigures = pack.manifest.figures.filter(id => installed.some(p => p.manifest.id !== pack.manifest.id && p.manifest.figures.includes(id)))
-    const identityConflict = conflictFigures.length > 0 || installed.some(p => p.manifest.id !== pack.manifest.id && (pack.manifest.figures.includes(p.manifest.id) || p.manifest.figures.includes(pack.manifest.id)))
+    const conflictFigures = pack.manifest.figures.filter(id => installed.some(p => p.id !== pack.manifest.id && p.figures.includes(id)))
+    const identityConflict = conflictFigures.length > 0 || installed.some(p => p.id !== pack.manifest.id && (pack.manifest.figures.includes(p.id) || p.figures.includes(pack.manifest.id)))
     const same = before?.manifest.contentHash === pack.manifest.contentHash && (!remote || canonicalJson(before.local.distribution || null) === canonicalJson(distribution))
     let choices = identityConflict || copyOnly ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','merge','keep-both','cancel'] : ['install','keep-both','cancel']
     const mapping = {packId:randomUUID(), figures:Object.fromEntries(pack.manifest.figures.map(id => [id,randomUUID()]))}
@@ -1011,8 +1034,7 @@ export function createAssetPackService(options) {
         cas(source,input.sourceRevision); cas(before,input.expectedRevision)
         check(source && before, '$', 'Both packs must exist', 'ASSET_UNAVAILABLE')
         const {pack, ...details} = await prepareMerge(source,before,input)
-        const installed = await all()
-        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),pack.manifest])
+        await checkIdentities([pack.manifest],[input.packId,input.sourcePackId])
         const retired = new Set(before.local.retired || [])
         for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
         const plan = {...details,contentHash:pack.manifest.contentHash,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length}
@@ -1061,8 +1083,7 @@ export function createAssetPackService(options) {
           Object.assign(mouthDebt,copiedMouthDebt(source,pack,source.manifest.figures.map(id=>({kind:'figures',fromId:id,toId:id})),debt))
           retire.push({source,entry:{removeId:row.packId,local:nextLocal(source.local)}})
         }
-        const installed = await all()
-        validatePackIdentities([...installed.filter(item=>!ids.has(item.manifest.id)).map(item=>item.manifest),pack.manifest])
+        await checkIdentities([pack.manifest],[...ids])
         const retired = new Set(before.local.retired)
         for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
         const result = {packId,name,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length,bytes,contentHash:pack.manifest.contentHash,sourceIds,card:card.path,mappings}
@@ -1095,8 +1116,7 @@ export function createAssetPackService(options) {
           validatePackDocuments({...documents,manifest:next.manifest}); checks.push({...documents,manifest:next.manifest,files:next.files})
         }
         const [target,remaining] = checks
-        const installed = await all()
-        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),target.manifest,remaining.manifest])
+        await checkIdentities([target.manifest,remaining.manifest],[input.packId,input.sourcePackId])
         const retired = new Set(before.local.retired || [])
         for (const key of keys(target)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
         const sourceRetired = new Set(source.local.retired || []), nextSourceKeys = keys(remaining)
@@ -1222,7 +1242,8 @@ export function createAssetPackService(options) {
         check(source, '$.sourcePackId', 'Pack missing', 'ASSET_UNAVAILABLE')
         const before = fresh ? null : await load(packId)
         if (!fresh) { cas(before, target.expectedRevision); check(before, '$.target.packId', 'Pack missing', 'ASSET_UNAVAILABLE') }
-        const manifest = before ? copy(before.manifest) : {format:'dsh-asset-pack', schemaVersion:1, id:packId, name:target.newPackName, contentHash:'0'.repeat(64), assets:[], figures:[], sprites:{}, bundles:{}, blobs:{}, files:[]}
+        // a new pack takes the source's image schema, so the figures it receives fit it (copy-figure.js)
+        const manifest = before ? copy(before.manifest) : {...blankManifest(packId, target.newPackName), schemaVersion:source.manifest.schemaVersion ?? 1}
         const files = new Map(before?.files || [])
         // copied figures take their 配图 外貌 along; the host gives each a record of its own
         const extras = await figureImageExtras(options, source.manifest.id, input.itemRefs.filter(ref => ref.kind === 'figures').map(ref => ref.id))
@@ -1623,7 +1644,7 @@ export function createAssetPackService(options) {
         try { return await inspectRead(read) } finally { await read.spool.release() }
       })
       async function inspectRead(read) {
-        const installed = await all()
+        const installed = await installedIdentities()
         // One hash per transfer: a downloaded archive's own digest, else the uploaded bytes once (shared by a set's packs).
         const uploadHash = remote?.archiveSha256 || await sha256(bytes), options = {remote:remote?.local ? undefined : remote, uploadHash, installed, copyOnly:input.copy === true, spool:read.spool}
         if (!read.set) {
@@ -1757,7 +1778,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':ext==='css'?'text/css':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}

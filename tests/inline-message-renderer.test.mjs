@@ -497,15 +497,18 @@ test('trusted script UI uses host body and its installed draggable; isolation re
 
 test('trusted parent facade exposes real EJS readiness and restores the previous host on disposal', () => {
   const previous = { native: true }, host = { SillyTavern: previous }
-  const frame = { SillyTavern: { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: true } } }) }, TavernHelper: {} }
+  const frame = { SillyTavern: { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: true } } }) }, TavernHelper: {},
+    EjsTemplate: { getFeatures: () => ({ enabled: true }) } }
   const dispose = client.installTavernTrustedHostFacade(host, frame)
   assert.equal(host.SillyTavern.getContext().extensionSettings.EjsTemplate.enabled, true)
   frame.SillyTavern = { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: false } } }) }
   assert.equal(host.SillyTavern.getContext().extensionSettings.EjsTemplate.enabled, false)
   assert.equal(host.TavernHelper, frame.TavernHelper)
+  assert.equal(host.EjsTemplate, frame.EjsTemplate)
   dispose()
   assert.equal(host.SillyTavern, previous)
   assert.equal(Object.hasOwn(host, 'TavernHelper'), false)
+  assert.equal(Object.hasOwn(host, 'EjsTemplate'), false)
 })
 
 test('trusted #chat compatibility mount measures as the conversation pane', () => {
@@ -751,6 +754,17 @@ test('正式会话支持分步 /send 与 /trigger await=true|false', async () =>
   assert.equal((await execute('/send 呼叫墨池渊 | /trigger await=true', 'game', { waitForCompletion: false })).submitted, true)
   assert.deepEqual(calls.map(call => call.slice(0, 2)), [['save', '呼叫墨池渊'], ['prompt', '呼叫墨池渊']])
   assert.equal(calls[0][2], calls[1][2])
+})
+
+test('消息 iframe 的 EjsTemplate 读取当前上下文中的模板开关', () => {
+  const context = { messages: [], extensionSettings: { EjsTemplate: { generate_enabled: false } } }
+  const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', helperContext: context })
+  const script = html.match(/<script data-dsh-tavern-frame-chat-context>([\s\S]*?)<\/script>/)[1]
+  const window = { SillyTavern: {}, __dshTavernReadHelperContext: () => context }
+  vm.runInNewContext(script, { window, structuredClone })
+  assert.deepEqual({ ...window.EjsTemplate.getFeatures() }, { enabled: true, generate_enabled: false, render_enabled: true })
+  context.extensionSettings = { EjsTemplate: { enabled: false } }
+  assert.deepEqual({ ...window.EjsTemplate.getFeatures() }, { enabled: false, generate_enabled: true, render_enabled: true })
 })
 
 test('消息 iframe 在 /trigger 前触发 GENERATION_AFTER_COMMANDS 并排空 injectPrompts', async () => {

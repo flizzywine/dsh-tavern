@@ -14,7 +14,7 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { stopService } from './service-lifecycle.mjs'
 import { installCliRuntime, migrateCliHome } from './cli-runtime.mjs'
-import { adaptedDshVersion, extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
+import { adaptedDshVersion, minNodeVersion, extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
@@ -320,7 +320,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
   const installInactive = Boolean(publishGate && process.env.DSH_TAVERN_INSTALL_INACTIVE === '1')
   const preparingForPid = publishGate ? Number(process.env.DSH_TAVERN_PREPARING_DESKTOP_PID) : undefined
   if (publishGate && (!Number.isInteger(preparingForPid) || preparingForPid <= 1)) throw Error('缺少正在准备安装的桌面进程。')
-  requireCommand('node', '请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）')
+  requireCommand('node', `请安装 Node.js ${minNodeVersion} 或更高版本`)
   if (host === 'cli') assertCompatibleDshVersion(adaptedDshVersion, host)
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
@@ -416,7 +416,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       }
       // This generated profile changes dependencies and patch settings on upgrade.
       // Its previous lockfile is not the source repository's frozen lockfile.
-      await runInstall('pnpm', ['install', '--no-frozen-lockfile'], { cwd: profileDir })
+      await runInstall('pnpm', ['install', '--no-frozen-lockfile', '--prefer-offline'], { cwd: profileDir })
       if (host === 'desktop') await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs')], { label: '验证桌面版配置', timeoutMs: 60_000 })
       else {
         await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000,

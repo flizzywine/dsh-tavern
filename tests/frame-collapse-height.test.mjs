@@ -75,3 +75,36 @@ test('an absolutely centered opening keeps the viewport height its controls need
     await frame.locator('button').click()
   } finally { await browser.close() }
 })
+
+test('a decorative fixed transition does not add blank space beneath an aspect-ratio menu', async t => {
+  let descriptor
+  vm.runInNewContext(await readFile('tavern-plugin/lib/client.js', 'utf8'), {
+    window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console
+  })
+  const client = descriptor.factory(() => ({}))
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 1100, height: 850 } })
+  await page.route('**/*', route => route.abort())
+  await page.setContent('<iframe style="display:block;width:640px;height:906px;border:0"></iframe>')
+  const content = `<style>
+    body { overflow: hidden; background: #0a0a10; }
+    main { aspect-ratio: 16 / 9; margin: 0 -1px; }
+    .transition { position: fixed; inset: 0; min-height: 100vh; pointer-events: none; }
+  </style><main>开场菜单</main><div class="transition" aria-hidden="true"><canvas></canvas></div>`
+  const srcdoc = client.buildTavernFrameDocument({ content, token: 'transition' })
+  await page.evaluate(srcdoc => {
+    const frame = document.querySelector('iframe')
+    window.addEventListener('message', event => {
+      if (event.source === frame.contentWindow && event.data.type === 'dsh-tavern-frame-height') {
+        frame.style.height = event.data.height + 'px'
+      }
+    })
+    frame.srcdoc = srcdoc
+  }, srcdoc)
+  await page.waitForFunction(() => document.querySelector('iframe').clientHeight !== 906, null, { timeout: 5000 })
+  const { actual, menu } = await page.frames()[1].locator('main').evaluate(node => ({
+    actual: innerHeight, menu: node.getBoundingClientRect().height,
+  }))
+  assert.ok(menu >= 350 && Math.abs(actual - menu) <= 1, JSON.stringify({ actual, menu }))
+})

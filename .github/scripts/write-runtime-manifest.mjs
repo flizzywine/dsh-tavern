@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -11,6 +11,7 @@ if (!Number.isSafeInteger(releaseSequence) || releaseSequence <= 0) throw new Er
 
 const entries = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'android', 'bin', 'config', 'presets', 'patches', 'tavern-plugin']
 const files = []
+const executables = []
 // Exclude build-only sources from installed copies; preserve runtime contracts and required upstream assets.
 const developmentOnly = [
   { prefix: 'bin/build-website.mjs' },
@@ -37,8 +38,9 @@ async function collect(relative) {
     // Keep the catalog and license assets; binaries are verified and cached on demand.
     // Source/Git archives intentionally retain them during the backward-compatible rollout.
     if (/^tavern-plugin\/(?:packages\/dsh-dream-skin\/)?fonts\/.*\.(?:woff2?|ttf|otf)$/i.test(portable) || isDevelopmentOnly(portable)) return
-    const content = await readFile(absolute)
-    files.push({ path: relative.replaceAll('\\', '/'), sha256: createHash('sha256').update(content).digest('hex'), size: content.length })
+    const [content, info] = await Promise.all([readFile(absolute), stat(absolute)])
+    files.push({ path: portable, sha256: createHash('sha256').update(content).digest('hex'), size: content.length })
+    if (info.mode & 0o111) executables.push(portable)
     return
   }
   for (const item of items) {
@@ -49,6 +51,7 @@ async function collect(relative) {
 
 for (const entry of entries) await collect(entry)
 files.sort((left, right) => left.path.localeCompare(right.path))
+executables.sort()
 const version = String(JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))?.version || '')
 if (!/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(version)) throw new Error('package.json must contain a semantic version')
-await writeFile(path.join(root, 'dsh-tavern-runtime.json'), `${JSON.stringify({ schemaVersion: 2, revision, releaseSequence, version, files }, null, 2)}\n`, 'utf8')
+await writeFile(path.join(root, 'dsh-tavern-runtime.json'), `${JSON.stringify({ schemaVersion: 2, revision, releaseSequence, version, files, executables }, null, 2)}\n`, 'utf8')

@@ -73,7 +73,7 @@ test('install 帮助说明四种宿主与前置条件', () => {
   const text = renderCommandHelp('install')
   assert.ok(text.includes('--host cli|desktop|next|android'))
   for (const host of ['cli', 'desktop', 'next', 'android']) assert.ok(text.includes(host), '缺少宿主：' + host)
-  assert.ok(text.includes('Node.js 22.19+'))
+  assert.ok(text.includes('Node.js 24.9.0+'))
   assert.ok(text.includes('~/.dsh-tavern'))
   assert.ok(text.includes('dsh-tavern install --host next'))
 })

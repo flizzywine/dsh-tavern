@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
-import { createHostToolPolicy } from '../tavern-plugin/lib/host/tools.js'
+import { createHostToolPolicy, resolveNativeToolExecutorEntry } from '../tavern-plugin/lib/host/tools.js'
 import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 
 // Model the host waterfall, including redispatch and unrelated scoped policies.
@@ -70,4 +73,44 @@ test('real resident background Agent refreshes worldbook and networking declarat
   await h.runBackground({ ...input, persistentSessionId: first.traceSessionId, worldbookSkillsEnabled: true, webSearchEnabled: true })
   assert.ok(offered().includes('read'))
   assert.ok(offered().includes('web_search'))
+})
+
+test('resolveNativeToolExecutorEntry follows symlinked CLI bin entries to runtime node_modules', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'tavern-host-tools-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const binDir = path.join(root, 'runtime', 'bin')
+  const dshLibDir = path.join(root, 'runtime', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+  const executorDir = path.join(root, 'runtime', 'lib', 'node_modules', '@deepseek-ai', 'dsh-tool-executor-native')
+  mkdirSync(binDir, { recursive: true })
+  mkdirSync(dshLibDir, { recursive: true })
+  mkdirSync(path.join(executorDir, 'lib'), { recursive: true })
+  const dshBin = path.join(dshLibDir, 'bin.js')
+  const executorEntry = path.join(executorDir, 'lib', 'index.js')
+  writeFileSync(dshBin, 'export {}\n')
+  writeFileSync(path.join(executorDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-tool-executor-native', main: './lib/index.js' }))
+  writeFileSync(executorEntry, 'export class NativeToolExecutor {}\n')
+
+  const symlinkBin = path.join(binDir, 'dsh')
+  symlinkSync(path.relative(binDir, dshBin), symlinkBin)
+  assert.equal(
+    realpathSync(resolveNativeToolExecutorEntry({ env: {}, argv: [process.execPath, symlinkBin] })),
+    realpathSync(executorEntry)
+  )
+
+  const jsSymlinkBin = path.join(binDir, 'dsh.mjs')
+  symlinkSync(path.relative(binDir, dshBin), jsSymlinkBin)
+  assert.equal(
+    realpathSync(resolveNativeToolExecutorEntry({ env: {}, argv: [process.execPath, jsSymlinkBin] })),
+    realpathSync(executorEntry)
+  )
+
+  assert.equal(
+    realpathSync(resolveNativeToolExecutorEntry({ env: { DSH_BOOT_MODULE: symlinkBin }, argv: [process.execPath] })),
+    realpathSync(executorEntry)
+  )
+
+  assert.throws(
+    () => resolveNativeToolExecutorEntry({ env: {}, argv: [process.execPath] }),
+    /无法定位当前 DSH 宿主入口/
+  )
 })

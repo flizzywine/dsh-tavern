@@ -339,7 +339,7 @@
                         post(record, { type: "dsh-tavern-helper-context", context: record.context });
                     }
 				}
-				if (name !== "DSH_VARIABLE_EDIT" && !record.subscriptions.has(String(name))) return Promise.resolve(args);
+				if (name !== "DSH_VARIABLE_EDIT" && name !== "DSH_MVU_PARSE_MESSAGE" && !record.subscriptions.has(String(name))) return Promise.resolve(args);
 				const eventId = String(hostEventId || "") || "host-event-" + (++eventSequence);
 				const startedAt = now();
 				return new Promise(function (resolve, reject) {
@@ -1049,6 +1049,26 @@
 				sync: sync,
                 setForeground: function (value) { foreground = value; for (const record of records.values()) record.frameResources.setVisible(value); },
 				emit: emit,
+				async parseMvuMessage(message, baseline, lifecycleRevision) {
+					const record = records.get("shared");
+					const core = record?.scripts.get("__dsh_official_mvu__");
+					if (!core || !record.loaded || record.reloading || !record.subscriptionsReady || core.initializationFailed) {
+						throw new Error("MVU 解析器尚未就绪");
+					}
+					if (typeof message !== "string" || !baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
+						throw new TypeError("MVU 需要消息文本和变量表");
+					}
+					const chatId = record.context.chatId;
+					function checkContext() {
+						if (records.get("shared") !== record || record.context.chatId !== chatId
+							|| Number(record.context.lifecycleRevision || 0) !== lifecycleRevision) throw new Error("会话已变化，请重新读取变量");
+						if (record.context.transaction) throw new Error("变量正在结算，请稍后重试");
+					}
+					checkContext();
+					const [parsed] = await emitToRecord(record, "DSH_MVU_PARSE_MESSAGE", [message, baseline]);
+					checkContext();
+					return parsed ?? undefined;
+				},
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;

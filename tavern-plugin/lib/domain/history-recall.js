@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { promptSection } from './prompt-section.js'
+import { bm25Scores, buildBm25Index, hasPosting, tokenizeBigram } from './bm25.js'
 
 // —— 补丁（19号清单 §1，2026-11-18）——
 // #1 检索打分：整词子串 → bigram-BM25（中文单字+双字滑窗，k1=1.5/b=0.75，参数照 ACU 17号文档 §2.1）。
@@ -92,103 +93,16 @@ function committedRounds(chat) {
   return rounds
 }
 
-// —— bigram 分词（照 ACU collectBm25Tokens/pushCjkTokens）：中文拆单字+双字滑窗，英文/数字保持整词 ——
-function pushCjkTokens(tokens, segment) {
-  for (const char of segment) tokens.push(char)
-  for (let index = 0; index < segment.length - 1; index += 1) tokens.push(segment.slice(index, index + 2))
-}
-
-function tokenizeBigram(text) {
-  const normalized = str(text).toLocaleLowerCase()
-  const tokens = []
-  const pattern = /[a-z0-9_]+|[\u3400-\u9fff]+/gi
-  let match
-  while ((match = pattern.exec(normalized)) !== null) {
-    const part = match[0]
-    if (!part) continue
-    if (/^[\u3400-\u9fff]+$/u.test(part)) pushCjkTokens(tokens, part)
-    else tokens.push(part)
-  }
-  return tokens
-}
-
-// —— BM25（参数照 ACU：k1=1.5, b=0.75）。倒排索引 + Int32Array 紧凑编码（docIdx*4096+min(tf,4095)），
-// 6MB 语料实测常驻 ~40MB（per-doc tf Map 方案会吃数百 MB，弃）。语料按 chat 修订缓存：聊天不变不重建，
-// 读档写冷却会推修订自然失效。缓存上限 2。 ——
-const BM25_K1 = 1.5
-const BM25_B = 0.75
-const BM25_TF_SCALE = 4096
-const BM25_CACHE_MAX = 2
+// Keep only the two most recent chat corpora.
 const bm25CorpusCache = new Map()
 
 function buildBm25Corpus(rounds, cacheKey) {
-  if (cacheKey) {
-    const cached = bm25CorpusCache.get(cacheKey)
-    if (cached) return cached
-  }
-  const index = new Map()
-  const texts = []
-  const docLengths = []
-  let totalTokens = 0
-  rounds.forEach((round, docIdx) => {
-    const text = round.messages.map(message => message.text).join('\n')
-    texts.push(text)
-    const tokens = tokenizeBigram(text)
-    docLengths.push(tokens.length)
-    totalTokens += tokens.length
-    const tf = new Map()
-    for (const token of tokens) tf.set(token, (tf.get(token) || 0) + 1)
-    for (const [token, count] of tf) {
-      let postings = index.get(token)
-      if (!postings) { postings = []; index.set(token, postings) }
-      postings.push(docIdx * BM25_TF_SCALE + Math.min(count, BM25_TF_SCALE - 1))
-    }
-  })
-  for (const [token, postings] of index) index.set(token, Int32Array.from(postings))
-  const corpus = {
-    count: rounds.length,
-    avgdl: rounds.length ? totalTokens / rounds.length : 0,
-    index, texts, docLengths: Int32Array.from(docLengths),
-  }
-  if (cacheKey) {
-    bm25CorpusCache.set(cacheKey, corpus)
-    if (bm25CorpusCache.size > BM25_CACHE_MAX) {
-      const oldest = bm25CorpusCache.keys().next().value
-      if (oldest !== undefined) bm25CorpusCache.delete(oldest)
-    }
-  }
+  if (bm25CorpusCache.has(cacheKey)) return bm25CorpusCache.get(cacheKey)
+  const texts = rounds.map(round => round.messages.map(message => message.text).join('\n'))
+  const corpus = { ...buildBm25Index(texts), texts }
+  bm25CorpusCache.set(cacheKey, corpus)
+  if (bm25CorpusCache.size > 2) bm25CorpusCache.delete(bm25CorpusCache.keys().next().value)
   return corpus
-}
-
-function bm25Scores(queryTokens, corpus) {
-  const scores = new Float64Array(corpus.count)
-  for (const token of queryTokens) {
-    const postings = corpus.index.get(token)
-    if (!postings) continue
-    const df = postings.length
-    const idf = Math.log(1 + (corpus.count - df + 0.5) / (df + 0.5))
-    for (let i = 0; i < postings.length; i++) {
-      const packed = postings[i]
-      const docIdx = Math.floor(packed / BM25_TF_SCALE)
-      const tf = packed % BM25_TF_SCALE
-      const norm = 1 - BM25_B + BM25_B * (corpus.docLengths[docIdx] / Math.max(1, corpus.avgdl))
-      scores[docIdx] += idf * ((tf * (BM25_K1 + 1)) / (tf + BM25_K1 * norm))
-    }
-  }
-  return scores
-}
-
-function hasPosting(postings, docIdx) {
-  if (!postings) return false
-  let lo = 0, hi = postings.length - 1
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    const at = Math.floor(postings[mid] / BM25_TF_SCALE)
-    if (at === docIdx) return true
-    if (at < docIdx) lo = mid + 1
-    else hi = mid - 1
-  }
-  return false
 }
 
 // 摘要窗口的锚词：本轮命中的查询词里挑 IDF 最低（最稀有）的，双字词优先——常见虚词不当锚

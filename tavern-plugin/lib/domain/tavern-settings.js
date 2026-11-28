@@ -234,7 +234,6 @@ export function normalizeConfiguredBackgroundTasks(value) {
 export function normalizePlayDefaults(value, legacyCandidateTabs) {
   const input = object(value)
   return { playerName: typeof input.playerName === 'string' ? input.playerName.trim().slice(0, 80) || '你' : '你',
-    worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
     candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs === true,
     backgroundTasks: normalizeConfiguredBackgroundTasks(input.backgroundTasks),
@@ -258,7 +257,6 @@ export function applyTavernSettingsPatch(current, patch) {
 
   if (Object.hasOwn(input, 'defaultPlaySettings')) {
     const patch = object(input.defaultPlaySettings)
-    if (Object.hasOwn(patch, 'worldbookStrategy') && !['legacy', 'native-skills'].includes(patch.worldbookStrategy)) throw new Error('默认世界书策略无效')
     if (Object.hasOwn(patch, 'webSearchEnabled') && typeof patch.webSearchEnabled !== 'boolean') throw new Error('默认开关必须为布尔值')
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')
@@ -409,6 +407,11 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.disableEnterSend !== 'boolean') throw new Error('关闭回车键发送消息设置必须是布尔值')
     next.disableEnterSend = input.disableEnterSend
   }
+  // 设置 › 高级 › 新存档使用单文件格式（实验）：默认关闭；只决定之后新建的存档用 Format 3（SQLite）还是 Format 2。
+  if (Object.hasOwn(input, 'experimentalSqliteStorage')) {
+    if (typeof input.experimentalSqliteStorage !== 'boolean') throw new Error('单文件存档设置必须是布尔值')
+    next.experimentalSqliteStorage = input.experimentalSqliteStorage
+  }
   if (Object.hasOwn(input, 'autoOpenStatusPanel')) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
@@ -550,6 +553,8 @@ export function presentTavernSettings(document, defaults) {
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // 设置 › 高级 › 关闭回车键发送消息：默认关闭。
     disableEnterSend: object(document).disableEnterSend === true,
+    // 设置 › 高级 › 新存档使用单文件格式（实验）：默认关闭，新存档仍用 Format 2。
+    experimentalSqliteStorage: object(document).experimentalSqliteStorage === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     showCharacterDesignPanel: document?.showCharacterDesignPanel === true,

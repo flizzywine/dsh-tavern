@@ -24,7 +24,12 @@ test('CLI 升级加入同一个酒馆启动器，重复安装不产生重复项'
     dsh: { profile: { bundles: ['user-plugin'] } },
     dependencies: { 'user-plugin': '1.0.0' },
   }))
-  t.mock.property(process, 'env', { ...process.env, DSH_TAVERN_MOBILE_LAYOUT: '0' })
+  const previousMobileLayout = process.env.DSH_TAVERN_MOBILE_LAYOUT
+  t.after(() => {
+    if (previousMobileLayout === undefined) delete process.env.DSH_TAVERN_MOBILE_LAYOUT
+    else process.env.DSH_TAVERN_MOBILE_LAYOUT = previousMobileLayout
+  })
+  process.env.DSH_TAVERN_MOBILE_LAYOUT = '0'
   const { manifest } = prepareProfileConfiguration('cli', undefined, options)
   assert.equal(manifest.dependencies['dsh-tavern'], 'link:' + path.join(sourceRoot, 'tavern-plugin', 'packages', 'dsh-tavern').replaceAll(path.sep, '/'))
   assert.ok(manifest.dsh.profile.bundles.includes('dsh-tavern'))

@@ -138,7 +138,7 @@
 
 ### 桌面版（Windows / macOS）
 
-先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
+先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.5 或更新的 0.2.x** DSH 内核，宿主自带的 Node.js 须为 **24.9 或更新版本**。然后在下方 **任选一种** 安装方式。
 
 #### 方式一：手动安装（在 DSH 界面操作）
 
@@ -169,7 +169,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 ### DSH NEXT（Windows / macOS）
 
-先打开 DSH NEXT 完成初始设置。推荐使用内核为 **0.2.2-rc.1 或更新的 0.2.x** 的版本。酒馆安装在独立的 `tavern` Profile 中，NEXT 使用自己的 Profile 切换功能。
+先打开 DSH NEXT 完成初始设置。推荐使用内核为 **0.2.2-rc.5 或更新的 0.2.x**、宿主自带 Node.js **24.9 或更新版本**的版本。酒馆安装在独立的 `tavern` Profile 中，NEXT 使用自己的 Profile 切换功能。
 
 如果 NEXT 和官方桌面共用同一个 `DSH_HOME`，且官方桌面当前在酒馆中，请先在官方桌面的 **设置 → 酒馆启动器** 切回原版 DSH，再退出官方桌面。这样会恢复真实的 `profiles/desktop` 目录，NEXT 才能切回原版 Profile。
 
@@ -206,7 +206,7 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-arch
 
 #### 原生版 APK（Beta，推荐）
 
-直接安装即玩：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.2.apk)（或前往 [最新 Release](https://github.com/flizzywine/dsh-tavern/releases/latest) 获取最新版）。
+直接安装即玩：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.5.apk)（或前往 [最新 Release](https://github.com/flizzywine/dsh-tavern/releases/latest) 获取最新版）。
 
 全新底层重构，**彻底告别 Ubuntu + proot 容器与 Termux 命令行**，用 Android 原生 Node 直接驱动酒馆，**流畅度远超容器方案**：
 
@@ -220,19 +220,20 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-arch
 
 #### 方案对比
 
-| 对比项 | 原生版 APK（Beta，推荐） | 独立 APK（DSHA 容器版） | Termux 命令行版 |
-| --- | --- | --- | --- |
-| **流畅度与性能** | ✅ **原生直跑、丝滑流畅**，无 proot 拦截损耗，读写/开卡/结算极快、低发热 | ⚠️ 受 proot 系统调用拦截拖慢，I/O 与启动偏慢、易发热 | ⚠️ 同样受 proot 容器性能损耗影响 |
-| **运行架构** | ✅ Android 原生 Node，无 Ubuntu 容器 | ⚠️ 内置 Ubuntu + proot 容器 | ✅ Termux 原生 Node（与原生版 APK 同一套），无 Ubuntu 容器 |
-| **体积与启动** | ✅ 约 444 MB（arm64 / x86_64）；冷启动 5–6 秒 | ⚠️ 约 686 MB（仅 arm64）；首启需解包 Ubuntu | ⚠️ 需装 Termux 并手工执行部署脚本 |
-| **离线开箱** | ✅ 依赖、pnpm、缓存与卡片样式全内置，首启不联网 | ⚠️ 内置首装依赖包，仍需按引导初始化 | ❌ 安装阶段需联网拉取容器与依赖 |
-| **界面与保活** | ✅ 独立全屏 App、自适应状态栏、前台保活+崩溃自愈 | ⚠️ DSHA 外壳内嵌 WebView | ❌ 终端启动、切外部浏览器，后台易被杀 |
-| **更新体验** | ✅ 应用内一键更新（含依赖变更+失败回退），覆盖留档 | ⚠️ 应用内源码更新，宿主升级需换包 | ⚠️ 需重跑脚本或手动命令行维护 |
-| **上手门槛** | ✅ 零配置，装完几十秒直接开玩 | ⚠️ 需等待容器部署 | ❌ 需要命令行基础与排错能力 |
+| 对比项 | 原生版 APK（Beta，推荐） | Termux 命令行版 |
+| --- | --- | --- |
+| **流畅度与性能** | ✅ **原生直跑、丝滑流畅**，无 proot 拦截损耗，读写/开卡/结算极快、低发热 | ✅ Termux 原生 Node 直跑，无 proot 损耗 |
+| **运行架构** | ✅ Android 原生 Node，无 Ubuntu 容器 | ✅ Termux 原生 Node（与原生版 APK 同一套），无 Ubuntu 容器 |
+| **体积与启动** | ✅ 约 444 MB（arm64 / x86_64）；冷启动 5–6 秒 | ⚠️ 需装 Termux 并手工执行部署脚本 |
+| **离线开箱** | ✅ 依赖、pnpm、缓存与卡片样式全内置，首启不联网 | ❌ 安装阶段需联网拉取依赖 |
+| **界面与保活** | ✅ 独立全屏 App、自适应状态栏、前台保活+崩溃自愈 | ❌ 终端启动、切外部浏览器，后台易被杀 |
+| **更新体验** | ✅ 应用内一键更新（含依赖变更+失败回退），覆盖留档 | ⚠️ 需重跑脚本或手动命令行维护 |
+| **上手门槛** | ✅ 零配置，装完几十秒直接开玩 | ❌ 需要命令行基础与排错能力 |
 
-#### 其他方案（旧版 / 进阶）
+> 注：原基于 DSHA 容器的独立 APK 已停止维护并归档。已有旧版数据的用户请先导出存档与人物卡，再导入到原生版 APK 或 Termux。
 
-- **独立 APK（DSHA 容器版，Android 11+ / ARM64）**：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.3/dsh-tavern-android-release.apk)，适合已有 DSHA 独立版数据或需要旧稳定方案的用户，按引导部署、应用内更新。[安装说明 →](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)
+#### 其他方案（进阶）
+
 - **Termux**：适合熟悉命令行、希望自行掌控运行环境的用户，用一条命令安装：
 
 ```sh

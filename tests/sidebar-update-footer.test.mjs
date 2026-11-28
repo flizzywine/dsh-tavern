@@ -31,7 +31,7 @@ async function mountSidebar(t, initialStatus = { phase: 'idle', host: 'cli', cur
       listCards: { cards: [] },
       getCardOrganization: { organization: { groups: [], assignments: {} } },
       listSessions: { sessions: [] },
-      getHostCompatibility: {},
+      getHostCompatibility: { compatibility: { status: 'allowed', version: '0.2.2-rc.5' } },
       confirmSessionPatch: {},
       getActiveInterfaceSkin: { css: '' },
       ...methodResponses,
@@ -90,17 +90,18 @@ test('侧栏在桌面宽度打开标签，在移动端断点只收起左栏', as
 })
 
 test('更新状态还没回来时，版本行和「检查更新」已经在侧栏底部', async t => {
-  const { page, releaseStatus } = await mountSidebar(t)
+  const { page, releaseStatus, methods } = await mountSidebar(t)
   const row = page.locator('.dsh-tavern-update-row')
   await row.waitFor({ state: 'visible' })
   const check = page.getByRole('button', { name: '检查更新', exact: true })
   await check.waitFor({ state: 'visible' })
   assert.equal(await check.isDisabled(), false, '首次状态查询慢时也能直接检查更新')
-  assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern · DSH 0.2.1')
+  assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern')
 
   releaseStatus()
-  await page.waitForFunction(() => document.querySelector('.dsh-tavern-update-identity')?.textContent?.includes('v3.2.0'))
-  assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern v3.2.0 · DSH 0.2.1 · a390af1')
+  await page.waitForFunction(() => document.querySelector('.dsh-tavern-update-identity')?.textContent?.includes('DSH 0.2.2-rc.5'))
+  assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern v3.2.0 · DSH 0.2.2-rc.5 · a390af1')
+  assert.equal(methods.filter(method => method === 'getHostCompatibility').length, 1)
   assert.equal(await check.isVisible(), true)
   assert.equal(await check.isDisabled(), false)
 })

@@ -123,12 +123,9 @@ function GalConfigSkinSelect(props) {
     }
     // Presses on the list's padding keep focus on an option (Esc then still reaches the select).
     function keepFocus(event) { if (!(event.target && event.target.closest && event.target.closest('[role="option"]'))) event.preventDefault(); }
-    // The list is portaled outside the stage: it re-derives the stage tokens (theme scope) and keeps the current skin's.
-    const stageTokens = {};
-    if (open && trigger.current && typeof getComputedStyle === "function") {
-        const style = getComputedStyle(trigger.current);
-        for (const prop of style) if (prop.startsWith("--gal-")) stageTokens[prop] = style.getPropertyValue(prop);
-    }
+    // The list is portaled outside the stage: it re-derives the stage tokens (theme scope), the surface's list art and the
+    // current skin's font declaration (fields.popoverScope).
+    const scope = open ? fields.popoverScope(trigger.current, getComputedStyle) : null;
     const list = h("div", { className: "fork-gal-skin-list", role: "listbox", "aria-label": props.label, onKeyDown: onListKey },
         choices.map(choice => {
             const selected = galSkinKey(choice.value) === key;
@@ -137,11 +134,9 @@ function GalConfigSkinSelect(props) {
                 "data-value": typeof choice.value === "string" ? choice.value : choice.value.assetId, onPointerEnter: warm, onFocus: warm, onPointerDown: warm, onClick: () => choose(choice) },
                 h(GalConfigSkinThumb, { choice, stage: props.stage }),
                 h("b", { className: "fork-gal-skin-option-name" }, choice.label),
-                selected ? h("span", { className: "fork-gal-skin-option-check", "aria-hidden": true }, h(Icon, { name: "check", size: 16 })) : null);
+                h("span", { className: "fork-gal-skin-option-check", "aria-hidden": true }, selected ? h(Icon, { name: "check", size: 16 }) : null));
         }));
-    // The portaled list carries the stage's skin font declaration so fonts.js resolves the same faces there.
-    const skinFonts = open && trigger.current && trigger.current.closest && trigger.current.closest("[data-fk-fonts]");
-    const popover = open ? h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-gal-skin-pop fork-gal-theme-scope", style: stageTokens, "data-theme": props.theme || "", "data-fk-fonts": skinFonts ? skinFonts.getAttribute("data-fk-fonts") : undefined, "data-reduced-motion": props.reducedMotion || undefined,
+    const popover = open ? h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-gal-skin-pop fork-gal-theme-scope", style: scope.style, "data-theme": props.theme || "", ...scope.attrs, "data-reduced-motion": props.reducedMotion || undefined,
         gap: 8, minWidth: trigger.current ? trigger.current.offsetWidth : 0, onMouseDown: keepFocus }, list) : null;
     return h("div", { ref: wrap, className: "fork-gal-skin-pick" + (open ? " is-open" : "") },
         h("button", { ref: trigger, type: "button", className: "fork-gal-skin-trigger", "aria-haspopup": "listbox", "aria-expanded": open, "aria-label": props.label + "：" + name,

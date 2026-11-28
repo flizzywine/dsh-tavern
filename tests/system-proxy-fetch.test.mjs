@@ -23,7 +23,6 @@ for (const mode of ['system', 'environment', 'lowercase', 'all-proxy', 'native']
     const origin = http.createServer((request, response) => {
       requests.push(request.url)
       response.setHeader('Content-Type', 'application/json')
-      if (request.url === '/commit') return response.end(JSON.stringify({ sha: 'a'.repeat(40) }))
       if (request.url === '/manifest') {
         return response.end(JSON.stringify({
           schemaVersion: 2, revision: 'a'.repeat(40), releaseSequence: 7, version: '3.2.0',
@@ -79,13 +78,14 @@ for (const mode of ['system', 'environment', 'lowercase', 'all-proxy', 'native']
       const updater = createApplicationUpdater({
         sourceRoot: ${JSON.stringify(root)}, dataRoot: ${JSON.stringify(path.join(root, 'data'))}, runtimeHost: 'cli',
         readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: 'a'.repeat(40) }),
-        versionUrl: 'http://update-fixture.invalid/version', commitUrl: 'http://update-fixture.invalid/commit',
         githubMetadataUrl: 'http://update-fixture.invalid/manifest',
         cdnMetadataUrl: 'http://update-fixture.invalid/cdn',
       });
       const status = await updater.check();
       assert.equal(status.phase, 'up-to-date', status.error);
       assert.equal(status.checkSource, 'github-manifest');
+      const proxied = await fetch('http://update-fixture.invalid/version', { signal: AbortSignal.timeout(3000) });
+      assert.deepEqual(await proxied.json(), { version: '3.2.0' });
       const local = await fetch('http://127.0.0.1:${origin.address().port}/bypass', { signal: AbortSignal.timeout(3000) });
       assert.equal(local.status, 200);
       await local.text();
@@ -93,7 +93,7 @@ for (const mode of ['system', 'environment', 'lowercase', 'all-proxy', 'native']
     assert.ok(tunnels.length > 0)
     assert.ok(tunnels.every(authority => authority === 'update-fixture.invalid:80'), 'localhost must bypass the proxy')
     // 主源判得动就不再问 jsDelivr。
-    for (const file of ['/version', '/commit', '/manifest', '/bypass']) assert.ok(requests.includes(file), file)
+    for (const file of ['/version', '/manifest', '/bypass']) assert.ok(requests.includes(file), file)
     assert.ok(!requests.includes('/cdn'), 'jsDelivr 只在主源判不了时才请求')
   })
 }

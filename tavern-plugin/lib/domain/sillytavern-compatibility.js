@@ -143,6 +143,7 @@ export function compileSillyTavernRequest(options = {}) {
   const projectPromptText = typeof options.projectPromptText === 'function'
     ? options.projectPromptText
     : function (text) { return { text: str(text), warnings: [], applied: [] } }
+  const validatePromptText = options.validatePromptText
   const state = {
     userName: str(options.userName).trim() || '你',
     local: Object.assign({}, options.macroState && options.macroState.local || {}),
@@ -183,7 +184,9 @@ export function compileSillyTavernRequest(options = {}) {
     return (Number(right.injectionDepth) || 0) - (Number(left.injectionDepth) || 0) || (Number(left.injectionOrder) || 0) - (Number(right.injectionOrder) || 0)
   })
   for (const entry of absolute) {
-    const rendered = macro(overrideContent(entry, card), resolveMacros, state, card)
+    const content = overrideContent(entry, card)
+    validatePromptText?.(content, entry)
+    const rendered = macro(content, resolveMacros, state, card)
     diagnostics.push(...rendered.diagnostics)
     if (rendered.text.trim() === '') continue
     history.splice(Math.max(0, history.length - (Number(entry.injectionDepth) || 0)), 0, {
@@ -204,6 +207,7 @@ export function compileSillyTavernRequest(options = {}) {
     const values = marker === null ? [{ role: entry.role, content: overrideContent(entry, card) }] : marker
     for (const value of values) {
       const alreadyProjected = value.source && (value.source.kind === 'chat-history' || value.source.kind === 'current-input' || value.source.kind === 'preset-depth')
+      if (!alreadyProjected) validatePromptText?.(value.content, entry, marker !== null)
       const rendered = alreadyProjected ? { text: value.content, diagnostics: [] } : macro(value.content, resolveMacros, state, card)
       diagnostics.push(...rendered.diagnostics)
       if (rendered.text.trim() === '' && !value.inputAttachments?.length) continue
