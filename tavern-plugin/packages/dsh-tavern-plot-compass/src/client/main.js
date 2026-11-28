@@ -72,6 +72,8 @@ exports.__test = {
   PC_PACE_OPTIONS,
   PC_MODEL_OPTIONS,
   PC_AUTO_UPDATE_PRESETS,
+  PC_NOVEL_MODES,
+  PC_NOVEL_WEIGHTS,
   pcEmptyCompass,
   pcActiveGoal,
   pcMidPhaseLabel,

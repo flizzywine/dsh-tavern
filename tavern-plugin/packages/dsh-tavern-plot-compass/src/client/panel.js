@@ -99,6 +99,25 @@ const PC_GOAL_HORIZON_OPTIONS = Object.freeze([
   }
 ])
 
+const PC_NOVEL_MODES = Object.freeze([
+  {
+    key: 'adapt_structure',
+    label: '结构化用',
+    title: '脱壳移植：剥离原著人名与设定，只吸收其冲突引擎、阻力设计与反转手法融入本局'
+  },
+  {
+    key: 'track_arc',
+    label: '顺轨改编',
+    title: '游标推进：按原著桥段顺序改编嫁接，今期完成后自动顺延，玩家偏离时自适应重接'
+  }
+])
+
+const PC_NOVEL_WEIGHTS = Object.freeze([
+  { key: 'light', label: '轻度启发', title: '每层仅 1 条路线借鉴小说手法，其余保留自由发散' },
+  { key: 'balanced', label: '主骨半配', title: '约半数路线吸收参考骨架与阻力设计，其余自由发散（默认）' },
+  { key: 'strong', label: '核心骨架', title: '大部分路线围绕参考骨架展开（开启目标导向时仍以目标为纲）' }
+])
+
 /* 详细说明文案（与命运之骰同风格：分点分段，覆盖机制、各档差异与实用建议） */
 const PC_HELP = Object.freeze({
   overview: [
@@ -177,6 +196,26 @@ const PC_HELP = Object.freeze({
     '跟随后台（默认）：复用当前对话或全局后台模型，兼顾速度与开销。',
     '跟随前台：复用当前对话的主写作前台模型，文风与人物理解最一致，但耗时与成本较高。',
     '独立：为剧情罗盘单独指定一个服务商/模型（及可选推理强度），不受前后台模型切换影响。'
+  ].join('\n'),
+
+  novelRef: [
+    '把参考小说当作「编剧结构导师」而非生搬硬套的剧本：支持「结构化用（脱壳移植）」与「顺轨改编（游标推进）」两种模式，每局对话独立决定是否勾选启用。',
+    '推演时严格遵守优先级：当前现场事实 > 玩家目标导向（若开启）> 参考小说骨架，并自动屏蔽原著专有名词防止串戏。'
+  ].join('\n'),
+
+  novelMode: [
+    '结构化用（脱壳移植）：彻底剥离原著人名与设定，只吸收其冲突引擎、博弈阻力（friction）与反转节奏，按所选比重自适应融入本局。',
+    '顺轨改编（游标推进）：按原著脱敏桥段顺序推进，今期路线达成后自动前移游标；若因你的操作大幅偏离，下次推演会自动改写或跳过并记录嫁接说明。'
+  ].join('\n'),
+
+  novelCursor: [
+    '顺轨改编模式下会记录当前演到的骨架单元序号；支持手动上/下一单元微调、点击目录跳转或重置起点。',
+    '当已拆书的长篇小说快演到当前已解析末尾时，系统会在结算后自动尝试续拆下一段，也可随时手动点「续拆下一段」。'
+  ].join('\n'),
+
+  novelLibrary: [
+    '全局叙事骨架库跨所有人物卡和对话共用：既可从「剧本库」直接分批顺序拆书（不复制小说原文到插件存档），也可直接粘贴 200–30,000 字小说神回片段即时拆解。',
+    '拆书阶段会把原著角色、地名全部脱敏抽象为角色位，并重点提炼让剧情无法一轮演完的阻力与反制设计。'
   ].join('\n')
 })
 
@@ -401,6 +440,16 @@ function pcEmptyCompass() {
     blindBox: false,
     customDirective: '',
     goal: { enabled: false, horizon: 'shortTerm', text: '' },
+    novelRef: {
+      enabled: false,
+      blueprintId: '',
+      mode: 'adapt_structure',
+      weight: 'balanced',
+      cursorUnit: 0,
+      adaptedUnits: [],
+      skippedUnits: [],
+      graftNote: ''
+    },
     autoUpdateInterval: 0,
     maxRoutes: PC_MAX_ROUTES_DEFAULT,
     playArchetypes: [],
@@ -473,13 +522,17 @@ async function pcCall(ui, name, args) {
 
 function usePlotCompassState(ui, gameId) {
   const id = gameId ? String(gameId) : ''
+  const emptyTask = { status: 'idle', blueprintId: '', title: '', progressText: '', error: '' }
   const [state, setState] = useState({
     loaded: false,
     enabled: false,
     modelSelection: 'background',
     plotCompass: pcEmptyCompass(),
     plotCompassTask: { status: 'idle', scope: 'all', error: '' },
-    latestAssistantTurn: 0
+    latestAssistantTurn: 0,
+    novelBlueprints: [],
+    novelBlueprintTask: emptyTask,
+    scriptLibraryAvailable: false
   })
 
   useEffect(() => {
@@ -490,7 +543,10 @@ function usePlotCompassState(ui, gameId) {
         modelSelection: 'background',
         plotCompass: pcEmptyCompass(),
         plotCompassTask: { status: 'idle', scope: 'all', error: '' },
-        latestAssistantTurn: 0
+        latestAssistantTurn: 0,
+        novelBlueprints: [],
+        novelBlueprintTask: emptyTask,
+        scriptLibraryAvailable: false
       })
       return
     }
@@ -506,7 +562,12 @@ function usePlotCompassState(ui, gameId) {
         plotCompassTask: data.plotCompassTask ? data.plotCompassTask : prev.plotCompassTask,
         latestAssistantTurn: typeof data.latestAssistantTurn === 'number'
           ? data.latestAssistantTurn
-          : prev.latestAssistantTurn
+          : prev.latestAssistantTurn,
+        novelBlueprints: Array.isArray(data.novelBlueprints) ? data.novelBlueprints : prev.novelBlueprints,
+        novelBlueprintTask: data.novelBlueprintTask ? data.novelBlueprintTask : prev.novelBlueprintTask,
+        scriptLibraryAvailable: typeof data.scriptLibraryAvailable === 'boolean'
+          ? data.scriptLibraryAvailable
+          : prev.scriptLibraryAvailable
       }))
     }
 
@@ -551,7 +612,12 @@ function usePlotCompassState(ui, gameId) {
           plotCompassTask: data.plotCompassTask || prev.plotCompassTask,
           latestAssistantTurn: typeof data.latestAssistantTurn === 'number'
             ? data.latestAssistantTurn
-            : prev.latestAssistantTurn
+            : prev.latestAssistantTurn,
+          novelBlueprints: Array.isArray(data.novelBlueprints) ? data.novelBlueprints : prev.novelBlueprints,
+          novelBlueprintTask: data.novelBlueprintTask || prev.novelBlueprintTask,
+          scriptLibraryAvailable: typeof data.scriptLibraryAvailable === 'boolean'
+            ? data.scriptLibraryAvailable
+            : prev.scriptLibraryAvailable
         }))
       }
       return data
@@ -717,6 +783,17 @@ function PlotCompassPanel({ ui, gameId }) {
   const [intervalDraft, setIntervalDraft] = useState('')
   const [customMaxRoutesOpen, setCustomMaxRoutesOpen] = useState(false)
   const [maxRoutesDraft, setMaxRoutesDraft] = useState(String(PC_MAX_ROUTES_DEFAULT))
+  const [novelAddMode, setNovelAddMode] = useState('')
+  const [novelSources, setNovelSources] = useState([])
+  const [novelSourcesLoading, setNovelSourcesLoading] = useState(false)
+  const [selectedScriptPath, setSelectedScriptPath] = useState('')
+  const [scriptTitleDraft, setScriptTitleDraft] = useState('')
+  const [pasteTitleDraft, setPasteTitleDraft] = useState('')
+  const [pasteTextDraft, setPasteTextDraft] = useState('')
+  const [bindAfterAnalyze, setBindAfterAnalyze] = useState(true)
+  const [expandedBlueprintId, setExpandedBlueprintId] = useState('')
+  const [cursorUnitsOpen, setCursorUnitsOpen] = useState(false)
+  const [confirmDeleteBpId, setConfirmDeleteBpId] = useState('')
   const toastTimer = pcUseRef(null)
 
   useEffect(() => { pcRevealHelp(overviewHelpOpen, overviewHelpRef.current) }, [overviewHelpOpen])
@@ -744,6 +821,24 @@ function PlotCompassPanel({ ui, gameId }) {
   const task = state.plotCompassTask || { status: 'idle', scope: 'all', error: '' }
   const isRunning = task.status === 'running'
   const active = pcActiveCompassSummary(compass)
+  const novelBlueprints = Array.isArray(state.novelBlueprints) ? state.novelBlueprints : []
+  const novelTask = state.novelBlueprintTask || { status: 'idle', blueprintId: '', title: '', progressText: '', error: '' }
+  const isNovelRunning = novelTask.status === 'running'
+  const scriptLibraryAvailable = state.scriptLibraryAvailable === true
+  const novelRef = (compass.novelRef && typeof compass.novelRef === 'object')
+    ? compass.novelRef
+    : pcEmptyCompass().novelRef
+  const selectedBlueprint = novelRef.blueprintId
+    ? (novelBlueprints.find(bp => bp && bp.id === novelRef.blueprintId) || null)
+    : null
+  const missingSelectedBlueprint = Boolean(novelRef.blueprintId && !selectedBlueprint)
+  const novelModeOpt = PC_NOVEL_MODES.find(opt => opt.key === novelRef.mode) || PC_NOVEL_MODES[0]
+  const novelWeightOpt = PC_NOVEL_WEIGHTS.find(opt => opt.key === novelRef.weight) || PC_NOVEL_WEIGHTS[1]
+  const novelUnits = Array.isArray(selectedBlueprint?.units) ? selectedBlueprint.units : []
+  const safeCursorUnit = novelUnits.length > 0
+    ? Math.max(0, Math.min(novelUnits.length - 1, Number(novelRef.cursorUnit) || 0))
+    : 0
+  const currentNovelUnit = novelUnits.length > 0 ? novelUnits[safeCursorUnit] : null
   const rawGoal = compass.goal && typeof compass.goal === 'object'
     ? compass.goal
     : { enabled: false, horizon: 'shortTerm', text: '' }
@@ -797,7 +892,140 @@ function PlotCompassPanel({ ui, gameId }) {
     setPickingIndependentModel(false)
     setCustomIntervalOpen(false)
     setCustomMaxRoutesOpen(false)
+    setNovelAddMode('')
+    setExpandedBlueprintId('')
+    setCursorUnitsOpen(false)
+    setConfirmDeleteBpId('')
   }, [sessionId])
+
+  async function loadScriptSources() {
+    if (!ui || novelSourcesLoading) return
+    setNovelSourcesLoading(true)
+    setLocalError('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:list-script-sources', {})
+      const list = Array.isArray(res.sources) ? res.sources : []
+      setNovelSources(list)
+      if (list.length > 0 && !list.some(item => item && item.path === selectedScriptPath)) {
+        setSelectedScriptPath(list[0].path || '')
+      }
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setNovelSourcesLoading(false)
+    }
+  }
+
+  async function updateNovelRef(patch, noticeText) {
+    if (!sessionId || busyAction) return
+    setBusyAction('novelRef')
+    setLocalError('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:set-novel-ref', { gameId: sessionId, ...patch })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      await refresh()
+      if (noticeText) notify(noticeText)
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function runAnalyzeNovel(kind, overrideOptions) {
+    if (!sessionId || busyAction || isNovelRunning) return
+    const opts = overrideOptions && typeof overrideOptions === 'object' ? overrideOptions : {}
+    setBusyAction('analyzeNovel')
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const payload = kind === 'paste'
+        ? {
+            gameId: sessionId,
+            sourceKind: 'paste',
+            title: String(opts.title !== undefined ? opts.title : pasteTitleDraft).trim(),
+            text: String(opts.text !== undefined ? opts.text : pasteTextDraft),
+            force: Boolean(opts.force),
+            bindToGame: Boolean(opts.bindToGame !== undefined ? opts.bindToGame : bindAfterAnalyze)
+          }
+        : {
+            gameId: sessionId,
+            sourceKind: 'script',
+            sourcePath: String(opts.sourcePath !== undefined ? opts.sourcePath : selectedScriptPath).trim(),
+            title: String(opts.title !== undefined ? opts.title : scriptTitleDraft).trim(),
+            force: Boolean(opts.force),
+            bindToGame: Boolean(opts.bindToGame !== undefined ? opts.bindToGame : bindAfterAnalyze)
+          }
+      const res = await pcCall(ui, 'plot-compass:analyze-novel', payload)
+      if (res.reused) {
+        notify('全局骨架库中已存在同版本骨架「' + (res.blueprint?.title || '') + '」，已直接复用。')
+      } else {
+        notify('已提交后台拆书任务，完成后将自动更新全局叙事骨架库。')
+      }
+      if (kind === 'paste' && !opts.force) {
+        setPasteTitleDraft('')
+        setPasteTextDraft('')
+      }
+      setNovelAddMode('')
+      await refresh()
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function runContinueNovel(blueprintId) {
+    if (!sessionId || busyAction || isNovelRunning || !blueprintId) return
+    setBusyAction('continueNovel:' + blueprintId)
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:continue-novel', { gameId: sessionId, blueprintId })
+      await refresh()
+      if (res.alreadyComplete) {
+        notify('该参考小说已全部拆解完毕。')
+      } else {
+        notify('已提交续拆任务，完成后将追加后续桥段单元。')
+      }
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function cancelNovelAnalyze() {
+    if (busyAction) return
+    setBusyAction('cancelNovel')
+    setLocalError('')
+    try {
+      await pcCall(ui, 'plot-compass:cancel-novel', {})
+      await refresh()
+      notify('已取消小说拆书任务。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function deleteNovelBlueprint(blueprintId) {
+    if (busyAction || !blueprintId) return
+    setBusyAction('deleteNovel:' + blueprintId)
+    setLocalError('')
+    try {
+      await pcCall(ui, 'plot-compass:delete-novel', { blueprintId })
+      setConfirmDeleteBpId('')
+      if (expandedBlueprintId === blueprintId) setExpandedBlueprintId('')
+      await refresh()
+      notify('已从全局骨架库删除该参考小说。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
 
   useEffect(() => {
     setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
@@ -1462,7 +1690,9 @@ function PlotCompassPanel({ ui, gameId }) {
             horizon === 'longTerm' && route.toneGuidance ? h('p', { className: 'pc-meta-line is-subtle', title: '点亮此终局后，前台正文只会收到这句暗流基调，不会剧透或抢跑结局' },
               h('strong', null, '防剧透暗流指引：'), route.toneGuidance) : null,
             route.diegeticOmen && horizon !== 'shortTerm' ? h('p', { className: 'pc-meta-line is-subtle', title: '点亮此路线时，正文可通过传闻/异象自然透出此风声（不剧透）' },
-              h('strong', null, '世界内预兆：'), route.diegeticOmen) : null),
+              h('strong', null, '世界内预兆：'), route.diegeticOmen) : null,
+            route.novelTechnique ? h('p', { className: 'pc-meta-line is-subtle', title: '参考小说骨架中提炼转译的戏剧手法（已脱敏，不含原著人名设定）' },
+              h('strong', null, '📖 化用手法：'), route.novelTechnique) : null),
       h('footer', { className: 'pc-btn-row' },
         h(PcBtn, {
           small: true,
@@ -1482,6 +1712,58 @@ function PlotCompassPanel({ ui, gameId }) {
           title: '从当前回合克隆出一个独立平行存档，并自动点亮此路线',
           onClick: () => forkWithRoute(horizon, route)
         }, '分叉试玩 ⑂') : null))
+  }
+
+  function renderNovelQuickRow() {
+    if (missingSelectedBlueprint) {
+      return h('div', { className: 'pc-row is-plain' },
+        h('div', { className: 'pc-row-main' },
+          h('span', { className: 'pc-row-sub' }, '⚠ 当前绑定的参考骨架已从全局库移除')),
+        h('div', { className: 'pc-row-end' },
+          h(PcChip, { disabled: Boolean(busyAction), onClick: () => updateNovelRef({ blueprintId: '', enabled: false }, '已清除失效的小说参考绑定。') }, '清除'),
+          h(PcBtn, { small: true, onClick: () => setPanelTab('novel') }, '重选')))
+    }
+    if (selectedBlueprint) {
+      const modeTag = novelRef.mode === 'track_arc'
+        ? '顺轨 #' + (safeCursorUnit + 1) + '/' + Math.max(1, novelUnits.length)
+        : '结构化用'
+      return h('div', { className: 'pc-row is-plain' },
+        h('div', { className: 'pc-row-main' },
+          h('div', { className: 'pc-badge-row' },
+            h(PcBadge, { tone: novelRef.enabled ? 'ok' : 'off' }, novelRef.enabled ? '已启用' : '已暂停'),
+            h(PcBadge, { tone: 'accent' }, modeTag),
+            h('span', { className: 'pc-row-title' }, '📖 ' + selectedBlueprint.title)),
+          novelRef.mode === 'track_arc' && currentNovelUnit
+            ? h('span', { className: 'pc-row-sub' }, '当前单元：' + currentNovelUnit.chapterLabel)
+            : null),
+        h('div', { className: 'pc-row-end' },
+          novelRef.mode === 'track_arc' && novelUnits.length > 1
+            ? h(Fragment, null,
+                h(PcChip, {
+                  disabled: Boolean(busyAction) || safeCursorUnit <= 0,
+                  title: '上一单元',
+                  onClick: () => updateNovelRef({ cursorUnit: Math.max(0, safeCursorUnit - 1) })
+                }, '◀'),
+                h(PcChip, {
+                  disabled: Boolean(busyAction) || safeCursorUnit >= novelUnits.length - 1,
+                  title: '下一单元',
+                  onClick: () => updateNovelRef({ cursorUnit: Math.min(novelUnits.length - 1, safeCursorUnit + 1) })
+                }, '▶'))
+            : null,
+          h(PcChip, {
+            disabled: Boolean(busyAction),
+            onClick: () => updateNovelRef({ enabled: !novelRef.enabled }, novelRef.enabled ? '已暂停本局小说参考。' : '已启用「' + selectedBlueprint.title + '」作为本局小说参考。')
+          }, novelRef.enabled ? '暂停' : '启用'),
+          h(PcBtn, { small: true, onClick: () => setPanelTab('novel') }, '管理')))
+    }
+    return h('div', { className: 'pc-row is-plain' },
+      h('div', { className: 'pc-row-main' },
+        h('span', { className: 'pc-row-sub' },
+          novelBlueprints.length > 0
+            ? '未启用（全局骨架库已有 ' + novelBlueprints.length + ' 本可选）'
+            : '未启用（可到「小说参考」拆解小说或粘贴神回片段）')),
+      h('div', { className: 'pc-row-end' },
+        h(PcBtn, { small: true, onClick: () => setPanelTab('novel') }, '📖 配置小说参考')))
   }
 
   const routesTabBody = h(Fragment, null,
@@ -1507,7 +1789,7 @@ function PlotCompassPanel({ ui, gameId }) {
 
     localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
 
-    /* 头部：游玩类型标签 + 目标导向 */
+    /* 头部：游玩类型标签 + 目标导向 + 小说参考 */
     h('section', { className: 'pc-section', 'aria-label': '游玩类型与目标导向' },
       h(PcField, {
         label: '游玩类型标签',
@@ -1557,7 +1839,14 @@ function PlotCompassPanel({ ui, gameId }) {
       h(PcField, {
         label: '目标导向',
         help: PC_HELP.goal
-      }, renderGoalBlock())),
+      }, renderGoalBlock()),
+
+      h('div', { className: 'pc-divider' }),
+
+      h(PcField, {
+        label: '小说参考',
+        help: PC_HELP.novelRef
+      }, renderNovelQuickRow())),
 
     /* 局势摘要 + 脑暴灵感对话 */
     h(PcSection, {
@@ -1978,8 +2267,357 @@ function PlotCompassPanel({ ui, gameId }) {
 
     h('p', { className: 'pc-hint' }, '以上改动即时生效并自动保存，无需手动提交；面板重新打开或切换对话都会保留。'))
 
+  const pasteTrimmedLen = pasteTextDraft.trim().length
+  const pasteLengthOk = pasteTrimmedLen >= 200 && pasteTrimmedLen <= 30000
+
+  const novelTabBody = h(Fragment, null,
+    isNovelRunning ? h('div', { className: 'pc-alert is-info', role: 'status' },
+      h('div', { className: 'pc-alert-left' },
+        h(PcSpinner),
+        h('span', null, novelTask.progressText || '后台正在拆解参考小说叙事骨架…')),
+      h(PcBtn, { small: true, danger: true, disabled: busyAction === 'cancelNovel', onClick: cancelNovelAnalyze }, '取消拆书')) : null,
+
+    novelTask.status === 'failed' && novelTask.error ? h('div', { className: 'pc-alert is-error', role: 'alert' },
+      h('span', null, novelTask.error)) : null,
+
+    localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+
+    /* 区块 1：本局小说参考 */
+    h(PcSection, {
+      title: '📖 本局小说参考',
+      helpTitle: '本局小说参考',
+      note: '当前对话独立配置',
+      help: PC_HELP.novelRef
+    },
+      h(PcRow, {
+        plain: true,
+        title: '启用小说自适应参考',
+        sub: selectedBlueprint
+          ? (novelRef.enabled ? '已启用「' + selectedBlueprint.title + '」· ' + novelModeOpt.label : '已暂停：已绑定「' + selectedBlueprint.title + '」但暂不注入推演')
+          : (novelBlueprints.length > 0 ? '请先在下方选择一本参考骨架，或点开关快速启用最新骨架' : '全局骨架库暂无内容，请先在下方拆书或粘贴片段')
+      },
+        h(PcSwitch, {
+          label: '本局小说参考',
+          checked: Boolean(novelRef.enabled && selectedBlueprint),
+          disabled: Boolean(busyAction) || (!selectedBlueprint && novelBlueprints.length === 0),
+          onChange: next => {
+            if (next && !selectedBlueprint && novelBlueprints.length > 0) {
+              updateNovelRef({ blueprintId: novelBlueprints[0].id, enabled: true }, '已启用「' + novelBlueprints[0].title + '」作为本局小说参考。')
+              return
+            }
+            updateNovelRef({ enabled: next }, next ? '已启用本局小说自适应参考。' : '已暂停本局小说参考。')
+          }
+        })),
+
+      missingSelectedBlueprint ? h('div', { className: 'pc-alert is-warn', role: 'alert' },
+        h('span', null, '当前对局绑定的参考骨架已从全局骨架库删除，请重新选择或清除绑定。'),
+        h('div', { className: 'pc-btn-row', style: { justifyContent: 'flex-end' } },
+          h(PcBtn, { small: true, disabled: Boolean(busyAction), onClick: () => updateNovelRef({ blueprintId: '', enabled: false }, '已清除失效的小说参考绑定。') }, '清除绑定'))) : null,
+
+      h(PcField, {
+        label: '选择参考骨架'
+      },
+        h('select', {
+          className: 'pc-select',
+          'aria-label': '选择本局参考小说',
+          value: selectedBlueprint ? selectedBlueprint.id : '',
+          disabled: Boolean(busyAction) || novelBlueprints.length === 0,
+          onChange: e => {
+            const val = e.target.value
+            if (!val) {
+              updateNovelRef({ blueprintId: '', enabled: false }, '已取消本局参考小说绑定。')
+              return
+            }
+            const chosen = novelBlueprints.find(item => item.id === val)
+            updateNovelRef({ blueprintId: val, enabled: true }, chosen ? '已选用并启用「' + chosen.title + '」。' : '已切换参考骨架。')
+          }
+        },
+          h('option', { value: '' }, novelBlueprints.length > 0 ? '（不使用参考骨架）' : '（全局骨架库暂无参考小说）'),
+          novelBlueprints.map(bp => h('option', { key: bp.id, value: bp.id },
+            bp.title + ' · ' + bp.indexedChunks + '/' + bp.totalChunks + '块 · ' + (bp.units?.length || 0) + '单元')))),
+
+      selectedBlueprint ? h(Fragment, null,
+        h(PcField, {
+          label: '参考模式',
+          help: PC_HELP.novelMode,
+          hint: novelModeOpt.title
+        },
+          h('div', { className: 'pc-tabbar', role: 'group', 'aria-label': '小说参考模式' },
+            PC_NOVEL_MODES.map(opt => {
+              const selected = novelRef.mode === opt.key
+              return h('button', {
+                key: opt.key,
+                type: 'button',
+                className: 'pc-tab' + (selected ? ' is-active' : ''),
+                disabled: Boolean(busyAction),
+                'aria-pressed': selected ? 'true' : 'false',
+                title: opt.title,
+                onClick: () => {
+                  if (!selected) updateNovelRef({ mode: opt.key }, '小说参考模式已切换为「' + opt.label + '」。')
+                }
+              }, opt.label)
+            }))),
+
+        h(PcField, {
+          label: '参考比重',
+          hint: novelWeightOpt.title
+        },
+          h('div', { className: 'pc-tabbar is-3', role: 'group', 'aria-label': '小说参考比重' },
+            PC_NOVEL_WEIGHTS.map(opt => {
+              const selected = novelRef.weight === opt.key
+              return h('button', {
+                key: opt.key,
+                type: 'button',
+                className: 'pc-tab' + (selected ? ' is-active' : ''),
+                disabled: Boolean(busyAction),
+                'aria-pressed': selected ? 'true' : 'false',
+                title: opt.title,
+                onClick: () => {
+                  if (!selected) updateNovelRef({ weight: opt.key }, '参考比重已切换为「' + opt.label + '」。')
+                }
+              }, opt.label)
+            }))),
+
+        novelRef.mode === 'track_arc' ? h(PcField, {
+          label: '顺轨改编游标',
+          help: PC_HELP.novelCursor
+        },
+          h('div', { className: 'pc-novel-box' + (novelRef.enabled ? ' is-active' : '') },
+            novelUnits.length > 0 && currentNovelUnit
+              ? h(Fragment, null,
+                  h('div', { className: 'pc-section-head' },
+                    h('div', { className: 'pc-badge-row' },
+                      h(PcBadge, { tone: 'ok' }, '单元 #' + (safeCursorUnit + 1) + ' / ' + novelUnits.length),
+                      h('strong', { style: { fontSize: '12px' } }, currentNovelUnit.chapterLabel)),
+                    h(PcBadge, null, '原文块 ' + currentNovelUnit.chunkStart + '–' + currentNovelUnit.chunkEnd)),
+                  h('p', { className: 'pc-meta-line' }, h('strong', null, '戏剧核心：'), currentNovelUnit.dramaticCore),
+                  currentNovelUnit.frictionDesign ? h('p', { className: 'pc-meta-line is-subtle' }, h('strong', null, '阻力设计：'), currentNovelUnit.frictionDesign) : null)
+              : h('p', { className: 'pc-hint' }, '该骨架尚未提取可用桥段单元。'),
+            novelRef.graftNote ? h('p', { className: 'pc-meta-line is-subtle' }, h('strong', null, '最近嫁接：'), novelRef.graftNote) : null,
+            h('div', { className: 'pc-btn-row' },
+              h(PcBtn, {
+                small: true,
+                disabled: Boolean(busyAction) || safeCursorUnit <= 0,
+                onClick: () => updateNovelRef({ cursorUnit: Math.max(0, safeCursorUnit - 1) }, '游标已回退到单元 #' + safeCursorUnit)
+              }, '◀ 上一单元'),
+              h(PcBtn, {
+                small: true,
+                disabled: Boolean(busyAction) || safeCursorUnit >= Math.max(0, novelUnits.length - 1),
+                onClick: () => updateNovelRef({ cursorUnit: Math.min(Math.max(0, novelUnits.length - 1), safeCursorUnit + 1) }, '游标已前进到单元 #' + (safeCursorUnit + 2))
+              }, '▶ 下一单元'),
+              h(PcBtn, {
+                small: true,
+                disabled: Boolean(busyAction) || (safeCursorUnit === 0 && !(novelRef.adaptedUnits?.length) && !(novelRef.skippedUnits?.length)),
+                onClick: () => updateNovelRef({ resetProgress: true }, '已重置顺轨改编游标至第 1 单元。')
+              }, '↺ 重置起点'),
+              novelUnits.length > 0 ? h(PcChip, {
+                onClick: () => setCursorUnitsOpen(!cursorUnitsOpen)
+              }, cursorUnitsOpen ? '▾ 收起目录' : '▸ 跳转单元') : null,
+              selectedBlueprint.indexedChunks < selectedBlueprint.totalChunks ? h(PcBtn, {
+                small: true,
+                disabled: Boolean(busyAction) || isNovelRunning,
+                onClick: () => runContinueNovel(selectedBlueprint.id)
+              }, '续拆下一段') : null),
+            cursorUnitsOpen && novelUnits.length > 0 ? h('div', { className: 'pc-unit-list', 'aria-label': '顺轨单元目录' },
+              novelUnits.map(unit => {
+                const isCurrent = unit.index === safeCursorUnit
+                const isAdapted = Array.isArray(novelRef.adaptedUnits) && novelRef.adaptedUnits.includes(unit.index)
+                const isSkipped = Array.isArray(novelRef.skippedUnits) && novelRef.skippedUnits.includes(unit.index)
+                return h('div', { key: unit.id, className: 'pc-unit-item' + (isCurrent ? ' is-current' : '') },
+                  h('div', { className: 'pc-unit-item-head' },
+                    h('span', null,
+                      (isCurrent ? '▶ ' : '') + '#' + (unit.index + 1) + ' ' + unit.chapterLabel +
+                      (isAdapted ? ' 〔已演〕' : (isSkipped ? ' 〔已跳过〕' : ''))),
+                    !isCurrent ? h(PcChip, {
+                      disabled: Boolean(busyAction),
+                      onClick: () => updateNovelRef({ cursorUnit: unit.index }, '游标已跳转至单元 #' + (unit.index + 1))
+                    }, '定位到此') : h(PcBadge, { tone: 'ok' }, '当前')))
+              })) : null)) : null,
+
+        novelRef.enabled ? h('div', { className: 'pc-btn-row' },
+          h(PcBtn, {
+            small: true, primary: true,
+            disabled: Boolean(busyAction) || isRunning,
+            onClick: () => { setPanelTab('routes'); runGenerate('all') }
+          }, '✦ 按当前小说参考重推路线')) : null) : null),
+
+    /* 区块 2：全局叙事骨架库 */
+    h(PcSection, {
+      title: '📚 全局叙事骨架库',
+      helpTitle: '全局叙事骨架库',
+      note: '所有对话全局共享',
+      help: PC_HELP.novelLibrary,
+      actions: h(Fragment, null,
+        h(PcChip, {
+          active: novelAddMode === 'script',
+          disabled: Boolean(busyAction) || isNovelRunning,
+          onClick: () => {
+            if (novelAddMode === 'script') {
+              setNovelAddMode('')
+            } else {
+              setNovelAddMode('script')
+              loadScriptSources()
+            }
+          }
+        }, '+ 从剧本库拆书'),
+        h(PcChip, {
+          active: novelAddMode === 'paste',
+          disabled: Boolean(busyAction) || isNovelRunning,
+          onClick: () => setNovelAddMode(novelAddMode === 'paste' ? '' : 'paste')
+        }, '+ 粘贴小说片段'))
+    },
+      novelAddMode === 'script' ? h('div', { className: 'pc-novel-box', role: 'region', 'aria-label': '从剧本库拆书' },
+        !scriptLibraryAvailable
+          ? h('p', { className: 'pc-hint' }, '当前宿主环境未开放剧本库顺序读取接口（scriptLibraryRead），请改用「+ 粘贴小说片段」功能。')
+          : h(Fragment, null,
+              h('div', { className: 'pc-btn-row' },
+                h('select', {
+                  className: 'pc-select',
+                  style: { flex: '1 1 180px' },
+                  'aria-label': '选择剧本库小说',
+                  value: selectedScriptPath,
+                  disabled: Boolean(busyAction) || novelSourcesLoading || isNovelRunning,
+                  onChange: e => setSelectedScriptPath(e.target.value)
+                },
+                  novelSources.length === 0
+                    ? h('option', { value: '' }, novelSourcesLoading ? '正在加载剧本库…' : '剧本库暂无可用小说文件')
+                    : novelSources.map(src => h('option', { key: src.path, value: src.path }, src.title || src.path))),
+                h(PcBtn, { small: true, disabled: novelSourcesLoading || Boolean(busyAction), onClick: loadScriptSources }, novelSourcesLoading ? '刷新中…' : '↻ 刷新')),
+              h('input', {
+                type: 'text',
+                className: 'pc-input',
+                maxLength: 60,
+                placeholder: '骨架展示标题（留空默认使用文件名）',
+                value: scriptTitleDraft,
+                disabled: Boolean(busyAction) || isNovelRunning,
+                onChange: e => setScriptTitleDraft(e.target.value)
+              }),
+              h('label', { className: 'pc-inline-check' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: bindAfterAnalyze,
+                  onChange: e => setBindAfterAnalyze(Boolean(e.target.checked))
+                }),
+                h('span', null, '拆书完成后自动启用到当前对局')),
+              h('div', { className: 'pc-btn-row' },
+                h(PcBtn, {
+                  small: true, primary: true,
+                  disabled: Boolean(busyAction) || isNovelRunning || !selectedScriptPath,
+                  onClick: () => runAnalyzeNovel('script')
+                }, '开始提炼叙事骨架'),
+                h(PcBtn, { small: true, onClick: () => setNovelAddMode('') }, '取消')))) : null,
+
+      novelAddMode === 'paste' ? h('div', { className: 'pc-novel-box', role: 'region', 'aria-label': '粘贴小说片段拆书' },
+        h('input', {
+          type: 'text',
+          className: 'pc-input',
+          'aria-label': '小说片段标题',
+          maxLength: 60,
+          placeholder: '给这段小说参考起个名字（如：密室反杀桥段 / 某书第三卷）',
+          value: pasteTitleDraft,
+          disabled: Boolean(busyAction) || isNovelRunning,
+          onChange: e => setPasteTitleDraft(e.target.value)
+        }),
+        h('textarea', {
+          className: 'pc-textarea',
+          'aria-label': '小说片段内容',
+          placeholder: '直接粘贴 200–30,000 字的小说章节或精彩冲突片段。拆书会自动脱敏人名与设定，提取冲突引擎与阻力设计…',
+          value: pasteTextDraft,
+          disabled: Boolean(busyAction) || isNovelRunning,
+          onChange: e => setPasteTextDraft(e.target.value)
+        }),
+        h('div', { className: 'pc-section-head' },
+          h('span', { className: 'pc-hint' }, '当前字数：' + pasteTrimmedLen + ' / 30,000（至少 200 字）'),
+          h('label', { className: 'pc-inline-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: bindAfterAnalyze,
+              onChange: e => setBindAfterAnalyze(Boolean(e.target.checked))
+            }),
+            h('span', null, '拆完自动启用到本局'))),
+        h('div', { className: 'pc-btn-row' },
+          h(PcBtn, {
+            small: true, primary: true,
+            disabled: Boolean(busyAction) || isNovelRunning || !pasteLengthOk,
+            onClick: () => runAnalyzeNovel('paste')
+          }, '开始拆书提炼'),
+          h(PcBtn, { small: true, onClick: () => setNovelAddMode('') }, '取消'))) : null,
+
+      novelBlueprints.length === 0
+        ? h('div', { className: 'pc-empty' },
+            h('p', null, '全局叙事骨架库暂无参考小说。'),
+            h('p', { className: 'pc-hint' }, '你可以从「剧本库」选取已导入的小说分批拆书，或直接粘贴 200–30,000 字精彩片段，提炼出全角色脱敏的叙事骨架后，在任意人物卡中勾选复用。'))
+        : h('div', { className: 'pc-cards' }, novelBlueprints.map(bp => {
+            const isSelected = novelRef.blueprintId === bp.id
+            const isExpanded = expandedBlueprintId === bp.id
+            const hasMoreChunks = bp.indexedChunks < bp.totalChunks
+            const units = Array.isArray(bp.units) ? bp.units : []
+            const dna = bp.dna || {}
+            const isConfirmingDel = confirmDeleteBpId === bp.id
+            return h('article', {
+              key: bp.id,
+              className: 'pc-card' + (isSelected && novelRef.enabled ? ' is-pinned' : '')
+            },
+              h('header', { className: 'pc-card-head' },
+                h('div', { className: 'pc-card-titles' },
+                  h('h4', { className: 'pc-card-title' }, '📖 ' + bp.title)),
+                h('div', { className: 'pc-badge-row' },
+                  h(PcBadge, null, bp.sourceKind === 'paste' ? '粘贴片段' : '剧本库'),
+                  h(PcBadge, { tone: hasMoreChunks ? 'warn' : 'ok' },
+                    '已拆 ' + bp.indexedChunks + '/' + bp.totalChunks + ' 块 · ' + units.length + ' 单元'),
+                  isSelected ? h(PcBadge, { tone: novelRef.enabled ? 'ok' : 'off' }, novelRef.enabled ? '★ 本局启用中' : '本局已选(暂停)') : null)),
+              dna.toneAndPacing ? h('p', { className: 'pc-card-summary' }, dna.toneAndPacing) : null,
+              isExpanded ? h('div', { className: 'pc-novel-box' },
+                Array.isArray(dna.conflictEngines) && dna.conflictEngines.length > 0
+                  ? h('p', { className: 'pc-meta-line' }, h('strong', null, '冲突引擎：'), dna.conflictEngines.join('；')) : null,
+                Array.isArray(dna.frictionPatterns) && dna.frictionPatterns.length > 0
+                  ? h('p', { className: 'pc-meta-line' }, h('strong', null, '阻力范式：'), dna.frictionPatterns.join('；')) : null,
+                Array.isArray(dna.twistTechniques) && dna.twistTechniques.length > 0
+                  ? h('p', { className: 'pc-meta-line' }, h('strong', null, '反转手法：'), dna.twistTechniques.join('；')) : null,
+                dna.arcStructure ? h('p', { className: 'pc-meta-line is-subtle' }, h('strong', null, '弧光结构：'), dna.arcStructure) : null,
+                units.length > 0 ? h('div', { className: 'pc-unit-list' },
+                  units.map(u => h('div', { key: u.id, className: 'pc-unit-item' },
+                    h('div', { className: 'pc-unit-item-head' },
+                      h('strong', null, '#' + (u.index + 1) + ' ' + u.chapterLabel),
+                      h('span', { className: 'pc-hint' }, 'chunks ' + u.chunkStart + '–' + u.chunkEnd)),
+                    h('span', null, u.dramaticCore),
+                    u.frictionDesign ? h('span', { className: 'pc-hint' }, '阻力：' + u.frictionDesign) : null))) : null) : null,
+              h('footer', { className: 'pc-btn-row' },
+                h(PcBtn, {
+                  small: true,
+                  primary: !isSelected,
+                  disabled: Boolean(busyAction),
+                  onClick: () => updateNovelRef(
+                    { blueprintId: bp.id, enabled: true },
+                    '已在当前对局选用并启用「' + bp.title + '」。'
+                  )
+                }, isSelected && novelRef.enabled ? '✓ 本局已启用' : '本局选用'),
+                hasMoreChunks ? h(PcBtn, {
+                  small: true,
+                  disabled: Boolean(busyAction) || isNovelRunning,
+                  onClick: () => runContinueNovel(bp.id)
+                }, '续拆下一段') : null,
+                bp.sourceKind === 'script' ? h(PcChip, {
+                  disabled: Boolean(busyAction) || isNovelRunning || !scriptLibraryAvailable,
+                  title: '强制从头重新拆解该剧本文件',
+                  onClick: () => runAnalyzeNovel('script', { sourcePath: bp.sourcePath, title: bp.title, force: true, bindToGame: false })
+                }, '重拆') : null,
+                h(PcChip, {
+                  onClick: () => setExpandedBlueprintId(isExpanded ? '' : bp.id)
+                }, isExpanded ? '收起骨架' : '查看骨架'),
+                isConfirmingDel
+                  ? h(Fragment, null,
+                      h(PcBtn, { small: true, danger: true, disabled: Boolean(busyAction), onClick: () => deleteNovelBlueprint(bp.id) }, '确认删除'),
+                      h(PcChip, { onClick: () => setConfirmDeleteBpId('') }, '取消'))
+                  : h(PcChip, {
+                      disabled: Boolean(busyAction),
+                      onClick: () => setConfirmDeleteBpId(bp.id)
+                    }, '删除')))
+          }))))
+
   const panelTabs = [
     ['routes', '路线与推演'],
+    ['novel', '小说参考'],
     ['settings', '罗盘设置']
   ]
 
@@ -2009,7 +2647,7 @@ function PlotCompassPanel({ ui, gameId }) {
                   onClick: () => { setPanelTab('routes'); runGenerate('all') }
                 }, hasAnyRoutes ? '全局演进刷新' : '✦ 推演多路线'))) : null),
       overviewHelpOpen ? pcHelpPop('剧情罗盘', PC_HELP.overview, () => setOverviewHelpOpen(false), overviewHelpRef) : null,
-      compassEnabled ? h('div', { className: 'pc-tabbar', role: 'tablist', 'aria-label': '剧情罗盘工作台页签' },
+      compassEnabled ? h('div', { className: 'pc-tabbar is-3', role: 'tablist', 'aria-label': '剧情罗盘工作台页签' },
         panelTabs.map(([value, label]) => h('button', {
           key: value,
           type: 'button',
@@ -2035,7 +2673,7 @@ function PlotCompassPanel({ ui, gameId }) {
                 disabled: Boolean(busyAction),
                 onClick: () => toggleEnabled(true)
               }, busyAction === 'toggleEnabled' ? '正在开启…' : '开启剧情罗盘')))
-        : (panelTab === 'settings' ? settingsTabBody : routesTabBody)),
+        : (panelTab === 'settings' ? settingsTabBody : (panelTab === 'novel' ? novelTabBody : routesTabBody))),
 
     localNotice ? h('div', { className: 'pc-toast', role: 'status' }, localNotice) : null)
 }

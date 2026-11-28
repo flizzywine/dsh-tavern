@@ -700,6 +700,77 @@ const PC_CSS_TEXT = `
   margin: 2px 0;
 }
 
+/* ---------- 小说参考自适应规划与全局骨架库 ---------- */
+.pc-textarea {
+  width: 100%;
+  min-height: 110px;
+  max-height: 240px;
+  resize: vertical;
+  border-radius: 9px;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 7px 10px;
+}
+.pc-textarea:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--pc-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.pc-textarea:disabled { opacity: 0.5; cursor: default; }
+.pc-novel-box {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--pc-line-soft);
+  background: var(--pc-fill);
+}
+.pc-novel-box.is-active {
+  border-color: color-mix(in oklab, var(--pc-accent) 45%, transparent);
+  background: color-mix(in oklab, var(--pc-accent) 7%, var(--pc-fill));
+}
+.pc-unit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+.pc-unit-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--pc-line-soft);
+  background: var(--pc-fill);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.pc-unit-item.is-current {
+  border-color: color-mix(in oklab, var(--pc-ok) 55%, transparent);
+  background: color-mix(in oklab, var(--pc-ok) 10%, var(--pc-fill));
+}
+.pc-unit-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pc-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 @keyframes pc-rise {
   from { transform: translateY(4px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

@@ -10,6 +10,7 @@ import {
   applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassGoal,
+  applyPlotCompassNovelRef,
   applyPlotCompassPin,
   applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
@@ -32,6 +33,27 @@ import {
   readPlotCompass,
   setPlotCompassPin
 } from './plot-compass.js'
+import {
+  DEFAULT_ANALYZE_BATCH_CHUNKS,
+  MAX_PASTE_TEXT_CHARS,
+  MIN_PASTE_TEXT_CHARS,
+  NOVEL_BLUEPRINT_ANALYZE_SYSTEM,
+  NOVEL_BLUEPRINT_SUBMIT_TOOL,
+  NOVEL_BLUEPRINT_SUBMIT_TOOL_NAME,
+  NOVEL_EXCERPT_TOOL_NAME,
+  NOVEL_INSPECT_TOOL_NAME,
+  advanceNovelCursorOnComplete,
+  buildNovelAnalyzePrompt,
+  buildNovelExcerptTool,
+  buildNovelInspectTool,
+  computeTextHash,
+  executeNovelToolCall,
+  mergeNovelBlueprintBatch,
+  normalizeNovelBlueprint,
+  parseNovelBlueprintSubmission,
+  projectBlueprintForClient,
+  splitPasteTextToChunks
+} from './novel-reference.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -133,6 +155,9 @@ export function createPlotCompassService({
   resolveModel,
   runAgent,
   callModel = null,
+  blueprintStore = null,
+  scriptLibrary = null,
+  onGlobalChange = () => {},
   onStatus = () => {},
   onError = error => console.error('dsh-tavern-plot-compass: 后台任务异常', error),
   now = Date.now
@@ -140,6 +165,44 @@ export function createPlotCompassService({
   const jobs = new Map()
   const progressJobs = new Set()
   let fallbackModelSelection = 'background'
+  let blueprintJob = null
+  let blueprintTaskState = {
+    status: 'idle',
+    blueprintId: '',
+    title: '',
+    progressText: '',
+    error: '',
+    updatedAt: 0
+  }
+
+  function projectBlueprintTask() {
+    if (blueprintTaskState.status === 'running' && !blueprintJob) {
+      return {
+        ...blueprintTaskState,
+        status: 'failed',
+        error: blueprintTaskState.error || '小说拆书任务已中断，请重试。'
+      }
+    }
+    return { ...blueprintTaskState }
+  }
+
+  function setBlueprintTask(patch) {
+    blueprintTaskState = {
+      ...blueprintTaskState,
+      ...patch,
+      updatedAt: now()
+    }
+    onGlobalChange()
+  }
+
+  async function resolveActiveNovelContext(compass) {
+    const ref = compass?.novelRef
+    if (!ref?.enabled || !ref?.blueprintId || !blueprintStore) return null
+    const list = await blueprintStore.list().catch(() => [])
+    const found = (Array.isArray(list) ? list : []).find(item => item && item.id === ref.blueprintId)
+    const blueprint = found ? normalizeNovelBlueprint(found) : null
+    return blueprint ? { blueprint, novelRef: ref } : null
+  }
 
   function projectTask(record, gameId) {
     const raw = record?.task && typeof record.task === 'object'
@@ -196,6 +259,8 @@ export function createPlotCompassService({
 
       const compassConfig = readPlotCompass(freshRecord.compass)
       const maxRoutes = compassConfig.maxRoutes
+      const novelCtx = await resolveActiveNovelContext(compassConfig)
+      const trackArc = Boolean(novelCtx && compassConfig.novelRef?.mode === 'track_arc')
       const material = buildPlotCompassMaterial({
         card: ctxData.card,
         messages: ctxData.messages,
@@ -208,10 +273,18 @@ export function createPlotCompassService({
         constantWorldbookText: ctxData.constantWorldbookText,
         activatedWorldbookTitles: ctxData.activatedWorldbookTitles,
         scriptWindow: ctxData.scriptWindow,
+        novelContext: novelCtx,
         scope,
         guidance,
         fresh
       })
+
+      const tools = [
+        buildPlotCompassSubmitTool(maxRoutes, { includeNovelCursorUpdate: trackArc }),
+        ...(novelCtx
+          ? [buildNovelInspectTool(novelCtx.blueprint), buildNovelExcerptTool(novelCtx.blueprint)]
+          : [])
+      ]
 
       controller.signal.throwIfAborted()
       runResult = await runAgent({
@@ -221,11 +294,18 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: typeof promptText === 'function' ? promptText() : str(promptText),
         prompt: material,
-        tools: [buildPlotCompassSubmitTool(maxRoutes)],
-        maxToolCalls: 4,
+        tools,
+        maxToolCalls: novelCtx ? 7 : 4,
         stopToolsWhen: () => submitted !== null,
         acceptWithoutText: () => submitted !== null,
         onToolCall: async call => {
+          if (call && (call.name === NOVEL_INSPECT_TOOL_NAME || call.name === NOVEL_EXCERPT_TOOL_NAME) && novelCtx) {
+            return await executeNovelToolCall({
+              call,
+              blueprint: novelCtx.blueprint,
+              readScriptRange: scriptLibrary?.readRange
+            })
+          }
           if (!call || call.name !== PLOT_COMPASS_SUBMIT_TOOL_NAME) {
             return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 ' + PLOT_COMPASS_SUBMIT_TOOL_NAME })
           }
@@ -264,7 +344,8 @@ export function createPlotCompassService({
           scope,
           turn: latestTurn || basedOnTurn,
           now: now(),
-          fresh
+          fresh,
+          novelTotalUnits: novelCtx?.blueprint?.units?.length || 0
         })
         current.task = {
           status: 'done',
@@ -302,6 +383,8 @@ export function createPlotCompassService({
 
       const compassNow = readPlotCompass(freshRecord.compass)
       const priorHistory = compassNow.chatHistory.filter(item => item.id !== userMsgId)
+      const novelCtx = await resolveActiveNovelContext(compassNow)
+      const trackArc = Boolean(novelCtx && compassNow.novelRef?.mode === 'track_arc')
 
       const brainstormPrompt = buildPlotCompassBrainstormPrompt({
         card: ctxData.card,
@@ -315,10 +398,15 @@ export function createPlotCompassService({
         constantWorldbookText: ctxData.constantWorldbookText,
         activatedWorldbookTitles: ctxData.activatedWorldbookTitles,
         scriptWindow: ctxData.scriptWindow,
+        novelContext: novelCtx,
         message
       })
 
       const maxRoutes = compassNow.maxRoutes
+      const tools = [
+        buildPlotCompassChatSubmitTool(maxRoutes, { includeNovelCursorUpdate: trackArc }),
+        ...(novelCtx ? [buildNovelInspectTool(novelCtx.blueprint)] : [])
+      ]
       controller.signal.throwIfAborted()
       runResult = await runAgent({
         gameId: str(gameId),
@@ -327,10 +415,17 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: PLOT_COMPASS_BRAINSTORM_SYSTEM,
         prompt: brainstormPrompt,
-        tools: [buildPlotCompassChatSubmitTool(maxRoutes)],
-        maxToolCalls: 2,
+        tools,
+        maxToolCalls: novelCtx ? 4 : 2,
         acceptWithoutText: () => submitted !== null,
         onToolCall: async call => {
+          if (call && (call.name === NOVEL_INSPECT_TOOL_NAME || call.name === NOVEL_EXCERPT_TOOL_NAME) && novelCtx) {
+            return await executeNovelToolCall({
+              call,
+              blueprint: novelCtx.blueprint,
+              readScriptRange: scriptLibrary?.readRange
+            })
+          }
           if (!call || call.name !== PLOT_COMPASS_SUBMIT_TOOL_NAME) {
             return JSON.stringify({ ok: false, retryable: true, error: '只允许调用 ' + PLOT_COMPASS_SUBMIT_TOOL_NAME })
           }
@@ -377,7 +472,8 @@ export function createPlotCompassService({
           nextCompass = mergePlotCompassUpdate(nextCompass, submitted, {
             scope: submitted.targetScope,
             turn: latestTurn || basedOnTurn,
-            now: now()
+            now: now(),
+            novelTotalUnits: novelCtx?.blueprint?.units?.length || 0
           })
         }
         nextCompass = appendPlotCompassChat(nextCompass, {
@@ -783,16 +879,44 @@ export function createPlotCompassService({
         onStatus(id)
       }
       if (outcome?.pinnedShortCompleted && !jobs.has(id)) {
+        let trackGuidance = ''
+        const novelCtx = await resolveActiveNovelContext(outcome.compass)
+        if (novelCtx && outcome.compass.novelRef?.mode === 'track_arc') {
+          const units = novelCtx.blueprint.units || []
+          const advancedRef = advanceNovelCursorOnComplete(outcome.compass.novelRef, units.length)
+          await store.updateGame(id, current => {
+            if (!isPlotCompassEnabled(current)) return undefined
+            const c = readPlotCompass(current.compass)
+            c.novelRef = advancedRef
+            current.compass = c
+            return current
+          })
+          onStatus(id)
+          if (
+            units.length > 0 &&
+            advancedRef.cursorUnit >= units.length - 2 &&
+            novelCtx.blueprint.indexedChunks < novelCtx.blueprint.totalChunks &&
+            !blueprintJob
+          ) {
+            await continueNovel({ gameId: id, blueprintId: novelCtx.blueprint.id, wait: true }).catch(() => null)
+          }
+          trackGuidance = `同时参考小说处于顺轨改编模式，游标已顺延至第 ${advancedRef.cursorUnit + 1} 单元，请自然嫁接当前局势并继续向下推演。`
+        }
         await generate({
           gameId: id,
           scope: 'shortTerm',
-          guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。` + goalGuidanceSuffix(outcome.compass)
+          guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。` + trackGuidance + goalGuidanceSuffix(outcome.compass)
         }).catch(() => {})
       } else if (outcome?.pinnedShortLapsed && !jobs.has(id)) {
+        let trackGuidance = ''
+        const novelCtx = await resolveActiveNovelContext(outcome.compass)
+        if (novelCtx && outcome.compass.novelRef?.mode === 'track_arc') {
+          trackGuidance = `同时参考小说处于顺轨改编模式（当前游标为第 ${outcome.compass.novelRef.cursorUnit + 1} 单元）：由于局势已发生偏离，请对照最新场面审查当前与后续 2–3 个单元，将新局势因果嫁接到最贴合的后续单元（或跳过已失效单元），并在 plot_compass_submit 的 novelCursorUpdate 中更新 nextCursorUnit 与 graftNote。`
+        }
         await generate({
           gameId: id,
           scope: 'shortTerm',
-          guidance: `原定近期路线「${outcome.lapsedPinnedShortTitle}」因玩家行动或局势变化已不再成立（${outcome.lapsedPinnedShortReason}），请严格依据最新场面定格与已有中长期基调，重新推演符合当前因果与处境的今期（2-5轮）新分支。` + goalGuidanceSuffix(outcome.compass)
+          guidance: `原定近期路线「${outcome.lapsedPinnedShortTitle}」因玩家行动或局势变化已不再成立（${outcome.lapsedPinnedShortReason}），请严格依据最新场面定格与已有中长期基调，重新推演符合当前因果与处境的今期（2-5轮）新分支。` + trackGuidance + goalGuidanceSuffix(outcome.compass)
         }).catch(() => {})
       }
       return outcome
@@ -802,6 +926,473 @@ export function createPlotCompassService({
     } finally {
       progressJobs.delete(id)
     }
+  }
+
+  async function listScriptSources() {
+    if (!scriptLibrary?.available || typeof scriptLibrary.listSources !== 'function') {
+      return { available: false, sources: [] }
+    }
+    const sources = await scriptLibrary.listSources()
+    return { available: true, sources: Array.isArray(sources) ? sources : [] }
+  }
+
+  async function setNovelRef({ gameId, enabled, blueprintId, mode, weight, cursorUnit, resetProgress } = {}) {
+    const id = str(gameId)
+    if (!id) throw new Error('请先打开游玩会话')
+    const record = await store.readGame(id)
+    if (!isPlotCompassEnabled(record)) throw new Error('剧情罗盘已关闭，请先开启')
+
+    let targetBlueprint = null
+    if (blueprintId !== undefined) {
+      const cleanId = str(blueprintId).trim()
+      if (cleanId) {
+        if (!blueprintStore) throw new Error('当前环境不支持全局小说骨架库')
+        targetBlueprint = await blueprintStore.get(cleanId)
+        if (!targetBlueprint) throw new Error('全局骨架库中已找不到该参考小说，请刷新列表')
+      }
+    } else {
+      const currentBpId = readPlotCompass(record.compass).novelRef?.blueprintId
+      if (currentBpId && blueprintStore) {
+        targetBlueprint = await blueprintStore.get(currentBpId)
+      }
+    }
+
+    const totalUnits = targetBlueprint?.units?.length || 0
+    const saved = await store.updateGame(id, current => {
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
+      current.compass = applyPlotCompassNovelRef(
+        current.compass,
+        { enabled, blueprintId, mode, weight, cursorUnit, resetProgress },
+        { totalUnits, now: now() }
+      )
+      return current
+    })
+    onStatus(id)
+    return readPlotCompass(saved?.compass)
+  }
+
+  async function runBlueprintExtraction({
+    gameId,
+    model,
+    targetId,
+    title,
+    sourceKind,
+    sourcePath,
+    sourceHash,
+    totalChunks,
+    sourceChars,
+    pasteChunks,
+    batchChunks,
+    sampledChunks,
+    existingBlueprint,
+    startChunk,
+    bindToGame,
+    controller
+  }) {
+    let submitted = null
+    let submissionError = null
+    try {
+      const firstOrder = Number(batchChunks[0]?.order ?? startChunk) || 0
+      const lastOrder = Number(batchChunks[batchChunks.length - 1]?.order ?? firstOrder) || firstOrder
+      const startIndex = existingBlueprint?.units?.length || 0
+      const prompt = buildNovelAnalyzePrompt({
+        title,
+        chunks: batchChunks,
+        totalChunks,
+        startChunk: firstOrder,
+        existingBlueprint,
+        sampledChunks
+      })
+
+      controller.signal.throwIfAborted()
+      await runAgent({
+        gameId: str(gameId),
+        selection: model,
+        temperature: 0.35,
+        signal: controller.signal,
+        system: NOVEL_BLUEPRINT_ANALYZE_SYSTEM,
+        prompt,
+        tools: [NOVEL_BLUEPRINT_SUBMIT_TOOL],
+        maxToolCalls: 4,
+        stopToolsWhen: () => submitted !== null,
+        acceptWithoutText: () => submitted !== null,
+        onToolCall: async call => {
+          if (!call || call.name !== NOVEL_BLUEPRINT_SUBMIT_TOOL_NAME) {
+            return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 ' + NOVEL_BLUEPRINT_SUBMIT_TOOL_NAME })
+          }
+          try {
+            submitted = parseNovelBlueprintSubmission(call.arguments, {
+              startIndex,
+              minChunkOrder: firstOrder,
+              maxChunkOrder: lastOrder
+            })
+            submissionError = null
+            return JSON.stringify({
+              ok: true,
+              units: submitted.units.length,
+              startIndex
+            })
+          } catch (err) {
+            submitted = null
+            submissionError = err
+            return JSON.stringify({ ok: false, retryable: true, error: str(err?.message || err) })
+          }
+        }
+      })
+
+      controller.signal.throwIfAborted()
+      if (!submitted) {
+        throw submissionError || new Error('模型未调用 novel_blueprint_submit 提交有效叙事骨架')
+      }
+
+      const nextIndexedChunks = Math.min(totalChunks, firstOrder + batchChunks.length)
+      const merged = mergeNovelBlueprintBatch(existingBlueprint, submitted, {
+        id: targetId,
+        title,
+        sourceKind,
+        sourcePath,
+        sourceHash,
+        totalChunks,
+        nextIndexedChunks,
+        sourceChars,
+        pasteChunks,
+        now: now()
+      })
+      const savedBp = await blueprintStore.upsert(merged)
+
+      if (bindToGame) {
+        const rec = await store.readGame(gameId).catch(() => null)
+        if (isPlotCompassEnabled(rec)) {
+          await setNovelRef({ gameId, blueprintId: savedBp.id, enabled: true }).catch(() => {})
+        }
+      }
+
+      if (blueprintJob?.controller === controller) blueprintJob = null
+      setBlueprintTask({
+        status: 'done',
+        blueprintId: savedBp.id,
+        title: savedBp.title,
+        progressText: `已拆解 ${savedBp.indexedChunks}/${savedBp.totalChunks} 块（共 ${savedBp.units.length} 个单元）`,
+        error: ''
+      })
+      return savedBp
+    } catch (error) {
+      if (blueprintJob?.controller === controller) blueprintJob = null
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        setBlueprintTask({ status: 'idle', progressText: '', error: '' })
+        return null
+      }
+      setBlueprintTask({
+        status: 'failed',
+        blueprintId: targetId,
+        title,
+        progressText: '',
+        error: str(error?.message || error) || '小说叙事骨架拆解失败'
+      })
+      return null
+    }
+  }
+
+  async function analyzeNovel({
+    gameId,
+    sourceKind = 'script',
+    sourcePath = '',
+    title = '',
+    text = '',
+    force = false,
+    wait = false,
+    bindToGame = false
+  } = {}) {
+    const id = str(gameId)
+    if (!id) throw new Error('请先打开游玩会话')
+    if (!blueprintStore) throw new Error('当前环境未配置全局小说骨架存储')
+    if (blueprintJob) throw new Error('正在拆解小说骨架中，请稍候或先取消当前拆书任务')
+    const record = await store.readGame(id)
+    const model = await resolveModel(id, record)
+    if (!model) throw new Error('请先配置可用的剧情罗盘模型（或前台/后台模型）')
+
+    let cleanPath = ''
+    let finalTitle = ''
+    let sourceHash = ''
+    let totalChunks = 1
+    let sourceChars = 0
+    let pasteChunks
+    let batchChunks = []
+    let sampledChunks = []
+
+    if (sourceKind === 'script') {
+      if (!scriptLibrary?.available) throw new Error('当前宿主版本暂不支持从剧本库顺序读取')
+      cleanPath = str(sourcePath).trim()
+      if (!cleanPath) throw new Error('请先选择剧本库中的小说')
+      const info = await scriptLibrary.getInfo(cleanPath)
+      if (!info) throw new Error('剧本库中已找不到该小说，请刷新列表')
+      sourceHash = str(info.contentHash)
+      totalChunks = Math.max(1, Number(info.chunkCount) || 1)
+      sourceChars = Math.max(0, Number(info.sourceChars) || 0)
+      finalTitle = str(title).trim() || str(info.title) || cleanPath.split('/').pop() || '参考小说'
+
+      const existingList = await blueprintStore.list()
+      const duplicate = existingList.find(item =>
+        item.sourceKind === 'script' && item.sourcePath === cleanPath && item.sourceHash === sourceHash
+      )
+      if (duplicate && !force) {
+        if (bindToGame && isPlotCompassEnabled(record)) {
+          await setNovelRef({ gameId: id, blueprintId: duplicate.id, enabled: true })
+        }
+        return {
+          status: 'done',
+          reused: true,
+          blueprint: projectBlueprintForClient(duplicate),
+          novelBlueprintTask: projectBlueprintTask()
+        }
+      }
+
+      const rangeRes = await scriptLibrary.readRange({ path: cleanPath, start: 0, count: DEFAULT_ANALYZE_BATCH_CHUNKS })
+      batchChunks = Array.isArray(rangeRes?.chunks) ? rangeRes.chunks : []
+      if (batchChunks.length === 0) throw new Error('剧本文件为空，无法拆解')
+
+      if (totalChunks > 24 && typeof scriptLibrary.search === 'function') {
+        const sampled = await scriptLibrary.search({ path: cleanPath, query: '', limit: 6 }).catch(() => null)
+        const firstIds = new Set(batchChunks.map(c => c.id))
+        sampledChunks = (Array.isArray(sampled?.chunks) ? sampled.chunks : []).filter(c => c && !firstIds.has(c.id))
+      }
+
+      const targetId = duplicate && force ? duplicate.id : `bp-${now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      const controller = new AbortController()
+      const entry = { controller, promise: null }
+      blueprintJob = entry
+      setBlueprintTask({
+        status: 'running',
+        blueprintId: targetId,
+        title: finalTitle,
+        progressText: `正在拆解「${finalTitle}」前 ${batchChunks.length}/${totalChunks} 块…`,
+        error: ''
+      })
+
+      entry.promise = runBlueprintExtraction({
+        gameId: id,
+        model,
+        targetId,
+        title: finalTitle,
+        sourceKind: 'script',
+        sourcePath: cleanPath,
+        sourceHash,
+        totalChunks,
+        sourceChars,
+        batchChunks,
+        sampledChunks,
+        existingBlueprint: null,
+        startChunk: 0,
+        bindToGame,
+        controller
+      }).catch(onError).finally(() => {
+        if (blueprintJob === entry) blueprintJob = null
+      })
+
+      if (wait === true) {
+        await entry.promise
+        const saved = await blueprintStore.get(targetId)
+        return {
+          status: blueprintTaskState.status,
+          blueprint: saved ? projectBlueprintForClient(saved) : null,
+          novelBlueprintTask: projectBlueprintTask()
+        }
+      }
+      return { status: 'running', blueprintId: targetId, novelBlueprintTask: projectBlueprintTask() }
+    }
+
+    if (sourceKind === 'paste') {
+      const cleaned = str(text).replace(/\r\n?/g, '\n').trim()
+      if (cleaned.length < MIN_PASTE_TEXT_CHARS) {
+        throw new Error(`粘贴的小说片段至少需要 ${MIN_PASTE_TEXT_CHARS} 字`)
+      }
+      if (cleaned.length > MAX_PASTE_TEXT_CHARS) {
+        throw new Error(`单次粘贴片段最多 ${MAX_PASTE_TEXT_CHARS} 字，更长小说请导入剧本库后拆书`)
+      }
+      pasteChunks = splitPasteTextToChunks(cleaned)
+      if (pasteChunks.length === 0) throw new Error('未能切分出有效文本片段')
+      sourceHash = computeTextHash(cleaned)
+      totalChunks = pasteChunks.length
+      sourceChars = cleaned.length
+      finalTitle = str(title).trim() || '粘贴小说片段'
+
+      const existingList = await blueprintStore.list()
+      const duplicate = existingList.find(item => item.sourceKind === 'paste' && item.sourceHash === sourceHash)
+      if (duplicate && !force) {
+        if (bindToGame && isPlotCompassEnabled(record)) {
+          await setNovelRef({ gameId: id, blueprintId: duplicate.id, enabled: true })
+        }
+        return {
+          status: 'done',
+          reused: true,
+          blueprint: projectBlueprintForClient(duplicate),
+          novelBlueprintTask: projectBlueprintTask()
+        }
+      }
+
+      batchChunks = pasteChunks.slice(0, DEFAULT_ANALYZE_BATCH_CHUNKS)
+      const targetId = duplicate && force ? duplicate.id : `bp-${now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      const controller = new AbortController()
+      const entry = { controller, promise: null }
+      blueprintJob = entry
+      setBlueprintTask({
+        status: 'running',
+        blueprintId: targetId,
+        title: finalTitle,
+        progressText: `正在拆解「${finalTitle}」前 ${batchChunks.length}/${totalChunks} 块…`,
+        error: ''
+      })
+
+      entry.promise = runBlueprintExtraction({
+        gameId: id,
+        model,
+        targetId,
+        title: finalTitle,
+        sourceKind: 'paste',
+        sourcePath: '',
+        sourceHash,
+        totalChunks,
+        sourceChars,
+        pasteChunks,
+        batchChunks,
+        sampledChunks: [],
+        existingBlueprint: null,
+        startChunk: 0,
+        bindToGame,
+        controller
+      }).catch(onError).finally(() => {
+        if (blueprintJob === entry) blueprintJob = null
+      })
+
+      if (wait === true) {
+        await entry.promise
+        const saved = await blueprintStore.get(targetId)
+        return {
+          status: blueprintTaskState.status,
+          blueprint: saved ? projectBlueprintForClient(saved) : null,
+          novelBlueprintTask: projectBlueprintTask()
+        }
+      }
+      return { status: 'running', blueprintId: targetId, novelBlueprintTask: projectBlueprintTask() }
+    }
+
+    throw new Error('无效的小说来源类型：' + str(sourceKind))
+  }
+
+  async function continueNovel({ gameId, blueprintId, batchChunks: requestedCount = DEFAULT_ANALYZE_BATCH_CHUNKS, wait = false } = {}) {
+    const id = str(gameId)
+    if (!id) throw new Error('请先打开游玩会话')
+    if (!blueprintStore) throw new Error('当前环境未配置全局小说骨架存储')
+    const bpId = str(blueprintId).trim()
+    if (!bpId) throw new Error('缺少参考小说骨架 ID')
+    const existing = await blueprintStore.get(bpId)
+    if (!existing) throw new Error('未找到指定的参考小说骨架')
+    if (existing.indexedChunks >= existing.totalChunks) {
+      return {
+        status: 'done',
+        alreadyComplete: true,
+        blueprint: projectBlueprintForClient(existing),
+        novelBlueprintTask: projectBlueprintTask()
+      }
+    }
+    if (blueprintJob) throw new Error('正在拆解小说骨架中，请稍候或先取消当前拆书任务')
+    const record = await store.readGame(id)
+    const model = await resolveModel(id, record)
+    if (!model) throw new Error('请先配置可用的剧情罗盘模型（或前台/后台模型）')
+
+    const count = Math.max(1, Math.min(20, Math.trunc(Number(requestedCount) || DEFAULT_ANALYZE_BATCH_CHUNKS)))
+    const start = Math.max(0, existing.indexedChunks)
+    let nextBatch = []
+    let actualTotal = existing.totalChunks
+    let actualChars = existing.sourceChars
+
+    if (existing.sourceKind === 'script') {
+      if (!scriptLibrary?.available) throw new Error('当前宿主版本暂不支持从剧本库顺序读取')
+      const rangeRes = await scriptLibrary.readRange({ path: existing.sourcePath, start, count })
+      if (!rangeRes) throw new Error('参考小说源文件已从剧本库移除')
+      nextBatch = Array.isArray(rangeRes.chunks) ? rangeRes.chunks : []
+      actualTotal = Math.max(1, Number(rangeRes.totalChunks) || actualTotal)
+      actualChars = Math.max(0, Number(rangeRes.sourceChars) || actualChars)
+    } else {
+      const list = Array.isArray(existing.pasteChunks) ? existing.pasteChunks : []
+      nextBatch = list.slice(start, start + count)
+      actualTotal = Math.max(1, list.length || actualTotal)
+    }
+
+    if (nextBatch.length === 0) {
+      const finished = await blueprintStore.upsert({ ...existing, indexedChunks: actualTotal, totalChunks: actualTotal, updatedAt: now() })
+      onGlobalChange()
+      return {
+        status: 'done',
+        alreadyComplete: true,
+        blueprint: projectBlueprintForClient(finished),
+        novelBlueprintTask: projectBlueprintTask()
+      }
+    }
+
+    const controller = new AbortController()
+    const entry = { controller, promise: null }
+    blueprintJob = entry
+    setBlueprintTask({
+      status: 'running',
+      blueprintId: existing.id,
+      title: existing.title,
+      progressText: `正在续拆「${existing.title}」第 ${start + 1}–${Math.min(actualTotal, start + nextBatch.length)}/${actualTotal} 块…`,
+      error: ''
+    })
+
+    entry.promise = runBlueprintExtraction({
+      gameId: id,
+      model,
+      targetId: existing.id,
+      title: existing.title,
+      sourceKind: existing.sourceKind,
+      sourcePath: existing.sourcePath,
+      sourceHash: existing.sourceHash,
+      totalChunks: actualTotal,
+      sourceChars: actualChars,
+      pasteChunks: existing.pasteChunks,
+      batchChunks: nextBatch,
+      sampledChunks: [],
+      existingBlueprint: existing,
+      startChunk: start,
+      bindToGame: false,
+      controller
+    }).catch(onError).finally(() => {
+      if (blueprintJob === entry) blueprintJob = null
+    })
+
+    if (wait === true) {
+      await entry.promise
+      const saved = await blueprintStore.get(existing.id)
+      return {
+        status: blueprintTaskState.status,
+        blueprint: saved ? projectBlueprintForClient(saved) : null,
+        novelBlueprintTask: projectBlueprintTask()
+      }
+    }
+    return { status: 'running', blueprintId: existing.id, novelBlueprintTask: projectBlueprintTask() }
+  }
+
+  async function cancelNovel() {
+    if (blueprintJob) {
+      blueprintJob.controller.abort(new Error('玩家已取消小说拆书'))
+      blueprintJob = null
+    }
+    setBlueprintTask({ status: 'idle', progressText: '', error: '' })
+    return { status: 'idle', novelBlueprintTask: projectBlueprintTask() }
+  }
+
+  async function deleteNovel({ blueprintId } = {}) {
+    const bpId = str(blueprintId).trim()
+    if (!bpId) throw new Error('缺少参考小说骨架 ID')
+    if (!blueprintStore) throw new Error('当前环境未配置全局小说骨架存储')
+    if (blueprintJob && blueprintTaskState.blueprintId === bpId) {
+      await cancelNovel()
+    }
+    const removed = await blueprintStore.remove(bpId)
+    if (removed) onGlobalChange()
+    return { removed }
   }
 
   async function onTurnSettled({ gameId, turn } = {}) {
@@ -816,7 +1407,8 @@ export function createPlotCompassService({
     return await syncTurnProgress({ gameId: id, turn: latestTurn })
   }
 
-  function viewState(record, gameId, latestTurn = 0, modelSelection) {
+  function viewState(record, gameId, latestTurn = 0, modelSelection, globalExtras = {}) {
+    const rawList = Array.isArray(globalExtras?.novelBlueprints) ? globalExtras.novelBlueprints : []
     return {
       enabled: isPlotCompassEnabled(record),
       modelSelection: normalizePlotCompassModel(modelSelection)
@@ -825,7 +1417,10 @@ export function createPlotCompassService({
         || 'background',
       plotCompass: readPlotCompass(record?.compass),
       plotCompassTask: projectTask(record, gameId),
-      latestAssistantTurn: Math.max(0, Number(latestTurn) || 0)
+      latestAssistantTurn: Math.max(0, Number(latestTurn) || 0),
+      novelBlueprints: rawList.map(projectBlueprintForClient).filter(Boolean),
+      novelBlueprintTask: projectBlueprintTask(),
+      scriptLibraryAvailable: Boolean(scriptLibrary?.available)
     }
   }
 
@@ -843,12 +1438,19 @@ export function createPlotCompassService({
     setArchetypes,
     setGoal,
     setPreferences,
+    setNovelRef,
+    listScriptSources,
+    analyzeNovel,
+    continueNovel,
+    cancelNovel,
+    deleteNovel,
     isAutoUpdateDue,
     autoUpdateOnTurn,
     syncTurnProgress,
     onTurnSettled,
     autoEvolveAfterCompaction,
     wait: gameId => jobs.get(str(gameId))?.promise || null,
+    waitNovel: () => blueprintJob?.promise || null,
     clearMemory(gameId) {
       const id = str(gameId)
       const active = jobs.get(id)
